@@ -34,23 +34,25 @@ ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
 OBJECT_START_POS_W = (0.48, -0.22, 0.625)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
 MIN_LIFT_HEIGHT_W = 0.66
-PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.16)
-GRASP_OFFSET_W = (0.0, 0.0, 0.045)
+PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.08)
+GRASP_OFFSET_W = (0.0, 0.0, 0.025)
 RIGHT_HAND_MIN_CLEARANCE_W = 0.62
 RIGHT_HAND_BACKWARD_LIMIT_X_B = 0.02
 RIGHT_HAND_TARGET_FORWARD_X_B = 0.40
-RIGHT_HAND_TARGET_HEIGHT_B = 0.43
+RIGHT_HAND_TARGET_HEIGHT_B = 0.30
+GRIPPER_OPEN_POS = 0.044
+LEFT_ARM_JOINT_NAMES = ["openarm_left_joint.*"]
 RIGHT_ARM_JOINT_NAMES = ["openarm_right_joint.*"]
 RIGHT_GRIPPER_JOINT_NAMES = ["openarm_right_finger_joint.*"]
 RIGHT_POLICY_JOINT_NAMES = RIGHT_ARM_JOINT_NAMES + RIGHT_GRIPPER_JOINT_NAMES
 RIGHT_READY_JOINT_POS = {
-    "openarm_right_joint1": 0.8631603,
-    "openarm_right_joint2": -0.0461629,
-    "openarm_right_joint3": 0.2603544,
-    "openarm_right_joint4": 0.5449873,
-    "openarm_right_joint5": 0.8701911,
-    "openarm_right_joint6": -0.2907333,
-    "openarm_right_joint7": 0.3061340,
+    "openarm_right_joint1": 1.0011035,
+    "openarm_right_joint2": 0.0682503,
+    "openarm_right_joint3": -0.3520371,
+    "openarm_right_joint4": 0.1812089,
+    "openarm_right_joint5": 1.5707959,
+    "openarm_right_joint6": -0.2698382,
+    "openarm_right_joint7": 0.4174294,
 }
 
 
@@ -207,7 +209,7 @@ class RewardsCfg:
             "object_offset": PRE_GRASP_OFFSET_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=8.0,
+        weight=2.0,
     )
 
     right_hand_forward_alignment = RewTerm(
@@ -218,7 +220,7 @@ class RewardsCfg:
             "object_offset": -0.02,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=6.0,
+        weight=3.0,
     )
 
     right_hand_forward_progress = RewTerm(
@@ -226,10 +228,10 @@ class RewardsCfg:
         params={
             "axis": 0,
             "minimum_value": RIGHT_HAND_TARGET_FORWARD_X_B,
-            "std": 0.18,
+            "std": 0.20,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=10.0,
+        weight=4.0,
     )
 
     right_hand_lift_to_pre_grasp = RewTerm(
@@ -240,7 +242,7 @@ class RewardsCfg:
             "std": 0.12,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=8.0,
+        weight=2.0,
     )
 
     reaching_object = RewTerm(
@@ -250,10 +252,32 @@ class RewardsCfg:
             "object_offset": GRASP_OFFSET_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=2.0,
+        weight=4.0,
     )
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=12.0)
+    reaching_object_fine = RewTerm(
+        func=mdp.object_body_offset_distance,
+        params={
+            "std": 0.10,
+            "object_offset": GRASP_OFFSET_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=8.0,
+    )
+
+    gripper_closed_near_object = RewTerm(
+        func=mdp.gripper_closed_near_object,
+        params={
+            "std": 0.12,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=6.0,
+    )
+
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=35.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
@@ -297,6 +321,18 @@ class RewardsCfg:
                 joint_names=RIGHT_POLICY_JOINT_NAMES,
             )
         },
+    )
+
+    left_joint_pos_hold = RewTerm(
+        func=mdp.joint_position_deviation_l2,
+        weight=-2.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_ARM_JOINT_NAMES)},
+    )
+
+    left_joint_vel = RewTerm(
+        func=mdp.joint_vel_l2,
+        weight=-1e-3,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_ARM_JOINT_NAMES)},
     )
 
 

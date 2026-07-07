@@ -49,6 +49,31 @@ def object_body_offset_distance(
     return 1.0 - torch.tanh(distance / std)
 
 
+def gripper_closed_near_object(
+    env: ManagerBasedRLEnv,
+    std: float,
+    open_joint_pos: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward closing the gripper only when the right hand is close to the object."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_id = robot_body_cfg.body_ids[0]
+    body_pos_w = robot.data.body_pos_w[:, body_id, :]
+    offset = torch.tensor(object_offset, device=obj.data.root_pos_w.device, dtype=obj.data.root_pos_w.dtype)
+    target_pos_w = obj.data.root_pos_w + offset
+    distance = torch.norm(target_pos_w - body_pos_w, dim=1)
+    proximity = 1.0 - torch.tanh(distance / std)
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
+    return proximity * torch.mean(closed, dim=1)
+
+
 def body_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
@@ -151,3 +176,15 @@ def body_height_below_minimum(
     if body_pos_z.ndim > 1:
         body_pos_z = torch.min(body_pos_z, dim=1).values
     return torch.clamp(minimum_height - body_pos_z, min=0.0)
+
+
+def joint_position_deviation_l2(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_left_joint.*"]),
+) -> torch.Tensor:
+    """Return squared joint-position deviation from the reset/default pose."""
+
+    robot: Articulation = env.scene[asset_cfg.name]
+    joint_pos = robot.data.joint_pos[:, asset_cfg.joint_ids]
+    default_joint_pos = robot.data.default_joint_pos[:, asset_cfg.joint_ids]
+    return torch.sum(torch.square(joint_pos - default_joint_pos), dim=1)

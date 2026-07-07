@@ -111,6 +111,10 @@ PAP task의 학습 파이프라인은 정상 동작한다.
 
 추가로 21:30 학습 중간 점검에서 좌표계 버그를 확인했다. 기존 전진/후퇴 보상이 world 좌표를 기준으로 계산되어, `num_envs=1024` 복제 환경의 위치 때문에 실제 후퇴가 아닌데도 큰 후퇴 penalty가 들어갔다. 이를 로봇 root 기준 좌표 함수로 바꿨고, 20 iteration smoke test에서 `right_hand_backward_guard=0`, `right_hand_table_clearance=0`, 평균 reward 양수화를 확인했다.
 
+이후 21:50 학습 중간 점검에서는 pre-grasp reward 포화 문제를 확인했다. 손은 안전하게 물체 위에 머물렀지만 `lifting_object`가 계속 0이라서, `PRE_GRASP_OFFSET_W`와 `RIGHT_HAND_TARGET_HEIGHT_B`를 낮추고 pre-grasp/height reward weight를 줄였다. 반대로 실제 grasp point 접근과 lifting을 강화하기 위해 `reaching_object`와 `lifting_object` weight를 높였다.
+
+이후 300 iteration 검증에서 손 위치 보상은 상승했지만 `object_reached_goal`은 계속 0이었다. 이에 따라 손 프레임이 물체에 대략 접근하는 보상만으로는 부족하다고 판단했고, 더 좁은 grasp point 보상과 물체 근처에서 오른쪽 gripper를 닫는 보상을 추가했다. 또한 왼팔 비의도 움직임을 억제하기 위해 왼팔 joint position/velocity penalty를 추가했다.
+
 ## 7. 실행 명령
 
 Headless 학습:
