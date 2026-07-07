@@ -200,6 +200,47 @@ def object_goal_distance_with_grasp(
     return lifted.float() * grasp_gate * (1.0 - torch.tanh(distance / std))
 
 
+def object_to_goal_position_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Return the object-to-goal translation vector in the robot root frame."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    object_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, obj.data.root_pos_w)
+    return command[:, :3] - object_pos_b
+
+
+def object_goal_axis_distance_with_grasp(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    std: float,
+    minimal_height: float,
+    command_name: str,
+    grasp_std: float,
+    open_joint_pos: float,
+    object_offset: tuple[float, float, float],
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    grasp_body_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["openarm_right_left_finger", "openarm_right_right_finger"]
+    ),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward one coordinate of a grasped object independently from the full 3D goal distance."""
+
+    obj: RigidObject = env.scene[object_cfg.name]
+    delta_b = object_to_goal_position_in_robot_root_frame(env, command_name, robot_cfg, object_cfg)
+    axis_error = torch.abs(delta_b[:, axis])
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    grasp_gate = _closed_grasp_gate(env, grasp_std, open_joint_pos, object_offset, object_cfg, grasp_body_cfg, gripper_cfg)
+    return lifted.float() * grasp_gate * (1.0 - torch.tanh(axis_error / std))
+
+
 def object_goal_bonus(
     env: ManagerBasedRLEnv,
     threshold: float,
