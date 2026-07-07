@@ -102,11 +102,14 @@ PAP task의 학습 파이프라인은 정상 동작한다.
 - 오른손 위치를 observation에 추가했다.
 - 물체 중심으로 바로 들어가는 reward 대신, 물체 위 pre-grasp point와 근접 grasp point를 분리했다.
 - 오른손이 물체 x 좌표 쪽으로 전진하도록 `right_hand_forward_alignment` reward를 추가했다.
-- 오른손이 최소 `x=0.25 m` 이상 전방으로 나가도록 `right_hand_forward_progress` reward를 추가했다.
-- 오른손이 `z=0.70 m` 이상으로 올라가도록 `right_hand_lift_to_pre_grasp` reward를 추가했다.
-- 오른손이 x 음수 방향으로 뒤로 빠지는 동작은 `right_hand_backward_guard` penalty로 약하게 막았다.
+- 오른손이 로봇 기준 `x=0.40 m` 이상 전방으로 나가도록 `right_hand_forward_progress` reward를 수정했다.
+- 오른손이 로봇 기준 `z=0.43 m` 이상으로 올라가도록 `right_hand_lift_to_pre_grasp` reward를 수정했다.
+- 오른손이 로봇 기준 x 음수 방향으로 뒤로 빠지는 동작은 `right_hand_backward_guard` penalty로 약하게 막았다.
 - 오른손이 `z=0.62 m` 아래로 내려가는 낮은 경로를 `right_hand_table_clearance` penalty로 막았다.
-- 오른팔 action scale을 `0.25`에서 `1.0`으로 키워 기본 joint 자세 주변의 좁은 범위에 갇히지 않게 했다.
+- 오른팔 ready pose를 FK 탐색으로 찾은 물체 위 pre-grasp 근처 관절값으로 변경했다.
+- 오른팔 action scale을 `1.0`에서 `0.5`로 낮춰 ready pose 주변에서 과도한 충돌 동작을 줄였다.
+
+추가로 21:30 학습 중간 점검에서 좌표계 버그를 확인했다. 기존 전진/후퇴 보상이 world 좌표를 기준으로 계산되어, `num_envs=1024` 복제 환경의 위치 때문에 실제 후퇴가 아닌데도 큰 후퇴 penalty가 들어갔다. 이를 로봇 root 기준 좌표 함수로 바꿨고, 20 iteration smoke test에서 `right_hand_backward_guard=0`, `right_hand_table_clearance=0`, 평균 reward 양수화를 확인했다.
 
 ## 7. 실행 명령
 

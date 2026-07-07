@@ -98,6 +98,20 @@ def body_axis_above_minimum(
     return 1.0 - torch.tanh(violation / std)
 
 
+def body_axis_above_minimum_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    minimum_value: float,
+    std: float,
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Reward a body for staying above a robot-root-frame coordinate."""
+
+    body_pos_b = body_position_in_robot_root_frame(env, robot_body_cfg)
+    violation = torch.clamp(minimum_value - body_pos_b[:, axis], min=0.0)
+    return 1.0 - torch.tanh(violation / std)
+
+
 def body_axis_below_minimum(
     env: ManagerBasedRLEnv,
     axis: int,
@@ -111,6 +125,18 @@ def body_axis_below_minimum(
     if body_pos.ndim > 1:
         body_pos = torch.min(body_pos, dim=1).values
     return torch.clamp(minimum_value - body_pos, min=0.0)
+
+
+def body_axis_below_minimum_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    minimum_value: float,
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Return violation below a minimum robot-root-frame coordinate."""
+
+    body_pos_b = body_position_in_robot_root_frame(env, robot_body_cfg)
+    return torch.clamp(minimum_value - body_pos_b[:, axis], min=0.0)
 
 
 def body_height_below_minimum(
