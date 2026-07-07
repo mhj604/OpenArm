@@ -34,9 +34,11 @@ ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
 OBJECT_START_POS_W = (0.48, -0.22, 0.625)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
 MIN_LIFT_HEIGHT_W = 0.66
-PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.09)
-GRASP_OFFSET_W = (0.0, 0.0, 0.035)
-RIGHT_HAND_MIN_CLEARANCE_W = 0.60
+PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.16)
+GRASP_OFFSET_W = (0.0, 0.0, 0.045)
+RIGHT_HAND_MIN_CLEARANCE_W = 0.62
+RIGHT_HAND_MIN_FORWARD_X_W = 0.0
+RIGHT_HAND_TARGET_HEIGHT_W = 0.70
 RIGHT_ARM_JOINT_NAMES = ["openarm_right_joint.*"]
 RIGHT_GRIPPER_JOINT_NAMES = ["openarm_right_finger_joint.*"]
 RIGHT_POLICY_JOINT_NAMES = RIGHT_ARM_JOINT_NAMES + RIGHT_GRIPPER_JOINT_NAMES
@@ -152,6 +154,10 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
         object_position = ObsTerm(func=mdp.object_position_in_robot_root_frame)
+        right_hand_position = ObsTerm(
+            func=mdp.body_position_in_robot_root_frame,
+            params={"robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"])},
+        )
         target_object_position = ObsTerm(func=mdp.generated_commands, params={"command_name": "object_pose"})
         actions = ObsTerm(func=mdp.last_action)
 
@@ -187,21 +193,43 @@ class RewardsCfg:
     reaching_pre_grasp = RewTerm(
         func=mdp.object_body_offset_distance,
         params={
-            "std": 0.16,
+            "std": 0.50,
             "object_offset": PRE_GRASP_OFFSET_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=3.0,
+        weight=8.0,
+    )
+
+    right_hand_forward_alignment = RewTerm(
+        func=mdp.object_body_axis_distance,
+        params={
+            "axis": 0,
+            "std": 0.35,
+            "object_offset": -0.02,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=5.0,
+    )
+
+    right_hand_lift_to_pre_grasp = RewTerm(
+        func=mdp.body_axis_above_minimum,
+        params={
+            "axis": 2,
+            "minimum_value": RIGHT_HAND_TARGET_HEIGHT_W,
+            "std": 0.20,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=4.0,
     )
 
     reaching_object = RewTerm(
         func=mdp.object_body_offset_distance,
         params={
-            "std": 0.10,
+            "std": 0.35,
             "object_offset": GRASP_OFFSET_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=1.0,
+        weight=2.0,
     )
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=12.0)
@@ -226,7 +254,17 @@ class RewardsCfg:
             "minimum_height": RIGHT_HAND_MIN_CLEARANCE_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=-4.0,
+        weight=-3.0,
+    )
+
+    right_hand_backward_guard = RewTerm(
+        func=mdp.body_axis_below_minimum,
+        params={
+            "axis": 0,
+            "minimum_value": RIGHT_HAND_MIN_FORWARD_X_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=-8.0,
     )
 
     joint_vel = RewTerm(
@@ -289,7 +327,7 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=RIGHT_ARM_JOINT_NAMES,
-            scale=0.25,
+            scale=1.0,
             use_default_offset=True,
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(

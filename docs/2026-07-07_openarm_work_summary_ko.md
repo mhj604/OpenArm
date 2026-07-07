@@ -99,9 +99,13 @@ PAP task의 학습 파이프라인은 정상 동작한다.
 - 왼팔 joint를 action/observation/reward penalty 대상에서 제거했다.
 - `arm_action`은 오른팔 7개 joint만 제어한다.
 - `gripper_action`은 오른손 gripper 1개 binary action만 사용한다.
+- 오른손 위치를 observation에 추가했다.
 - 물체 중심으로 바로 들어가는 reward 대신, 물체 위 pre-grasp point와 근접 grasp point를 분리했다.
-- 오른손이 `z=0.60 m` 아래로 내려가는 낮은 경로를 penalty로 막았다.
-- 오른팔 action scale을 `0.5`에서 `0.25`로 줄여 테이블을 강하게 밀고 들어가는 움직임을 완화했다.
+- 오른손이 물체 x 좌표 쪽으로 전진하도록 `right_hand_forward_alignment` reward를 추가했다.
+- 오른손이 `z=0.70 m` 이상으로 올라가도록 `right_hand_lift_to_pre_grasp` reward를 추가했다.
+- 오른손이 x 음수 방향으로 뒤로 빠지는 동작을 `right_hand_backward_guard` penalty로 막았다.
+- 오른손이 `z=0.62 m` 아래로 내려가는 낮은 경로를 `right_hand_table_clearance` penalty로 막았다.
+- 오른팔 action scale을 `0.25`에서 `1.0`으로 키워 기본 joint 자세 주변의 좁은 범위에 갇히지 않게 했다.
 
 ## 7. 실행 명령
 

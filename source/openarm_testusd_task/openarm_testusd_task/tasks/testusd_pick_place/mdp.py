@@ -6,6 +6,7 @@ import torch
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.utils.math import subtract_frame_transforms
 
 from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, F403
 
@@ -46,6 +47,70 @@ def object_body_offset_distance(
     target_pos_w = obj.data.root_pos_w + offset
     distance = torch.norm(target_pos_w - body_pos_w, dim=1)
     return 1.0 - torch.tanh(distance / std)
+
+
+def body_position_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Return a robot body position expressed in the robot root frame."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    body_id = robot_body_cfg.body_ids[0]
+    body_pos_w = robot.data.body_pos_w[:, body_id, :]
+    body_quat_w = robot.data.body_quat_w[:, body_id, :]
+    body_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, body_pos_w, body_quat_w)
+    return body_pos_b
+
+
+def object_body_axis_distance(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    std: float,
+    object_offset: float = 0.0,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Reward matching one world-axis coordinate between an object offset point and a robot body."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_id = robot_body_cfg.body_ids[0]
+    target = obj.data.root_pos_w[:, axis] + object_offset
+    error = torch.abs(target - robot.data.body_pos_w[:, body_id, axis])
+    return 1.0 - torch.tanh(error / std)
+
+
+def body_axis_above_minimum(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    minimum_value: float,
+    std: float,
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Reward a body for staying above a minimum coordinate on a world axis."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    body_pos = robot.data.body_pos_w[:, robot_body_cfg.body_ids, axis]
+    if body_pos.ndim > 1:
+        body_pos = torch.min(body_pos, dim=1).values
+    violation = torch.clamp(minimum_value - body_pos, min=0.0)
+    return 1.0 - torch.tanh(violation / std)
+
+
+def body_axis_below_minimum(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    minimum_value: float,
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Return the body coordinate violation below a minimum world-axis value."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    body_pos = robot.data.body_pos_w[:, robot_body_cfg.body_ids, axis]
+    if body_pos.ndim > 1:
+        body_pos = torch.min(body_pos, dim=1).values
+    return torch.clamp(minimum_value - body_pos, min=0.0)
 
 
 def body_height_below_minimum(
