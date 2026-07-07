@@ -32,6 +32,8 @@ Set `OPENARM_TEST_USD_PATH` to use a different local USD file.
 - A right-hand table-clearance penalty discourages low paths that collide with the work table.
 - Older pick-and-place checkpoints trained with the previous 15-action policy are not compatible with this task version.
 
+Daily policy/code changes are tracked in Korean under `docs/daily_changes/`.
+
 ## Run
 
 ```bash
