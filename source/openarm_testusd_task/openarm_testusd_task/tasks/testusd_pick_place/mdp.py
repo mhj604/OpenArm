@@ -171,6 +171,95 @@ def object_goal_bonus(
     return lifted.float() * basin_reward
 
 
+def object_goal_xy_distance(
+    env: ManagerBasedRLEnv,
+    std: float,
+    minimal_height: float,
+    command_name: str,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Reward horizontal object-goal alignment after the object is lifted."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    return lifted.float() * (1.0 - torch.tanh(distance_xy / std))
+
+
+def object_goal_height_tracking(
+    env: ManagerBasedRLEnv,
+    std: float,
+    xy_threshold: float,
+    minimal_height: float,
+    command_name: str,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Reward matching goal height once the lifted object is horizontally near the goal."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    near_xy = torch.clamp((xy_threshold - distance_xy) / xy_threshold, min=0.0, max=1.0)
+    height_error = torch.abs(goal_pos_w[:, 2] - obj.data.root_pos_w[:, 2])
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    return lifted.float() * near_xy * (1.0 - torch.tanh(height_error / std))
+
+
+def gripper_open_near_goal(
+    env: ManagerBasedRLEnv,
+    threshold: float,
+    open_joint_pos: float,
+    minimal_height: float,
+    command_name: str,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward opening the gripper only after the lifted object reaches the goal basin."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance = torch.norm(goal_pos_w - obj.data.root_pos_w, dim=1)
+    near_goal = torch.clamp((threshold - distance) / threshold, min=0.0, max=1.0)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    open_amount = torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0)
+    return lifted.float() * near_goal * torch.mean(open_amount, dim=1)
+
+
+def gripper_closed_near_goal(
+    env: ManagerBasedRLEnv,
+    threshold: float,
+    open_joint_pos: float,
+    minimal_height: float,
+    command_name: str,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Penalty helper for staying closed once the lifted object is in the goal basin."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance = torch.norm(goal_pos_w - obj.data.root_pos_w, dim=1)
+    near_goal = torch.clamp((threshold - distance) / threshold, min=0.0, max=1.0)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
+    return lifted.float() * near_goal * torch.mean(closed, dim=1)
+
+
 def body_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),

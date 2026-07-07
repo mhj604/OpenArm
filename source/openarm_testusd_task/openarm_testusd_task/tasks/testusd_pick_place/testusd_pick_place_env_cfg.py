@@ -30,13 +30,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 ORIGINAL_USD_PATH = os.environ.get("OPENARM_TEST_USD_PATH", str(PROJECT_ROOT / "assets" / "openarm_test.usd"))
 ROBOT_ROOT_POS = (0.0, 0.0, 0.35)
 ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
+EPISODE_LENGTH_S = 12.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
 OBJECT_START_POS_W = (0.40, -0.10, 0.625)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
 MIN_LIFT_HEIGHT_W = 0.66
 EARLY_LIFT_HEIGHT_W = 0.64
-GOAL_BONUS_THRESHOLD = 0.30
+GOAL_BONUS_COARSE_THRESHOLD = 0.30
+GOAL_BONUS_MID_THRESHOLD = 0.20
+GOAL_BONUS_TIGHT_THRESHOLD = 0.12
+GOAL_RELEASE_THRESHOLD = 0.16
+GOAL_HEIGHT_XY_THRESHOLD = 0.25
 PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.03)
 GRASP_OFFSET_W = (0.0, 0.0, 0.0)
 RIGHT_HAND_MIN_CLEARANCE_W = 0.56
@@ -120,7 +125,7 @@ class CommandsCfg:
     object_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
         body_name=MISSING,
-        resampling_time_range=(5.0, 5.0),
+        resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(BASKET_GOAL_POS_B[0] - 0.03, BASKET_GOAL_POS_B[0] + 0.03),
@@ -309,7 +314,24 @@ class RewardsCfg:
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
         params={"std": 0.30, "minimal_height": MIN_LIFT_HEIGHT_W, "command_name": "object_pose"},
-        weight=28.0,
+        weight=20.0,
+    )
+
+    object_goal_xy_tracking = RewTerm(
+        func=mdp.object_goal_xy_distance,
+        params={"std": 0.18, "minimal_height": MIN_LIFT_HEIGHT_W, "command_name": "object_pose"},
+        weight=18.0,
+    )
+
+    object_goal_height_tracking = RewTerm(
+        func=mdp.object_goal_height_tracking,
+        params={
+            "std": 0.08,
+            "xy_threshold": GOAL_HEIGHT_XY_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+        },
+        weight=14.0,
     )
 
     object_goal_tracking_fine_grained = RewTerm(
@@ -318,14 +340,58 @@ class RewardsCfg:
         weight=10.0,
     )
 
-    object_goal_bonus = RewTerm(
+    object_goal_bonus_coarse = RewTerm(
         func=mdp.object_goal_bonus,
         params={
-            "threshold": GOAL_BONUS_THRESHOLD,
+            "threshold": GOAL_BONUS_COARSE_THRESHOLD,
             "minimal_height": MIN_LIFT_HEIGHT_W,
             "command_name": "object_pose",
         },
-        weight=20.0,
+        weight=12.0,
+    )
+
+    object_goal_bonus_mid = RewTerm(
+        func=mdp.object_goal_bonus,
+        params={
+            "threshold": GOAL_BONUS_MID_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+        },
+        weight=18.0,
+    )
+
+    object_goal_bonus_tight = RewTerm(
+        func=mdp.object_goal_bonus,
+        params={
+            "threshold": GOAL_BONUS_TIGHT_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+        },
+        weight=24.0,
+    )
+
+    gripper_open_near_goal = RewTerm(
+        func=mdp.gripper_open_near_goal,
+        params={
+            "threshold": GOAL_RELEASE_THRESHOLD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=12.0,
+    )
+
+    gripper_closed_near_goal = RewTerm(
+        func=mdp.gripper_closed_near_goal,
+        params={
+            "threshold": GOAL_RELEASE_THRESHOLD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=-8.0,
     )
 
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
@@ -434,7 +500,7 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.commands.object_pose.body_name = RIGHT_HAND_BODY_NAME
 
         self.decimation = 2
-        self.episode_length_s = 10.0
+        self.episode_length_s = EPISODE_LENGTH_S
         self.sim.dt = 1.0 / 60.0
         self.sim.render_interval = self.decimation
         self.sim.physx.bounce_threshold_velocity = 0.01
