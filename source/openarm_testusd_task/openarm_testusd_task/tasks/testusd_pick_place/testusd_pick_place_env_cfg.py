@@ -123,12 +123,16 @@ class OpenArmTestUsdPickPlaceSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class CommandsCfg:
-    object_pose = mdp.UniformPoseCommandCfg(
+    object_pose = mdp.StagedObjectPoseCommandCfg(
         asset_name="robot",
         body_name=MISSING,
+        object_name="object",
         resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
+        start_offset_from_object=(0.04, 0.05, 0.08),
+        curriculum_num_steps=72_000,
+        curriculum_power=1.5,
         debug_vis=True,
-        ranges=mdp.UniformPoseCommandCfg.Ranges(
+        ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
             pos_x=(BASKET_GOAL_POS_B[0] - 0.03, BASKET_GOAL_POS_B[0] + 0.03),
             pos_y=(BASKET_GOAL_POS_B[1] - 0.03, BASKET_GOAL_POS_B[1] + 0.03),
             pos_z=(BASKET_GOAL_POS_B[2] - 0.02, BASKET_GOAL_POS_B[2] + 0.02),

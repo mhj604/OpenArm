@@ -5,13 +5,62 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.assets import Articulation, RigidObject
+from isaaclab.envs.mdp.commands import UniformPoseCommand, UniformPoseCommandCfg
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.utils import configclass
 from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
 from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, F403
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+
+
+class StagedObjectPoseCommand(UniformPoseCommand):
+    """Pose command that moves the object goal from an easy near-object target to the final target."""
+
+    cfg: "StagedObjectPoseCommandCfg"
+
+    def __init__(self, cfg: "StagedObjectPoseCommandCfg", env):
+        super().__init__(cfg, env)
+        self.metrics["goal_curriculum_progress"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["object_position_error"] = torch.zeros(self.num_envs, device=self.device)
+
+    def _update_metrics(self):
+        super()._update_metrics()
+        obj: RigidObject = self._env.scene[self.cfg.object_name]
+        self.metrics["object_position_error"] = torch.norm(self.pose_command_w[:, :3] - obj.data.root_pos_w, dim=1)
+
+    def _resample_command(self, env_ids):
+        super()._resample_command(env_ids)
+
+        obj: RigidObject = self._env.scene[self.cfg.object_name]
+        object_pos_b, _ = subtract_frame_transforms(
+            self.robot.data.root_pos_w[env_ids],
+            self.robot.data.root_quat_w[env_ids],
+            obj.data.root_pos_w[env_ids],
+        )
+        final_pos_b = self.pose_command_b[env_ids, :3].clone()
+
+        progress = min(max(self._env.common_step_counter / self.cfg.curriculum_num_steps, 0.0), 1.0)
+        progress = progress**self.cfg.curriculum_power
+        start_offset = torch.tensor(
+            self.cfg.start_offset_from_object, device=self.device, dtype=self.pose_command_b.dtype
+        )
+        easy_pos_b = object_pos_b + start_offset
+        self.pose_command_b[env_ids, :3] = easy_pos_b + progress * (final_pos_b - easy_pos_b)
+        self.metrics["goal_curriculum_progress"][env_ids] = progress
+
+
+@configclass
+class StagedObjectPoseCommandCfg(UniformPoseCommandCfg):
+    """Configuration for staged object transport commands."""
+
+    class_type: type = StagedObjectPoseCommand
+    object_name: str = "object"
+    start_offset_from_object: tuple[float, float, float] = (0.04, 0.05, 0.08)
+    curriculum_num_steps: int = 72_000
+    curriculum_power: float = 1.5
 
 
 def object_body_distance(
