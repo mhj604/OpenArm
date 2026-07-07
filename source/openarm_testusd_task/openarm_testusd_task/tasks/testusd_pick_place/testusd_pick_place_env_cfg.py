@@ -37,7 +37,8 @@ MIN_LIFT_HEIGHT_W = 0.66
 PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.16)
 GRASP_OFFSET_W = (0.0, 0.0, 0.045)
 RIGHT_HAND_MIN_CLEARANCE_W = 0.62
-RIGHT_HAND_MIN_FORWARD_X_W = 0.0
+RIGHT_HAND_BACKWARD_LIMIT_X_W = 0.0
+RIGHT_HAND_TARGET_FORWARD_X_W = 0.25
 RIGHT_HAND_TARGET_HEIGHT_W = 0.70
 RIGHT_ARM_JOINT_NAMES = ["openarm_right_joint.*"]
 RIGHT_GRIPPER_JOINT_NAMES = ["openarm_right_finger_joint.*"]
@@ -208,7 +209,18 @@ class RewardsCfg:
             "object_offset": -0.02,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=5.0,
+        weight=6.0,
+    )
+
+    right_hand_forward_progress = RewTerm(
+        func=mdp.body_axis_above_minimum,
+        params={
+            "axis": 0,
+            "minimum_value": RIGHT_HAND_TARGET_FORWARD_X_W,
+            "std": 0.30,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=8.0,
     )
 
     right_hand_lift_to_pre_grasp = RewTerm(
@@ -219,7 +231,7 @@ class RewardsCfg:
             "std": 0.20,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=4.0,
+        weight=6.0,
     )
 
     reaching_object = RewTerm(
@@ -254,17 +266,17 @@ class RewardsCfg:
             "minimum_height": RIGHT_HAND_MIN_CLEARANCE_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=-3.0,
+        weight=-2.0,
     )
 
     right_hand_backward_guard = RewTerm(
         func=mdp.body_axis_below_minimum,
         params={
             "axis": 0,
-            "minimum_value": RIGHT_HAND_MIN_FORWARD_X_W,
+            "minimum_value": RIGHT_HAND_BACKWARD_LIMIT_X_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=-8.0,
+        weight=-2.0,
     )
 
     joint_vel = RewTerm(
