@@ -6,7 +6,7 @@ import torch
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import subtract_frame_transforms
+from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
 from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, F403
 
@@ -149,6 +149,25 @@ def object_bodies_average_distance(
     target_pos_w = obj.data.root_pos_w[:, None, :] + offset
     distance = torch.norm(target_pos_w - body_pos_w, dim=-1)
     return torch.mean(1.0 - torch.tanh(distance / std), dim=1)
+
+
+def object_goal_bonus(
+    env: ManagerBasedRLEnv,
+    threshold: float,
+    minimal_height: float,
+    command_name: str,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Reward the object for entering a loose goal basin while it is lifted."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance = torch.norm(goal_pos_w - obj.data.root_pos_w, dim=1)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    return torch.logical_and(lifted, distance < threshold).float()
 
 
 def body_position_in_robot_root_frame(

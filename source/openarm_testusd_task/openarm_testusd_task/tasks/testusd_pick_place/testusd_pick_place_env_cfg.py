@@ -36,6 +36,7 @@ OBJECT_START_POS_W = (0.40, -0.10, 0.625)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
 MIN_LIFT_HEIGHT_W = 0.66
 EARLY_LIFT_HEIGHT_W = 0.64
+GOAL_BONUS_THRESHOLD = 0.12
 PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.03)
 GRASP_OFFSET_W = (0.0, 0.0, 0.0)
 RIGHT_HAND_MIN_CLEARANCE_W = 0.56
@@ -307,14 +308,24 @@ class RewardsCfg:
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
-        params={"std": 0.25, "minimal_height": MIN_LIFT_HEIGHT_W, "command_name": "object_pose"},
-        weight=18.0,
+        params={"std": 0.30, "minimal_height": MIN_LIFT_HEIGHT_W, "command_name": "object_pose"},
+        weight=45.0,
     )
 
     object_goal_tracking_fine_grained = RewTerm(
         func=mdp.object_goal_distance,
-        params={"std": 0.06, "minimal_height": MIN_LIFT_HEIGHT_W, "command_name": "object_pose"},
-        weight=6.0,
+        params={"std": 0.08, "minimal_height": MIN_LIFT_HEIGHT_W, "command_name": "object_pose"},
+        weight=25.0,
+    )
+
+    object_goal_bonus = RewTerm(
+        func=mdp.object_goal_bonus,
+        params={
+            "threshold": GOAL_BONUS_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+        },
+        weight=60.0,
     )
 
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
@@ -381,12 +392,12 @@ class TerminationsCfg:
 class CurriculumCfg:
     action_rate = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "action_rate", "weight": -0.02, "num_steps": 10000},
+        params={"term_name": "action_rate", "weight": -0.001, "num_steps": 120000},
     )
 
     joint_vel = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "joint_vel", "weight": -0.01, "num_steps": 10000},
+        params={"term_name": "joint_vel", "weight": -0.001, "num_steps": 120000},
     )
 
 
