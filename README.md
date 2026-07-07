@@ -24,6 +24,14 @@ Set `OPENARM_TEST_USD_PATH` to use a different local USD file.
 - The basket table is centered in front of the robot and widened for object placement.
 - Robot materials/colors are not modified by the task code.
 
+## Pick-and-Place Policy Scope
+
+- The pick-and-place policy controls only the right arm and right gripper.
+- The left arm is removed from the policy action space so it stays at its default PD-held pose.
+- The right hand is rewarded to approach a pre-grasp point above the object before moving toward the object.
+- A right-hand table-clearance penalty discourages low paths that collide with the work table.
+- Older pick-and-place checkpoints trained with the previous 15-action policy are not compatible with this task version.
+
 ## Run
 
 ```bash
@@ -60,4 +68,3 @@ Reach training remains available:
 ```bash
 python scripts/rsl_rl/train.py --task Isaac-Reach-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
-

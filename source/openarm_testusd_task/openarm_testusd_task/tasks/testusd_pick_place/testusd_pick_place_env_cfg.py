@@ -34,6 +34,12 @@ ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
 OBJECT_START_POS_W = (0.48, -0.22, 0.625)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
 MIN_LIFT_HEIGHT_W = 0.66
+PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.09)
+GRASP_OFFSET_W = (0.0, 0.0, 0.035)
+RIGHT_HAND_MIN_CLEARANCE_W = 0.60
+RIGHT_ARM_JOINT_NAMES = ["openarm_right_joint.*"]
+RIGHT_GRIPPER_JOINT_NAMES = ["openarm_right_finger_joint.*"]
+RIGHT_POLICY_JOINT_NAMES = RIGHT_ARM_JOINT_NAMES + RIGHT_GRIPPER_JOINT_NAMES
 
 
 def _openarm_robot_from_original_usd_cfg() -> ArticulationCfg:
@@ -130,12 +136,7 @@ class ObservationsCfg:
             params={
                 "asset_cfg": SceneEntityCfg(
                     "robot",
-                    joint_names=[
-                        "openarm_left_joint.*",
-                        "openarm_right_joint.*",
-                        "openarm_left_finger_joint.*",
-                        "openarm_right_finger_joint.*",
-                    ],
+                    joint_names=RIGHT_POLICY_JOINT_NAMES,
                 )
             },
             noise=Unoise(n_min=-0.01, n_max=0.01),
@@ -145,12 +146,7 @@ class ObservationsCfg:
             params={
                 "asset_cfg": SceneEntityCfg(
                     "robot",
-                    joint_names=[
-                        "openarm_left_joint.*",
-                        "openarm_right_joint.*",
-                        "openarm_left_finger_joint.*",
-                        "openarm_right_finger_joint.*",
-                    ],
+                    joint_names=RIGHT_POLICY_JOINT_NAMES,
                 )
             },
             noise=Unoise(n_min=-0.01, n_max=0.01),
@@ -188,13 +184,24 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    reaching_object = RewTerm(
-        func=mdp.object_body_distance,
+    reaching_pre_grasp = RewTerm(
+        func=mdp.object_body_offset_distance,
         params={
-            "std": 0.12,
+            "std": 0.16,
+            "object_offset": PRE_GRASP_OFFSET_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
         },
-        weight=2.0,
+        weight=3.0,
+    )
+
+    reaching_object = RewTerm(
+        func=mdp.object_body_offset_distance,
+        params={
+            "std": 0.10,
+            "object_offset": GRASP_OFFSET_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=1.0,
     )
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=12.0)
@@ -213,17 +220,22 @@ class RewardsCfg:
 
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
 
+    right_hand_table_clearance = RewTerm(
+        func=mdp.body_height_below_minimum,
+        params={
+            "minimum_height": RIGHT_HAND_MIN_CLEARANCE_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+        },
+        weight=-4.0,
+    )
+
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
         weight=-1e-4,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
-                joint_names=[
-                    "openarm_left_joint.*",
-                    "openarm_right_joint.*",
-                    "openarm_right_finger_joint.*",
-                ],
+                joint_names=RIGHT_POLICY_JOINT_NAMES,
             )
         },
     )
@@ -276,13 +288,13 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
 
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
-            joint_names=["openarm_left_joint.*", "openarm_right_joint.*"],
-            scale=0.5,
+            joint_names=RIGHT_ARM_JOINT_NAMES,
+            scale=0.25,
             use_default_offset=True,
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
-            joint_names=["openarm_right_finger_joint.*"],
+            joint_names=RIGHT_GRIPPER_JOINT_NAMES,
             open_command_expr={"openarm_right_finger_joint.*": 0.044},
             close_command_expr={"openarm_right_finger_joint.*": 0.0},
         )

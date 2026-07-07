@@ -28,3 +28,35 @@ def object_body_distance(
     distance = torch.norm(obj.data.root_pos_w - body_pos_w, dim=1)
     return 1.0 - torch.tanh(distance / std)
 
+
+def object_body_offset_distance(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Reward proximity between a robot body and an offset point around the object."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_id = robot_body_cfg.body_ids[0]
+    body_pos_w = robot.data.body_pos_w[:, body_id, :]
+    offset = torch.tensor(object_offset, device=obj.data.root_pos_w.device, dtype=obj.data.root_pos_w.dtype)
+    target_pos_w = obj.data.root_pos_w + offset
+    distance = torch.norm(target_pos_w - body_pos_w, dim=1)
+    return 1.0 - torch.tanh(distance / std)
+
+
+def body_height_below_minimum(
+    env: ManagerBasedRLEnv,
+    minimum_height: float,
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+) -> torch.Tensor:
+    """Return the body height violation in meters for clearance penalties."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    body_pos_z = robot.data.body_pos_w[:, robot_body_cfg.body_ids, 2]
+    if body_pos_z.ndim > 1:
+        body_pos_z = torch.min(body_pos_z, dim=1).values
+    return torch.clamp(minimum_height - body_pos_z, min=0.0)

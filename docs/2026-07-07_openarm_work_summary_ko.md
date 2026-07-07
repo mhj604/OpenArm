@@ -36,18 +36,21 @@
 
 현재 PAP task는 오른손 중심의 첫 학습 버전이다.
 
-- 양팔 joint position action을 사용한다.
+- 오른팔 7개 joint만 joint position action으로 제어한다.
 - 오른손 gripper만 binary open/close action으로 제어한다.
-- 왼손 gripper는 현재 PAP reward에 직접 연결하지 않았다.
+- 왼팔은 policy action space에서 제거해 기본 PD-held pose를 유지하도록 했다.
+- 이전 15-action PAP checkpoint는 현재 8-action task와 호환되지 않는다.
 - 학습 물체는 안정성 확인을 위해 큐브 1종으로 제한했다.
 
 ## 4. Reward와 종료 조건
 
 Reward는 Isaac Lab lift MDP를 기반으로 구성했다.
 
-- 오른손과 물체 사이 거리 보상
+- 오른손과 물체 위 pre-grasp 지점 사이 거리 보상
+- 오른손과 물체 근접 grasp 지점 사이 거리 보상
 - 물체 lifting 보상
 - 물체가 목표 위치에 가까워지는 goal tracking 보상
+- 오른손이 테이블 높이 아래의 낮은 경로를 지나갈 때 clearance penalty
 - action 변화량 penalty
 - joint velocity penalty
 
@@ -57,7 +60,7 @@ Reward는 Isaac Lab lift MDP를 기반으로 구성했다.
 - 물체가 너무 낮게 떨어지는 경우
 - 물체가 목표 위치에 들어온 경우
 
-기존 lift MDP의 end-effector 거리 계산은 현재 USD 구조와 맞지 않는 부분이 있어, `mdp.py`에 `object_body_distance()`를 추가해 `openarm_right_hand` body pose를 직접 읽도록 했다.
+기존 lift MDP의 end-effector 거리 계산은 현재 USD 구조와 맞지 않는 부분이 있어, `mdp.py`에 `object_body_distance()`, `object_body_offset_distance()`, `body_height_below_minimum()`을 추가해 `openarm_right_hand` body pose를 직접 읽도록 했다.
 
 ## 5. PPO 안정화
 
@@ -84,7 +87,21 @@ PAP task의 학습 파이프라인은 정상 동작한다.
 - `reaching_object` 보상은 생긴다.
 - `lifting_object`, `object_goal_tracking`, `object_reached_goal`은 아직 0에 가깝다.
 
-즉, 현재 상태는 “오른손이 물체에 접근하는 초기 정책은 잡히지만, 집기와 운반은 아직 보상 설계와 초기 자세를 더 다듬어야 하는 단계”다.
+즉, 기존 5000 iteration 결과는 “오른손이 물체에 접근하는 초기 정책은 잡히지만, 집기와 운반은 아직 보상 설계와 초기 자세를 더 다듬어야 하는 단계”였다.
+
+그 이후 확인된 문제는 다음과 같았다.
+
+- 오른팔이 낮은 경로로 올라가며 테이블에 걸려 물체를 pick하지 못했다.
+- 왼팔이 policy action에 포함되어 있어 뒤나 옆으로 불필요하게 움직였다.
+
+이에 따라 PAP task를 수정했다.
+
+- 왼팔 joint를 action/observation/reward penalty 대상에서 제거했다.
+- `arm_action`은 오른팔 7개 joint만 제어한다.
+- `gripper_action`은 오른손 gripper 1개 binary action만 사용한다.
+- 물체 중심으로 바로 들어가는 reward 대신, 물체 위 pre-grasp point와 근접 grasp point를 분리했다.
+- 오른손이 `z=0.60 m` 아래로 내려가는 낮은 경로를 penalty로 막았다.
+- 오른팔 action scale을 `0.5`에서 `0.25`로 줄여 테이블을 강하게 밀고 들어가는 움직임을 완화했다.
 
 ## 7. 실행 명령
 
@@ -154,4 +171,3 @@ python scripts/rsl_rl/play.py \
 - checkpoint `.pt` 파일
 - Python cache 파일
 - 임시 검사 스크립트
-
