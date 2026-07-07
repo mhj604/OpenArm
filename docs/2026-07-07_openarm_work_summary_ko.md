@@ -44,11 +44,17 @@
 
 ## 4. Reward와 종료 조건
 
-Reward는 Isaac Lab lift MDP를 기반으로 구성했다.
+PAP reward는 `Isaac-Reach-OpenArm-Bi-v0`를 그대로 복사한 것이 아니다. Reach 튜토리얼은 양팔 end-effector가 목표 pose를 따라가는지 확인하는 용도이고, PAP에는 물체 상태, gripper close, lifting, goal tracking이 필요하다. 그래서 Isaac Lab lift 계열 MDP의 물체 이송 reward 패턴을 참고하되, 현재 `openarm_test.usd`의 bimanual OpenArm 구조에 맞게 오른손 중심 task로 다시 구성했다.
 
-- 오른손과 물체 위 pre-grasp 지점 사이 거리 보상
-- 오른손과 물체 근접 grasp 지점 사이 거리 보상
-- 물체 lifting 보상
+현재 reward 구성은 다음과 같다.
+
+- 오른손 TCP와 물체 위 pre-grasp 지점 사이 거리 보상
+- 오른손 TCP와 물체 grasp 지점 사이 거리 보상
+- 오른쪽 두 손가락 body와 물체 사이 평균 거리 보상
+- 물체 근처에서 오른쪽 gripper를 닫는 보상
+- gripper가 닫힌 상태에서 물체 위 lift target으로 올라가는 보상
+- 낮은 높이에서 먼저 들어 올리는 `lifting_object_early` 보상
+- 최종 lifting 보상
 - 물체가 목표 위치에 가까워지는 goal tracking 보상
 - 오른손이 테이블 높이 아래의 낮은 경로를 지나갈 때 clearance penalty
 - action 변화량 penalty
@@ -60,7 +66,7 @@ Reward는 Isaac Lab lift MDP를 기반으로 구성했다.
 - 물체가 너무 낮게 떨어지는 경우
 - 물체가 목표 위치에 들어온 경우
 
-기존 lift MDP의 end-effector 거리 계산은 현재 USD 구조와 맞지 않는 부분이 있어, `mdp.py`에 `object_body_distance()`, `object_body_offset_distance()`, `body_height_below_minimum()`을 추가해 `openarm_right_hand` body pose를 직접 읽도록 했다.
+기존 lift MDP의 end-effector 거리 계산은 현재 USD 구조와 맞지 않는 부분이 있어, `mdp.py`에 현재 OpenArm body를 직접 읽는 reward 함수를 추가했다. 주요 추가 함수는 `object_body_offset_distance()`, `object_bodies_average_distance()`, `gripper_closed_near_object_bodies()`, `closed_gripper_lift_target()`, `body_height_below_minimum()`이다.
 
 ## 5. PPO 안정화
 
@@ -81,13 +87,13 @@ Reward는 Isaac Lab lift MDP를 기반으로 구성했다.
 
 PAP task의 학습 파이프라인은 정상 동작한다.
 
-다만 5000 iteration 결과는 아직 pick-and-place 성공으로 보기 어렵다.
+초기 5000 iteration 결과는 아직 pick-and-place 성공으로 보기 어려웠다.
 
 - 평균 reward는 약 `0.13` 수준으로 안정화됐다.
-- `reaching_object` 보상은 생긴다.
-- `lifting_object`, `object_goal_tracking`, `object_reached_goal`은 아직 0에 가깝다.
+- `reaching_object` 보상은 생겼다.
+- `lifting_object`, `object_goal_tracking`, `object_reached_goal`은 거의 0이었다.
 
-즉, 기존 5000 iteration 결과는 “오른손이 물체에 접근하는 초기 정책은 잡히지만, 집기와 운반은 아직 보상 설계와 초기 자세를 더 다듬어야 하는 단계”였다.
+즉, 초기 5000 iteration 결과는 “오른손이 물체에 접근하는 초기 정책은 잡히지만, 집기와 운반은 아직 보상 설계와 초기 자세를 더 다듬어야 하는 단계”였다.
 
 그 이후 확인된 문제는 다음과 같았다.
 
@@ -114,6 +120,25 @@ PAP task의 학습 파이프라인은 정상 동작한다.
 이후 21:50 학습 중간 점검에서는 pre-grasp reward 포화 문제를 확인했다. 손은 안전하게 물체 위에 머물렀지만 `lifting_object`가 계속 0이라서, `PRE_GRASP_OFFSET_W`와 `RIGHT_HAND_TARGET_HEIGHT_B`를 낮추고 pre-grasp/height reward weight를 줄였다. 반대로 실제 grasp point 접근과 lifting을 강화하기 위해 `reaching_object`와 `lifting_object` weight를 높였다.
 
 이후 300 iteration 검증에서 손 위치 보상은 상승했지만 `object_reached_goal`은 계속 0이었다. 이에 따라 손 프레임이 물체에 대략 접근하는 보상만으로는 부족하다고 판단했고, 더 좁은 grasp point 보상과 물체 근처에서 오른쪽 gripper를 닫는 보상을 추가했다. 또한 왼팔 비의도 움직임을 억제하기 위해 왼팔 joint position/velocity penalty를 추가했다.
+
+마지막으로 22:30 검증에서 오른손 기준 body를 `openarm_right_hand`에서 `openarm_right_ee_tcp`와 오른쪽 손가락 body로 분리했다. 물체도 Isaac Sim 기본 `DexCube` USD로 바꾸고, 초기 물체 위치와 오른팔 ready pose를 다시 맞췄다. reset 직후 TCP와 물체 거리는 약 `4 cm`, 두 손가락과 물체 거리는 약 `5-7 cm` 수준으로 확인됐다. scripted close + lift action에서는 물체 z가 약 `0.96 m`까지 올라가므로, 현재 USD 물리와 gripper는 물체를 들어 올릴 수 있는 상태다.
+
+수정 후 100 iteration headless 검증 결과는 다음과 같다.
+
+- run: `logs/rsl_rl/openarm_testusd_bi_pick_place/2026-07-07_22-29-23`
+- checkpoint: `model_99.pt`
+- `Mean reward: 523.60`
+- `Episode_Reward/lifting_object_early: 11.4702`
+- `Episode_Reward/lifting_object: 18.7431`
+- `Episode_Reward/object_goal_tracking: 1.4204`
+- `Episode_Termination/object_reached_goal: 0.0000`
+
+현재 판단은 다음과 같다.
+
+- pick/lift 학습 신호는 살아났다.
+- placement 성공은 아직 확인되지 않았다.
+- 따라서 현재 best checkpoint는 “lift 검증용 중간 모델”이며, 완전한 PAP 모델은 아니다.
+- 이 수정본으로 5000 iteration 장기 학습을 다시 수행해야 한다. 현재 속도 기준 예상 시간은 약 2시간 전후다.
 
 ## 7. 실행 명령
 

@@ -17,6 +17,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from isaaclab_assets.robots.openarm import OPENARM_BI_HIGH_PD_CFG
@@ -31,28 +32,32 @@ ROBOT_ROOT_POS = (0.0, 0.0, 0.35)
 ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
-OBJECT_START_POS_W = (0.48, -0.22, 0.625)
+OBJECT_START_POS_W = (0.40, -0.10, 0.625)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
 MIN_LIFT_HEIGHT_W = 0.66
-PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.08)
-GRASP_OFFSET_W = (0.0, 0.0, 0.025)
-RIGHT_HAND_MIN_CLEARANCE_W = 0.62
+EARLY_LIFT_HEIGHT_W = 0.64
+PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.03)
+GRASP_OFFSET_W = (0.0, 0.0, 0.0)
+RIGHT_HAND_MIN_CLEARANCE_W = 0.56
 RIGHT_HAND_BACKWARD_LIMIT_X_B = 0.02
 RIGHT_HAND_TARGET_FORWARD_X_B = 0.40
-RIGHT_HAND_TARGET_HEIGHT_B = 0.30
+RIGHT_HAND_TARGET_HEIGHT_B = 0.22
 GRIPPER_OPEN_POS = 0.044
 LEFT_ARM_JOINT_NAMES = ["openarm_left_joint.*"]
 RIGHT_ARM_JOINT_NAMES = ["openarm_right_joint.*"]
 RIGHT_GRIPPER_JOINT_NAMES = ["openarm_right_finger_joint.*"]
 RIGHT_POLICY_JOINT_NAMES = RIGHT_ARM_JOINT_NAMES + RIGHT_GRIPPER_JOINT_NAMES
+RIGHT_HAND_BODY_NAME = "openarm_right_hand"
+RIGHT_EE_BODY_NAME = "openarm_right_ee_tcp"
+RIGHT_FINGER_BODY_NAMES = ["openarm_right_left_finger", "openarm_right_right_finger"]
 RIGHT_READY_JOINT_POS = {
-    "openarm_right_joint1": 1.0011035,
-    "openarm_right_joint2": 0.0682503,
-    "openarm_right_joint3": -0.3520371,
-    "openarm_right_joint4": 0.1812089,
-    "openarm_right_joint5": 1.5707959,
-    "openarm_right_joint6": -0.2698382,
-    "openarm_right_joint7": 0.4174294,
+    "openarm_right_joint1": 0.84664,
+    "openarm_right_joint2": -0.17450,
+    "openarm_right_joint3": -0.57209,
+    "openarm_right_joint4": 0.00010,
+    "openarm_right_joint5": 1.04863,
+    "openarm_right_joint6": -0.45328,
+    "openarm_right_joint7": -0.09522,
 }
 
 
@@ -74,8 +79,6 @@ def _openarm_robot_from_original_usd_cfg() -> ArticulationCfg:
 
 
 def _train_object_cfg() -> RigidObjectCfg:
-    physics_material = sim_utils.RigidBodyMaterialCfg(static_friction=1.0, dynamic_friction=1.0, restitution=0.0)
-    visual_material = sim_utils.PreviewSurfaceCfg(diffuse_color=(0.9, 0.18, 0.12), roughness=0.55)
     rigid_props = sim_utils.RigidBodyPropertiesCfg(
         solver_position_iteration_count=16,
         solver_velocity_iteration_count=1,
@@ -88,15 +91,9 @@ def _train_object_cfg() -> RigidObjectCfg:
     return RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         init_state=RigidObjectCfg.InitialStateCfg(pos=OBJECT_START_POS_W, rot=(1.0, 0.0, 0.0, 0.0)),
-        spawn=sim_utils.MultiAssetSpawnerCfg(
-            random_choice=False,
-            assets_cfg=[
-                sim_utils.CuboidCfg(
-                    size=(0.045, 0.045, 0.045),
-                    physics_material=physics_material,
-                    visual_material=visual_material,
-                ),
-            ],
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+            scale=(0.8, 0.8, 0.8),
             rigid_props=rigid_props,
             collision_props=sim_utils.CollisionPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.08),
@@ -168,7 +165,7 @@ class ObservationsCfg:
         object_position = ObsTerm(func=mdp.object_position_in_robot_root_frame)
         right_hand_position = ObsTerm(
             func=mdp.body_position_in_robot_root_frame,
-            params={"robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"])},
+            params={"robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME])},
         )
         target_object_position = ObsTerm(func=mdp.generated_commands, params={"command_name": "object_pose"})
         actions = ObsTerm(func=mdp.last_action)
@@ -189,8 +186,8 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (-0.04, 0.04),
-                "y": (-0.04, 0.04),
+                "x": (-0.015, 0.015),
+                "y": (-0.015, 0.015),
                 "z": (0.0, 0.0),
                 "yaw": (-0.35, 0.35),
             },
@@ -207,7 +204,7 @@ class RewardsCfg:
         params={
             "std": 0.50,
             "object_offset": PRE_GRASP_OFFSET_W,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
         weight=2.0,
     )
@@ -218,7 +215,7 @@ class RewardsCfg:
             "axis": 0,
             "std": 0.35,
             "object_offset": -0.02,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
         weight=3.0,
     )
@@ -229,7 +226,7 @@ class RewardsCfg:
             "axis": 0,
             "minimum_value": RIGHT_HAND_TARGET_FORWARD_X_B,
             "std": 0.20,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
         weight=4.0,
     )
@@ -240,9 +237,9 @@ class RewardsCfg:
             "axis": 2,
             "minimum_value": RIGHT_HAND_TARGET_HEIGHT_B,
             "std": 0.12,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
-        weight=2.0,
+        weight=0.5,
     )
 
     reaching_object = RewTerm(
@@ -250,7 +247,7 @@ class RewardsCfg:
         params={
             "std": 0.35,
             "object_offset": GRASP_OFFSET_W,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
         weight=4.0,
     )
@@ -258,23 +255,52 @@ class RewardsCfg:
     reaching_object_fine = RewTerm(
         func=mdp.object_body_offset_distance,
         params={
-            "std": 0.10,
+            "std": 0.07,
             "object_offset": GRASP_OFFSET_W,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
-        weight=8.0,
+        weight=18.0,
+    )
+
+    right_fingers_near_object = RewTerm(
+        func=mdp.object_bodies_average_distance,
+        params={
+            "std": 0.07,
+            "object_offset": GRASP_OFFSET_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+        },
+        weight=16.0,
     )
 
     gripper_closed_near_object = RewTerm(
-        func=mdp.gripper_closed_near_object,
+        func=mdp.gripper_closed_near_object_bodies,
         params={
-            "std": 0.12,
+            "std": 0.07,
             "open_joint_pos": GRIPPER_OPEN_POS,
             "object_offset": GRASP_OFFSET_W,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=6.0,
+        weight=16.0,
+    )
+
+    closed_gripper_lift_target = RewTerm(
+        func=mdp.closed_gripper_lift_target,
+        params={
+            "std": 0.08,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "lift_offset": 0.08,
+            "object_offset": GRASP_OFFSET_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=10.0,
+    )
+
+    lifting_object_early = RewTerm(
+        func=mdp.object_is_lifted,
+        params={"minimal_height": EARLY_LIFT_HEIGHT_W},
+        weight=20.0,
     )
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=35.0)
@@ -297,7 +323,7 @@ class RewardsCfg:
         func=mdp.body_height_below_minimum,
         params={
             "minimum_height": RIGHT_HAND_MIN_CLEARANCE_W,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
         weight=-2.0,
     )
@@ -307,7 +333,7 @@ class RewardsCfg:
         params={
             "axis": 0,
             "minimum_value": RIGHT_HAND_BACKWARD_LIMIT_X_B,
-            "robot_body_cfg": SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
         },
         weight=-1.0,
     )
@@ -394,7 +420,7 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
             close_command_expr={"openarm_right_finger_joint.*": 0.0},
         )
 
-        self.commands.object_pose.body_name = "openarm_right_hand"
+        self.commands.object_pose.body_name = RIGHT_HAND_BODY_NAME
 
         self.decimation = 2
         self.episode_length_s = 10.0

@@ -74,6 +74,83 @@ def gripper_closed_near_object(
     return proximity * torch.mean(closed, dim=1)
 
 
+def gripper_closed_near_object_bodies(
+    env: ManagerBasedRLEnv,
+    std: float,
+    open_joint_pos: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["openarm_right_left_finger", "openarm_right_right_finger"]
+    ),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward closing the gripper when the selected grasp bodies are close to the object."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_pos_w = robot.data.body_pos_w[:, robot_body_cfg.body_ids, :]
+    offset = torch.tensor(object_offset, device=obj.data.root_pos_w.device, dtype=obj.data.root_pos_w.dtype)
+    target_pos_w = obj.data.root_pos_w[:, None, :] + offset
+    distance = torch.norm(target_pos_w - body_pos_w, dim=-1)
+    proximity = torch.mean(1.0 - torch.tanh(distance / std), dim=1)
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
+    return proximity * torch.mean(closed, dim=1)
+
+
+def closed_gripper_lift_target(
+    env: ManagerBasedRLEnv,
+    std: float,
+    open_joint_pos: float,
+    lift_offset: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_ee_tcp"]),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward pulling upward after the gripper is closed near the object."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_pos_w = robot.data.body_pos_w[:, robot_body_cfg.body_ids, :]
+    offset = torch.tensor(object_offset, device=obj.data.root_pos_w.device, dtype=obj.data.root_pos_w.dtype)
+    target_pos_w = obj.data.root_pos_w[:, None, :] + offset
+    distance = torch.norm(target_pos_w - body_pos_w, dim=-1)
+    proximity = torch.mean(1.0 - torch.tanh(distance / std), dim=1)
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
+    closed_mean = torch.mean(closed, dim=1)
+
+    body_height = torch.mean(body_pos_w[:, :, 2], dim=1)
+    target_height = obj.data.root_pos_w[:, 2] + lift_offset
+    height_error = torch.clamp(target_height - body_height, min=0.0)
+    height_reward = 1.0 - torch.tanh(height_error / std)
+    return proximity * closed_mean * height_reward
+
+
+def object_bodies_average_distance(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["openarm_right_left_finger", "openarm_right_right_finger"]
+    ),
+) -> torch.Tensor:
+    """Reward multiple robot bodies for approaching one object-relative target."""
+
+    robot: Articulation = env.scene[robot_body_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_pos_w = robot.data.body_pos_w[:, robot_body_cfg.body_ids, :]
+    offset = torch.tensor(object_offset, device=obj.data.root_pos_w.device, dtype=obj.data.root_pos_w.dtype)
+    target_pos_w = obj.data.root_pos_w[:, None, :] + offset
+    distance = torch.norm(target_pos_w - body_pos_w, dim=-1)
+    return torch.mean(1.0 - torch.tanh(distance / std), dim=1)
+
+
 def body_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),
