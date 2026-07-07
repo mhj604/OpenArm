@@ -159,7 +159,7 @@ def object_goal_bonus(
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
-    """Reward the object for entering a loose goal basin while it is lifted."""
+    """Reward the object smoothly inside a loose goal basin while it is lifted."""
 
     robot: Articulation = env.scene[robot_cfg.name]
     obj: RigidObject = env.scene[object_cfg.name]
@@ -167,7 +167,8 @@ def object_goal_bonus(
     goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
     distance = torch.norm(goal_pos_w - obj.data.root_pos_w, dim=1)
     lifted = obj.data.root_pos_w[:, 2] > minimal_height
-    return torch.logical_and(lifted, distance < threshold).float()
+    basin_reward = torch.clamp((threshold - distance) / threshold, min=0.0, max=1.0)
+    return lifted.float() * basin_reward
 
 
 def body_position_in_robot_root_frame(
