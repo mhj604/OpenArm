@@ -502,6 +502,30 @@ class RewardsCfg:
         weight=24.0,
     )
 
+    gripper_open_near_goal = RewTerm(
+        func=mdp.gripper_open_near_goal,
+        params={
+            "threshold": GOAL_BONUS_MID_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=36.0,
+    )
+
+    gripper_closed_near_goal = RewTerm(
+        func=mdp.gripper_closed_near_goal,
+        params={
+            "threshold": GOAL_BONUS_MID_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=-8.0,
+    )
+
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
 
     right_hand_table_clearance = RewTerm(
