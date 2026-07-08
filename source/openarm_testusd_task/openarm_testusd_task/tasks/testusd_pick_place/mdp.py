@@ -375,6 +375,27 @@ def object_goal_height_tracking(
     return lifted.float() * grasp_gate * near_xy * (1.0 - torch.tanh(height_error / std))
 
 
+def hold_joint_position_target(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor | None,
+    joint_pos: float,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_left_finger_joint.*"]),
+):
+    """Keep non-policy joints at a fixed position target during the episode."""
+
+    robot: Articulation = env.scene[asset_cfg.name]
+    if env_ids is None:
+        env_ids = slice(None)
+        num_envs = env.num_envs
+    else:
+        num_envs = len(env_ids)
+    joint_count = len(asset_cfg.joint_ids)
+    target = torch.full((num_envs, joint_count), joint_pos, device=robot.device)
+    zero_velocity = torch.zeros((num_envs, joint_count), device=robot.device)
+    robot.set_joint_position_target(target, joint_ids=asset_cfg.joint_ids, env_ids=env_ids)
+    robot.set_joint_velocity_target(zero_velocity, joint_ids=asset_cfg.joint_ids, env_ids=env_ids)
+
+
 def body_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_hand"]),

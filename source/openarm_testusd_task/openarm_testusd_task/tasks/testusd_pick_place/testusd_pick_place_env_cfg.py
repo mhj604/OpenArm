@@ -34,9 +34,9 @@ EPISODE_LENGTH_S = 12.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
 OBJECT_START_POS_W = (0.40, -0.10, 0.625)
-BASKET_GOAL_POS_B = (0.48, 0.20, 0.33)
-MIN_LIFT_HEIGHT_W = 0.66
-EARLY_LIFT_HEIGHT_W = 0.64
+BASKET_GOAL_POS_B = (0.48, 0.20, 0.41)
+MIN_LIFT_HEIGHT_W = 0.70
+EARLY_LIFT_HEIGHT_W = 0.66
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
@@ -51,6 +51,8 @@ RIGHT_HAND_TARGET_FORWARD_X_B = 0.40
 RIGHT_HAND_TARGET_HEIGHT_B = 0.22
 GRIPPER_OPEN_POS = 0.044
 LEFT_ARM_JOINT_NAMES = ["openarm_left_joint.*"]
+LEFT_GRIPPER_JOINT_NAMES = ["openarm_left_finger_joint.*"]
+LEFT_HOLD_JOINT_NAMES = LEFT_ARM_JOINT_NAMES + LEFT_GRIPPER_JOINT_NAMES
 RIGHT_ARM_JOINT_NAMES = ["openarm_right_joint.*"]
 RIGHT_GRIPPER_JOINT_NAMES = ["openarm_right_finger_joint.*"]
 RIGHT_POLICY_JOINT_NAMES = RIGHT_ARM_JOINT_NAMES + RIGHT_GRIPPER_JOINT_NAMES
@@ -128,7 +130,7 @@ class CommandsCfg:
         body_name=MISSING,
         object_name="object",
         resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
-        start_offset_from_object=(0.04, 0.05, 0.08),
+        start_offset_from_object=(0.04, 0.05, 0.14),
         curriculum_num_steps=72_000,
         curriculum_power=1.5,
         debug_vis=True,
@@ -194,7 +196,17 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+    reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
+
+    hold_left_gripper_open = EventTerm(
+        func=mdp.hold_joint_position_target,
+        mode="interval",
+        interval_range_s=(1.0 / 30.0, 1.0 / 30.0),
+        params={
+            "joint_pos": GRIPPER_OPEN_POS,
+            "asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_GRIPPER_JOINT_NAMES),
+        },
+    )
 
     reset_object_position = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -509,13 +521,13 @@ class RewardsCfg:
     left_joint_pos_hold = RewTerm(
         func=mdp.joint_position_deviation_l2,
         weight=-2.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_ARM_JOINT_NAMES)},
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_HOLD_JOINT_NAMES)},
     )
 
     left_joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
         weight=-1e-3,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_ARM_JOINT_NAMES)},
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEFT_HOLD_JOINT_NAMES)},
     )
 
 
