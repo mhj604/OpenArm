@@ -353,12 +353,19 @@ def object_goal_stable_hold(
     return lifted.float() * grasp_gate * basin_reward * still_reward
 
 
+def _goal_curriculum_gate(env: ManagerBasedRLEnv, command_name: str, min_progress: float) -> torch.Tensor:
+    command_term = env.command_manager.get_term(command_name)
+    progress = command_term.metrics["goal_curriculum_progress"]
+    return (progress >= min_progress).float()
+
+
 def gripper_open_near_goal(
     env: ManagerBasedRLEnv,
     threshold: float,
     minimal_height: float,
     command_name: str,
     open_joint_pos: float,
+    min_progress: float = 0.0,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
@@ -375,7 +382,8 @@ def gripper_open_near_goal(
 
     gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
     opened = torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0)
-    return lifted.float() * near_goal * torch.mean(opened, dim=1)
+    progress_gate = _goal_curriculum_gate(env, command_name, min_progress)
+    return progress_gate * lifted.float() * near_goal * torch.mean(opened, dim=1)
 
 
 def gripper_closed_near_goal(
@@ -384,6 +392,7 @@ def gripper_closed_near_goal(
     minimal_height: float,
     command_name: str,
     open_joint_pos: float,
+    min_progress: float = 0.0,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
@@ -400,7 +409,96 @@ def gripper_closed_near_goal(
 
     gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
     closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
-    return lifted.float() * near_goal * torch.mean(closed, dim=1)
+    progress_gate = _goal_curriculum_gate(env, command_name, min_progress)
+    return progress_gate * lifted.float() * near_goal * torch.mean(closed, dim=1)
+
+
+def gripper_open_before_final_goal(
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
+    command_name: str,
+    open_joint_pos: float,
+    min_progress: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Penalize opening the gripper while carrying the object before the final goal stage."""
+
+    robot: Articulation = env.scene[gripper_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    pre_final_gate = 1.0 - _goal_curriculum_gate(env, command_name, min_progress)
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    opened = torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0)
+    return pre_final_gate * lifted.float() * torch.mean(opened, dim=1)
+
+
+def object_goal_settled_after_release(
+    env: ManagerBasedRLEnv,
+    xy_threshold: float,
+    z_threshold: float,
+    command_name: str,
+    velocity_std: float,
+    min_progress: float,
+    open_joint_pos: float,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward a released object for settling at the final 3D goal."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    height_error = torch.abs(goal_pos_w[:, 2] - obj.data.root_pos_w[:, 2])
+    near_xy = torch.clamp((xy_threshold - distance_xy) / xy_threshold, min=0.0, max=1.0)
+    near_z = torch.clamp((z_threshold - height_error) / z_threshold, min=0.0, max=1.0)
+    object_speed = torch.norm(obj.data.root_lin_vel_w, dim=1)
+    still_reward = 1.0 - torch.tanh(object_speed / velocity_std)
+    progress_gate = _goal_curriculum_gate(env, command_name, min_progress)
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    opened = torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0)
+    open_gate = torch.mean(opened, dim=1)
+    return progress_gate * near_xy * near_z * still_reward * open_gate
+
+
+def object_released_at_goal(
+    env: ManagerBasedRLEnv,
+    xy_threshold: float,
+    z_threshold: float,
+    max_speed: float,
+    min_progress: float,
+    command_name: str,
+    open_joint_pos: float,
+    open_fraction: float = 0.7,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Terminate when the object is released and settled at the final goal."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    height_error = torch.abs(goal_pos_w[:, 2] - obj.data.root_pos_w[:, 2])
+    object_speed = torch.norm(obj.data.root_lin_vel_w, dim=1)
+    progress_gate = _goal_curriculum_gate(env, command_name, min_progress) > 0.0
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    opened = torch.mean(torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0), dim=1)
+    return (
+        progress_gate
+        & (distance_xy < xy_threshold)
+        & (height_error < z_threshold)
+        & (object_speed < max_speed)
+        & (opened > open_fraction)
+    )
 
 
 def object_goal_xy_stable(

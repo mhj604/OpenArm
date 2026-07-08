@@ -41,8 +41,14 @@ GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
 GOAL_RELEASE_THRESHOLD = 0.12
+GOAL_RELEASE_MIN_PROGRESS = 0.95
 GOAL_SETTLE_XY_THRESHOLD = 0.16
-GOAL_SETTLE_MIN_PROGRESS = 0.60
+GOAL_SETTLE_Z_THRESHOLD = 0.10
+GOAL_SETTLE_MIN_PROGRESS = 0.95
+GOAL_SUCCESS_XY_THRESHOLD = 0.11
+GOAL_SUCCESS_Z_THRESHOLD = 0.10
+GOAL_SUCCESS_MAX_SPEED = 0.12
+GOAL_SUCCESS_MIN_PROGRESS = 0.98
 GOAL_HEIGHT_XY_THRESHOLD = 0.25
 GRASP_GATE_STD = 0.08
 GOAL_AXIS_STD = 0.12
@@ -134,8 +140,8 @@ class CommandsCfg:
         object_name="object",
         resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
         start_offset_from_object=(0.04, 0.05, 0.14),
-        curriculum_num_steps=120_000,
-        curriculum_power=1.5,
+        curriculum_num_steps=45_000,
+        curriculum_power=1.2,
         debug_vis=True,
         ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
             pos_x=(BASKET_GOAL_POS_B[0] - 0.03, BASKET_GOAL_POS_B[0] + 0.03),
@@ -512,6 +518,7 @@ class RewardsCfg:
             "minimal_height": MIN_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "open_joint_pos": GRIPPER_OPEN_POS,
+            "min_progress": GOAL_RELEASE_MIN_PROGRESS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
         weight=36.0,
@@ -524,23 +531,36 @@ class RewardsCfg:
             "minimal_height": MIN_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "open_joint_pos": GRIPPER_OPEN_POS,
+            "min_progress": GOAL_RELEASE_MIN_PROGRESS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
         weight=-8.0,
     )
 
-    object_goal_xy_stable_after_release = RewTerm(
-        func=mdp.object_goal_xy_stable,
+    gripper_open_before_final_goal = RewTerm(
+        func=mdp.gripper_open_before_final_goal,
+        params={
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "min_progress": GOAL_RELEASE_MIN_PROGRESS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=-12.0,
+    )
+
+    object_goal_settled_after_release = RewTerm(
+        func=mdp.object_goal_settled_after_release,
         params={
             "xy_threshold": GOAL_SETTLE_XY_THRESHOLD,
-            "minimum_height": 0.55,
+            "z_threshold": GOAL_SETTLE_Z_THRESHOLD,
             "command_name": "object_pose",
             "velocity_std": 0.05,
             "min_progress": GOAL_SETTLE_MIN_PROGRESS,
             "open_joint_pos": GRIPPER_OPEN_POS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=28.0,
+        weight=44.0,
     )
 
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
@@ -598,6 +618,18 @@ class TerminationsCfg:
     )
 
     object_reached_goal = None
+    object_released_at_goal = DoneTerm(
+        func=mdp.object_released_at_goal,
+        params={
+            "xy_threshold": GOAL_SUCCESS_XY_THRESHOLD,
+            "z_threshold": GOAL_SUCCESS_Z_THRESHOLD,
+            "max_speed": GOAL_SUCCESS_MAX_SPEED,
+            "min_progress": GOAL_SUCCESS_MIN_PROGRESS,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+    )
 
 
 @configclass
