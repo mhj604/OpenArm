@@ -486,6 +486,22 @@ class RewardsCfg:
         weight=28.0,
     )
 
+    object_goal_stable_hold = RewTerm(
+        func=mdp.object_goal_stable_hold,
+        params={
+            "threshold": GOAL_BONUS_MID_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "velocity_std": 0.05,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=24.0,
+    )
+
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
 
     right_hand_table_clearance = RewTerm(
