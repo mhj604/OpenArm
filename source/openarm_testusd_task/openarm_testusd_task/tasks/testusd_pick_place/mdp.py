@@ -399,6 +399,29 @@ def gripper_closed_near_goal(
     return lifted.float() * near_goal * torch.mean(closed, dim=1)
 
 
+def object_goal_xy_stable(
+    env: ManagerBasedRLEnv,
+    xy_threshold: float,
+    minimum_height: float,
+    command_name: str,
+    velocity_std: float,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Reward the object for settling inside the goal XY basin after release."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    near_xy = torch.clamp((xy_threshold - distance_xy) / xy_threshold, min=0.0, max=1.0)
+    above_table = obj.data.root_pos_w[:, 2] > minimum_height
+    object_speed = torch.norm(obj.data.root_lin_vel_w, dim=1)
+    still_reward = 1.0 - torch.tanh(object_speed / velocity_std)
+    return above_table.float() * near_xy * still_reward
+
+
 def object_goal_xy_distance(
     env: ManagerBasedRLEnv,
     std: float,

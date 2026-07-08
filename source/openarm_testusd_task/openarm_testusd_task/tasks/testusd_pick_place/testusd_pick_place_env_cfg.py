@@ -34,12 +34,14 @@ EPISODE_LENGTH_S = 12.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
 OBJECT_START_POS_W = (0.40, -0.10, 0.625)
-BASKET_GOAL_POS_B = (0.52, 0.32, 0.42)
+BASKET_GOAL_POS_B = (0.56, 0.48, 0.43)
 MIN_LIFT_HEIGHT_W = 0.70
 EARLY_LIFT_HEIGHT_W = 0.66
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
+GOAL_RELEASE_THRESHOLD = 0.12
+GOAL_SETTLE_XY_THRESHOLD = 0.16
 GOAL_HEIGHT_XY_THRESHOLD = 0.25
 GRASP_GATE_STD = 0.08
 GOAL_AXIS_STD = 0.12
@@ -131,7 +133,7 @@ class CommandsCfg:
         object_name="object",
         resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
         start_offset_from_object=(0.04, 0.05, 0.14),
-        curriculum_num_steps=96_000,
+        curriculum_num_steps=120_000,
         curriculum_power=1.5,
         debug_vis=True,
         ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
@@ -505,7 +507,7 @@ class RewardsCfg:
     gripper_open_near_goal = RewTerm(
         func=mdp.gripper_open_near_goal,
         params={
-            "threshold": GOAL_BONUS_MID_THRESHOLD,
+            "threshold": GOAL_RELEASE_THRESHOLD,
             "minimal_height": MIN_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -517,13 +519,24 @@ class RewardsCfg:
     gripper_closed_near_goal = RewTerm(
         func=mdp.gripper_closed_near_goal,
         params={
-            "threshold": GOAL_BONUS_MID_THRESHOLD,
+            "threshold": GOAL_RELEASE_THRESHOLD,
             "minimal_height": MIN_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "open_joint_pos": GRIPPER_OPEN_POS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
         weight=-8.0,
+    )
+
+    object_goal_xy_stable_after_release = RewTerm(
+        func=mdp.object_goal_xy_stable,
+        params={
+            "xy_threshold": GOAL_SETTLE_XY_THRESHOLD,
+            "minimum_height": 0.50,
+            "command_name": "object_pose",
+            "velocity_std": 0.05,
+        },
+        weight=28.0,
     )
 
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
