@@ -30,10 +30,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 ORIGINAL_USD_PATH = os.environ.get("OPENARM_TEST_USD_PATH", str(PROJECT_ROOT / "assets" / "openarm_test.usd"))
 ROBOT_ROOT_POS = (0.0, 0.0, 0.35)
 ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
-EPISODE_LENGTH_S = 12.0
+EPISODE_LENGTH_S = 16.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
 OBJECT_START_POS_W = (0.40, -0.10, 0.625)
+OBJECT_START_POS_B = (
+    OBJECT_START_POS_W[0] - ROBOT_ROOT_POS[0],
+    OBJECT_START_POS_W[1] - ROBOT_ROOT_POS[1],
+    OBJECT_START_POS_W[2] - ROBOT_ROOT_POS[2],
+)
 BASKET_GOAL_POS_B = (0.48, 0.20, 0.30)
 MIN_LIFT_HEIGHT_W = 0.70
 EARLY_LIFT_HEIGHT_W = 0.66
@@ -52,6 +57,7 @@ GOAL_SUCCESS_MIN_PROGRESS = 0.98
 GOAL_HEIGHT_XY_THRESHOLD = 0.25
 GRASP_GATE_STD = 0.08
 GOAL_AXIS_STD = 0.12
+GOAL_AXIS_BROAD_STD = 0.30
 PRE_GRASP_OFFSET_W = (0.0, 0.0, 0.03)
 GRASP_OFFSET_W = (0.0, 0.0, 0.0)
 RIGHT_HAND_MIN_CLEARANCE_W = 0.56
@@ -140,8 +146,8 @@ class CommandsCfg:
         object_name="object",
         resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
         start_offset_from_object=(0.04, 0.05, 0.14),
-        curriculum_num_steps=45_000,
-        curriculum_power=1.2,
+        curriculum_num_steps=30_000,
+        curriculum_power=1.1,
         debug_vis=True,
         ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
             pos_x=(BASKET_GOAL_POS_B[0] - 0.03, BASKET_GOAL_POS_B[0] + 0.03),
@@ -336,10 +342,10 @@ class RewardsCfg:
     lifting_object_early = RewTerm(
         func=mdp.object_is_lifted,
         params={"minimal_height": EARLY_LIFT_HEIGHT_W},
-        weight=24.0,
+        weight=18.0,
     )
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=35.0)
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=26.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance_with_grasp,
@@ -353,7 +359,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=18.0,
+        weight=28.0,
     )
 
     object_goal_xy_tracking = RewTerm(
@@ -368,7 +374,22 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=12.0,
+        weight=24.0,
+    )
+
+    object_goal_xy_progress = RewTerm(
+        func=mdp.object_goal_xy_progress_with_grasp,
+        params={
+            "start_pos_b": OBJECT_START_POS_B,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=30.0,
     )
 
     object_goal_x_tracking = RewTerm(
@@ -400,7 +421,39 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=18.0,
+        weight=30.0,
+    )
+
+    object_goal_y_tracking_broad = RewTerm(
+        func=mdp.object_goal_axis_distance_with_grasp,
+        params={
+            "axis": 1,
+            "std": GOAL_AXIS_BROAD_STD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=22.0,
+    )
+
+    object_goal_y_progress = RewTerm(
+        func=mdp.object_goal_axis_progress_with_grasp,
+        params={
+            "axis": 1,
+            "start_value_b": OBJECT_START_POS_B[1],
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=42.0,
     )
 
     object_goal_z_tracking = RewTerm(
