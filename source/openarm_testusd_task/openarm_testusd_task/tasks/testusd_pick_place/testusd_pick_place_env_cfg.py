@@ -41,8 +41,9 @@ OBJECT_START_POS_B = (
 )
 BASKET_SETTLE_POS_B = (0.48, 0.20, 0.30)
 BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.42)
-MIN_LIFT_HEIGHT_W = 0.74
 EARLY_LIFT_HEIGHT_W = 0.69
+TRANSPORT_LIFT_HEIGHT_W = EARLY_LIFT_HEIGHT_W
+MIN_LIFT_HEIGHT_W = 0.72
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
@@ -352,7 +353,7 @@ class RewardsCfg:
         func=mdp.object_goal_distance_with_grasp,
         params={
             "std": 0.30,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -367,7 +368,7 @@ class RewardsCfg:
         func=mdp.object_goal_xy_distance,
         params={
             "std": 0.18,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -382,7 +383,7 @@ class RewardsCfg:
         func=mdp.object_goal_xy_progress_with_grasp,
         params={
             "start_pos_b": OBJECT_START_POS_B,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -398,7 +399,7 @@ class RewardsCfg:
         params={
             "axis": 0,
             "std": GOAL_AXIS_STD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -414,7 +415,7 @@ class RewardsCfg:
         params={
             "axis": 1,
             "std": GOAL_AXIS_STD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -430,7 +431,7 @@ class RewardsCfg:
         params={
             "axis": 1,
             "std": GOAL_AXIS_BROAD_STD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -446,7 +447,7 @@ class RewardsCfg:
         params={
             "axis": 1,
             "start_value_b": OBJECT_START_POS_B[1],
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -462,7 +463,7 @@ class RewardsCfg:
         params={
             "axis": 2,
             "std": 0.08,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -478,7 +479,7 @@ class RewardsCfg:
         params={
             "std": 0.08,
             "xy_threshold": GOAL_HEIGHT_XY_THRESHOLD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -493,7 +494,7 @@ class RewardsCfg:
         func=mdp.object_goal_distance_with_grasp,
         params={
             "std": 0.08,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -508,7 +509,7 @@ class RewardsCfg:
         func=mdp.object_goal_bonus,
         params={
             "threshold": GOAL_BONUS_COARSE_THRESHOLD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -523,7 +524,7 @@ class RewardsCfg:
         func=mdp.object_goal_bonus,
         params={
             "threshold": GOAL_BONUS_MID_THRESHOLD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -538,7 +539,7 @@ class RewardsCfg:
         func=mdp.object_goal_bonus,
         params={
             "threshold": GOAL_BONUS_TIGHT_THRESHOLD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
@@ -553,7 +554,7 @@ class RewardsCfg:
         func=mdp.object_goal_stable_hold,
         params={
             "threshold": GOAL_BONUS_MID_THRESHOLD,
-            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
             "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
