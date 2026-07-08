@@ -42,6 +42,7 @@ GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
 GOAL_RELEASE_THRESHOLD = 0.12
 GOAL_SETTLE_XY_THRESHOLD = 0.16
+GOAL_SETTLE_MIN_PROGRESS = 0.60
 GOAL_HEIGHT_XY_THRESHOLD = 0.25
 GRASP_GATE_STD = 0.08
 GOAL_AXIS_STD = 0.12
@@ -532,9 +533,12 @@ class RewardsCfg:
         func=mdp.object_goal_xy_stable,
         params={
             "xy_threshold": GOAL_SETTLE_XY_THRESHOLD,
-            "minimum_height": 0.50,
+            "minimum_height": 0.55,
             "command_name": "object_pose",
             "velocity_std": 0.05,
+            "min_progress": GOAL_SETTLE_MIN_PROGRESS,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
         weight=28.0,
     )

@@ -405,13 +405,17 @@ def object_goal_xy_stable(
     minimum_height: float,
     command_name: str,
     velocity_std: float,
+    min_progress: float,
+    open_joint_pos: float,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
 ) -> torch.Tensor:
     """Reward the object for settling inside the goal XY basin after release."""
 
     robot: Articulation = env.scene[robot_cfg.name]
     obj: RigidObject = env.scene[object_cfg.name]
+    command_term = env.command_manager.get_term(command_name)
     command = env.command_manager.get_command(command_name)
     goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
     distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
@@ -419,7 +423,12 @@ def object_goal_xy_stable(
     above_table = obj.data.root_pos_w[:, 2] > minimum_height
     object_speed = torch.norm(obj.data.root_lin_vel_w, dim=1)
     still_reward = 1.0 - torch.tanh(object_speed / velocity_std)
-    return above_table.float() * near_xy * still_reward
+    progress_gate = (command_term.metrics["goal_curriculum_progress"] >= min_progress).float()
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    opened = torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0)
+    open_gate = torch.mean(opened, dim=1)
+    return progress_gate * above_table.float() * near_xy * still_reward * open_gate
 
 
 def object_goal_xy_distance(
