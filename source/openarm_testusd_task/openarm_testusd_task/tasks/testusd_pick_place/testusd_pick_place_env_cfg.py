@@ -617,7 +617,7 @@ class RewardsCfg:
         weight=44.0,
     )
 
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
+    action_rate = RewTerm(func=mdp.action_rate_l2_clamped, weight=-1e-4, params={"max_rate": 2.0})
 
     right_hand_table_clearance = RewTerm(
         func=mdp.body_height_below_minimum,

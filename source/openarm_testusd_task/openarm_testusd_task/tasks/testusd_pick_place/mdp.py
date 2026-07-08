@@ -780,6 +780,14 @@ def body_height_below_minimum(
     return torch.clamp(minimum_height - body_pos_z, min=0.0)
 
 
+def action_rate_l2_clamped(env: ManagerBasedRLEnv, max_rate: float = 2.0) -> torch.Tensor:
+    """Penalize action changes after clipping rare policy outliers."""
+
+    delta = env.action_manager.action - env.action_manager.prev_action
+    delta = torch.clamp(delta, min=-max_rate, max=max_rate)
+    return torch.sum(torch.square(delta), dim=1)
+
+
 def joint_position_deviation_l2(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_left_joint.*"]),

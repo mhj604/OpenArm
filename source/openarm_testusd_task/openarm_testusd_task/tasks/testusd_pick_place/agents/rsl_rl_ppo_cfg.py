@@ -10,6 +10,7 @@ class OpenArmTestUsdPickPlacePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name = "openarm_testusd_bi_pick_place"
     run_name = ""
     resume = False
+    clip_actions = 1.0
     empirical_normalization = True
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.30,
@@ -19,16 +20,16 @@ class OpenArmTestUsdPickPlacePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
-        value_loss_coef=0.5,
+        value_loss_coef=0.25,
         use_clipped_value_loss=True,
         clip_param=0.1,
         entropy_coef=0.0001,
         num_learning_epochs=2,
         num_mini_batches=8,
-        learning_rate=8.0e-6,
-        schedule="adaptive",
+        learning_rate=5.0e-6,
+        schedule="fixed",
         gamma=0.98,
         lam=0.95,
         desired_kl=0.006,
-        max_grad_norm=0.5,
+        max_grad_norm=0.25,
     )
