@@ -41,9 +41,10 @@ OBJECT_START_POS_B = (
 )
 BASKET_SETTLE_POS_B = (0.48, 0.20, 0.30)
 BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.42)
-EARLY_LIFT_HEIGHT_W = 0.69
+LIFT_PROGRESS_START_HEIGHT_W = OBJECT_START_POS_W[2] + 0.01
+EARLY_LIFT_HEIGHT_W = 0.66
 TRANSPORT_LIFT_HEIGHT_W = EARLY_LIFT_HEIGHT_W
-MIN_LIFT_HEIGHT_W = 0.72
+MIN_LIFT_HEIGHT_W = 0.70
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
@@ -338,16 +339,36 @@ class RewardsCfg:
             "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=10.0,
+        weight=16.0,
     )
 
     lifting_object_early = RewTerm(
-        func=mdp.object_is_lifted,
-        params={"minimal_height": EARLY_LIFT_HEIGHT_W},
-        weight=18.0,
+        func=mdp.object_lift_progress_with_grasp,
+        params={
+            "start_height": LIFT_PROGRESS_START_HEIGHT_W,
+            "target_height": TRANSPORT_LIFT_HEIGHT_W,
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=34.0,
     )
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=26.0)
+    lifting_object = RewTerm(
+        func=mdp.object_lift_progress_with_grasp,
+        params={
+            "start_height": TRANSPORT_LIFT_HEIGHT_W,
+            "target_height": MIN_LIFT_HEIGHT_W,
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=24.0,
+    )
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance_with_grasp,

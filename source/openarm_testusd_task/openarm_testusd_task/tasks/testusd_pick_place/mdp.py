@@ -226,6 +226,28 @@ def _closed_grasp_gate(
     return proximity * torch.mean(closed, dim=1)
 
 
+def object_lift_progress_with_grasp(
+    env: ManagerBasedRLEnv,
+    start_height: float,
+    target_height: float,
+    grasp_std: float,
+    open_joint_pos: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    grasp_body_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["openarm_right_left_finger", "openarm_right_right_finger"]
+    ),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward continuous object lift progress while the object is in a closed grasp."""
+
+    obj: RigidObject = env.scene[object_cfg.name]
+    height_span = max(target_height - start_height, 1.0e-4)
+    progress = torch.clamp((obj.data.root_pos_w[:, 2] - start_height) / height_span, min=0.0, max=1.0)
+    grasp_gate = _closed_grasp_gate(env, grasp_std, open_joint_pos, object_offset, object_cfg, grasp_body_cfg, gripper_cfg)
+    return grasp_gate * progress
+
+
 def object_goal_distance_with_grasp(
     env: ManagerBasedRLEnv,
     std: float,
