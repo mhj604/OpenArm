@@ -662,6 +662,10 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
 class OpenArmTestUsdPickPlaceEnvCfg_PLAY(OpenArmTestUsdPickPlaceEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.num_envs = 16
+        self.scene.num_envs = 1
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
+        self.commands.object_pose.force_final_goal = True
+        self.commands.object_pose.ranges.pos_x = (BASKET_GOAL_POS_B[0], BASKET_GOAL_POS_B[0])
+        self.commands.object_pose.ranges.pos_y = (BASKET_GOAL_POS_B[1], BASKET_GOAL_POS_B[1])
+        self.commands.object_pose.ranges.pos_z = (BASKET_GOAL_POS_B[2], BASKET_GOAL_POS_B[2])

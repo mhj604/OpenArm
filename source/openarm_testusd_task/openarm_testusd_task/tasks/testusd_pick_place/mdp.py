@@ -42,8 +42,11 @@ class StagedObjectPoseCommand(UniformPoseCommand):
         )
         final_pos_b = self.pose_command_b[env_ids, :3].clone()
 
-        progress = min(max(self._env.common_step_counter / self.cfg.curriculum_num_steps, 0.0), 1.0)
-        progress = progress**self.cfg.curriculum_power
+        if self.cfg.force_final_goal:
+            progress = 1.0
+        else:
+            progress = min(max(self._env.common_step_counter / self.cfg.curriculum_num_steps, 0.0), 1.0)
+            progress = progress**self.cfg.curriculum_power
         start_offset = torch.tensor(
             self.cfg.start_offset_from_object, device=self.device, dtype=self.pose_command_b.dtype
         )
@@ -61,6 +64,7 @@ class StagedObjectPoseCommandCfg(UniformPoseCommandCfg):
     start_offset_from_object: tuple[float, float, float] = (0.04, 0.05, 0.08)
     curriculum_num_steps: int = 72_000
     curriculum_power: float = 1.5
+    force_final_goal: bool = False
 
 
 def object_body_distance(
