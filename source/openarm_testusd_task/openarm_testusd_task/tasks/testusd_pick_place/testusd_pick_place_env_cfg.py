@@ -34,7 +34,7 @@ EPISODE_LENGTH_S = 12.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
 OBJECT_START_POS_W = (0.40, -0.10, 0.625)
-BASKET_GOAL_POS_B = (0.56, 0.48, 0.43)
+BASKET_GOAL_POS_B = (0.48, 0.20, 0.30)
 MIN_LIFT_HEIGHT_W = 0.70
 EARLY_LIFT_HEIGHT_W = 0.66
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
