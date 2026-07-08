@@ -40,7 +40,6 @@ EARLY_LIFT_HEIGHT_W = 0.66
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
-GOAL_SUCCESS_THRESHOLD = 0.10
 GOAL_HEIGHT_XY_THRESHOLD = 0.25
 GRASP_GATE_STD = 0.08
 GOAL_AXIS_STD = 0.12
@@ -541,10 +540,7 @@ class TerminationsCfg:
         params={"minimum_height": 0.45, "asset_cfg": SceneEntityCfg("object")},
     )
 
-    object_reached_goal = DoneTerm(
-        func=mdp.object_reached_goal,
-        params={"command_name": "object_pose", "threshold": GOAL_SUCCESS_THRESHOLD, "object_cfg": SceneEntityCfg("object")},
-    )
+    object_reached_goal = None
 
 
 @configclass
