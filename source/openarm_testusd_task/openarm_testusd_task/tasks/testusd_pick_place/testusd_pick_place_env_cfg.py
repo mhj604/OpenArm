@@ -34,12 +34,13 @@ EPISODE_LENGTH_S = 12.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
 OBJECT_START_POS_W = (0.40, -0.10, 0.625)
-BASKET_GOAL_POS_B = (0.48, 0.20, 0.41)
+BASKET_GOAL_POS_B = (0.52, 0.32, 0.42)
 MIN_LIFT_HEIGHT_W = 0.70
 EARLY_LIFT_HEIGHT_W = 0.66
 GOAL_BONUS_COARSE_THRESHOLD = 0.30
 GOAL_BONUS_MID_THRESHOLD = 0.20
 GOAL_BONUS_TIGHT_THRESHOLD = 0.12
+GOAL_SUCCESS_THRESHOLD = 0.10
 GOAL_HEIGHT_XY_THRESHOLD = 0.25
 GRASP_GATE_STD = 0.08
 GOAL_AXIS_STD = 0.12
@@ -131,7 +132,7 @@ class CommandsCfg:
         object_name="object",
         resampling_time_range=(EPISODE_LENGTH_S, EPISODE_LENGTH_S),
         start_offset_from_object=(0.04, 0.05, 0.14),
-        curriculum_num_steps=72_000,
+        curriculum_num_steps=96_000,
         curriculum_power=1.5,
         debug_vis=True,
         ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
@@ -296,7 +297,7 @@ class RewardsCfg:
             "object_offset": GRASP_OFFSET_W,
             "robot_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
         },
-        weight=16.0,
+        weight=20.0,
     )
 
     gripper_closed_near_object = RewTerm(
@@ -308,7 +309,7 @@ class RewardsCfg:
             "robot_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=16.0,
+        weight=20.0,
     )
 
     closed_gripper_lift_target = RewTerm(
@@ -327,7 +328,7 @@ class RewardsCfg:
     lifting_object_early = RewTerm(
         func=mdp.object_is_lifted,
         params={"minimal_height": EARLY_LIFT_HEIGHT_W},
-        weight=20.0,
+        weight=24.0,
     )
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": MIN_LIFT_HEIGHT_W}, weight=35.0)
@@ -542,7 +543,7 @@ class TerminationsCfg:
 
     object_reached_goal = DoneTerm(
         func=mdp.object_reached_goal,
-        params={"command_name": "object_pose", "threshold": 0.055, "object_cfg": SceneEntityCfg("object")},
+        params={"command_name": "object_pose", "threshold": GOAL_SUCCESS_THRESHOLD, "object_cfg": SceneEntityCfg("object")},
     )
 
 
