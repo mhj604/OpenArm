@@ -48,19 +48,25 @@ MIN_LIFT_HEIGHT_W = 0.68
 CARRY_LIFT_HEIGHT_W = 0.72
 HAND_LIFT_START_HEIGHT_W = OBJECT_START_POS_W[2] - 0.12
 HAND_LIFT_TARGET_HEIGHT_W = CARRY_LIFT_HEIGHT_W + 0.02
-GOAL_BONUS_COARSE_THRESHOLD = 0.30
-GOAL_BONUS_MID_THRESHOLD = 0.20
-GOAL_BONUS_TIGHT_THRESHOLD = 0.12
-GOAL_RELEASE_THRESHOLD = 0.12
+GOAL_BONUS_COARSE_THRESHOLD = 0.36
+GOAL_BONUS_MID_THRESHOLD = 0.28
+GOAL_BONUS_TIGHT_THRESHOLD = 0.20
+GOAL_RELEASE_THRESHOLD = 0.22
+GOAL_RELEASE_XY_THRESHOLD = 0.22
 GOAL_RELEASE_MIN_PROGRESS = 0.95
-GOAL_SETTLE_XY_THRESHOLD = 0.16
-GOAL_SETTLE_Z_THRESHOLD = 0.10
+GOAL_SETTLE_XY_THRESHOLD = 0.20
+GOAL_SETTLE_Z_THRESHOLD = 0.12
 GOAL_SETTLE_MIN_PROGRESS = 0.95
-GOAL_SUCCESS_XY_THRESHOLD = 0.11
-GOAL_SUCCESS_Z_THRESHOLD = 0.10
-GOAL_SUCCESS_MAX_SPEED = 0.12
+GOAL_SUCCESS_XY_THRESHOLD = 0.16
+GOAL_SUCCESS_Z_THRESHOLD = 0.14
+GOAL_SUCCESS_MAX_SPEED = 0.20
 GOAL_SUCCESS_MIN_PROGRESS = 0.98
-GOAL_HEIGHT_XY_THRESHOLD = 0.25
+GOAL_HEIGHT_XY_THRESHOLD = 0.28
+GOAL_XY_BONUS_WIDE_THRESHOLD = 0.26
+GOAL_XY_BONUS_MID_THRESHOLD = 0.18
+GOAL_XY_BONUS_TIGHT_THRESHOLD = 0.11
+GOAL_XY_SHORTFALL_THRESHOLD = 0.16
+GOAL_XY_SHORTFALL_MAX_DISTANCE = 0.36
 GRASP_GATE_STD = 0.14
 GOAL_AXIS_STD = 0.12
 GOAL_AXIS_BROAD_STD = 0.30
@@ -375,7 +381,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=40.0,
+        weight=26.0,
     )
 
     lifting_object_early = RewTerm(
@@ -417,7 +423,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=44.0,
+        weight=36.0,
     )
 
     object_goal_tracking = RewTerm(
@@ -432,7 +438,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=42.0,
+        weight=50.0,
     )
 
     object_goal_xy_tracking = RewTerm(
@@ -447,7 +453,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=34.0,
+        weight=60.0,
     )
 
     object_goal_xy_progress = RewTerm(
@@ -462,7 +468,68 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=52.0,
+        weight=24.0,
+    )
+
+    object_goal_xy_bonus_wide = RewTerm(
+        func=mdp.object_goal_xy_bonus,
+        params={
+            "threshold": GOAL_XY_BONUS_WIDE_THRESHOLD,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=24.0,
+    )
+
+    object_goal_xy_bonus_mid = RewTerm(
+        func=mdp.object_goal_xy_bonus,
+        params={
+            "threshold": GOAL_XY_BONUS_MID_THRESHOLD,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=50.0,
+    )
+
+    object_goal_xy_bonus_tight = RewTerm(
+        func=mdp.object_goal_xy_bonus,
+        params={
+            "threshold": GOAL_XY_BONUS_TIGHT_THRESHOLD,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=80.0,
+    )
+
+    object_goal_xy_shortfall = RewTerm(
+        func=mdp.object_goal_xy_shortfall,
+        params={
+            "threshold": GOAL_XY_SHORTFALL_THRESHOLD,
+            "max_distance": GOAL_XY_SHORTFALL_MAX_DISTANCE,
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=-65.0,
     )
 
     object_goal_x_tracking = RewTerm(
@@ -478,7 +545,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=8.0,
+        weight=16.0,
     )
 
     object_goal_y_tracking = RewTerm(
@@ -494,7 +561,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=30.0,
+        weight=36.0,
     )
 
     object_goal_y_tracking_broad = RewTerm(
@@ -510,7 +577,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=40.0,
+        weight=28.0,
     )
 
     object_goal_y_progress = RewTerm(
@@ -526,7 +593,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=80.0,
+        weight=32.0,
     )
 
     object_goal_y_shortfall = RewTerm(
@@ -542,7 +609,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=-28.0,
+        weight=-70.0,
     )
 
     object_goal_z_tracking = RewTerm(
@@ -558,7 +625,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=14.0,
+        weight=18.0,
     )
 
     object_goal_height_tracking = RewTerm(
@@ -574,7 +641,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=8.0,
+        weight=18.0,
     )
 
     object_goal_tracking_fine_grained = RewTerm(
@@ -589,7 +656,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=12.0,
+        weight=30.0,
     )
 
     object_goal_bonus_coarse = RewTerm(
@@ -604,7 +671,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=8.0,
+        weight=16.0,
     )
 
     object_goal_bonus_mid = RewTerm(
@@ -619,7 +686,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=16.0,
+        weight=44.0,
     )
 
     object_goal_bonus_tight = RewTerm(
@@ -634,7 +701,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=28.0,
+        weight=70.0,
     )
 
     object_goal_stable_hold = RewTerm(
@@ -650,7 +717,7 @@ class RewardsCfg:
             "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=24.0,
+        weight=36.0,
     )
 
     gripper_open_near_goal = RewTerm(
@@ -663,7 +730,20 @@ class RewardsCfg:
             "min_progress": GOAL_RELEASE_MIN_PROGRESS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=36.0,
+        weight=50.0,
+    )
+
+    gripper_open_near_goal_xy = RewTerm(
+        func=mdp.gripper_open_near_goal_xy,
+        params={
+            "xy_threshold": GOAL_RELEASE_XY_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "min_progress": GOAL_RELEASE_MIN_PROGRESS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=70.0,
     )
 
     gripper_closed_near_goal = RewTerm(
@@ -676,7 +756,20 @@ class RewardsCfg:
             "min_progress": GOAL_RELEASE_MIN_PROGRESS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=-8.0,
+        weight=-12.0,
+    )
+
+    gripper_closed_near_goal_xy = RewTerm(
+        func=mdp.gripper_closed_near_goal_xy,
+        params={
+            "xy_threshold": GOAL_RELEASE_XY_THRESHOLD,
+            "minimal_height": MIN_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "min_progress": GOAL_RELEASE_MIN_PROGRESS,
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=-18.0,
     )
 
     gripper_open_before_final_goal = RewTerm(
@@ -702,7 +795,7 @@ class RewardsCfg:
             "open_joint_pos": GRIPPER_OPEN_POS,
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
-        weight=44.0,
+        weight=80.0,
     )
 
     action_rate = RewTerm(func=mdp.action_rate_l2_clamped, weight=-1e-4, params={"max_rate": 2.0})
