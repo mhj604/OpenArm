@@ -28,7 +28,7 @@ class OpenArmTestUsdPickPlacePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         num_mini_batches=8,
         learning_rate=5.0e-6,
         schedule="fixed",
-        gamma=0.98,
+        gamma=0.995,
         lam=0.95,
         desired_kl=0.006,
         max_grad_norm=0.25,
