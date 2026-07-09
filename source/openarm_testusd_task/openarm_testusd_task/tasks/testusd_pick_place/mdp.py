@@ -274,6 +274,36 @@ def body_lift_progress_with_closed_gripper(
     return grasp_gate * progress
 
 
+def body_axis_progress_with_closed_gripper(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    start_value_b: float,
+    target_value_b: float,
+    object_minimal_height: float,
+    grasp_std: float,
+    open_joint_pos: float,
+    object_offset: tuple[float, float, float],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_ee_tcp"]),
+    grasp_body_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["openarm_right_left_finger", "openarm_right_right_finger"]
+    ),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward moving a closed-grasp body along one robot-root axis after the object is lifted."""
+
+    obj: RigidObject = env.scene[object_cfg.name]
+    body_pos_b = body_position_in_robot_root_frame(env, robot_body_cfg)
+
+    span = target_value_b - start_value_b
+    direction = 1.0 if span >= 0.0 else -1.0
+    progress = (body_pos_b[:, axis] - start_value_b) * direction / max(abs(span), 1.0e-4)
+    progress = torch.clamp(progress, min=0.0, max=1.0)
+    lifted = obj.data.root_pos_w[:, 2] > object_minimal_height
+    grasp_gate = _closed_grasp_gate(env, grasp_std, open_joint_pos, object_offset, object_cfg, grasp_body_cfg, gripper_cfg)
+    return lifted.float() * grasp_gate * progress
+
+
 def object_goal_distance_with_grasp(
     env: ManagerBasedRLEnv,
     std: float,
@@ -379,6 +409,40 @@ def object_goal_axis_progress_with_grasp(
     lifted = obj.data.root_pos_w[:, 2] > minimal_height
     grasp_gate = _closed_grasp_gate(env, grasp_std, open_joint_pos, object_offset, object_cfg, grasp_body_cfg, gripper_cfg)
     return lifted.float() * grasp_gate * progress
+
+
+def object_goal_axis_shortfall_with_grasp(
+    env: ManagerBasedRLEnv,
+    axis: int,
+    start_value_b: float,
+    minimal_height: float,
+    command_name: str,
+    grasp_std: float,
+    open_joint_pos: float,
+    object_offset: tuple[float, float, float],
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    grasp_body_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["openarm_right_left_finger", "openarm_right_right_finger"]
+    ),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Penalty signal for stopping short on one transport axis after a stable lift."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    object_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, obj.data.root_pos_w)
+
+    target = command[:, axis]
+    start = torch.full_like(target, start_value_b)
+    span = target - start
+    direction = torch.sign(span)
+    progress = (object_pos_b[:, axis] - start) * direction / torch.abs(span).clamp_min(1.0e-4)
+    shortfall = 1.0 - torch.clamp(progress, min=0.0, max=1.0)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+    grasp_gate = _closed_grasp_gate(env, grasp_std, open_joint_pos, object_offset, object_cfg, grasp_body_cfg, gripper_cfg)
+    return lifted.float() * grasp_gate * shortfall
 
 
 def object_goal_axis_distance_with_grasp(
