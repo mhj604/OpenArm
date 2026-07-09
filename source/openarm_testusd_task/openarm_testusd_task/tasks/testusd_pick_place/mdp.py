@@ -647,6 +647,33 @@ def gripper_open_near_goal_xy(
     return progress_gate * lifted.float() * near_goal_xy * torch.mean(opened, dim=1)
 
 
+def gripper_open_far_from_goal_xy(
+    env: ManagerBasedRLEnv,
+    xy_threshold: float,
+    minimal_height: float,
+    command_name: str,
+    open_joint_pos: float,
+    min_progress: float = 0.0,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Penalty signal for opening while carrying the object outside the basket XY basin."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    outside_goal_xy = 1.0 - torch.clamp((xy_threshold - distance_xy) / xy_threshold, min=0.0, max=1.0)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    opened = torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0)
+    progress_gate = _goal_curriculum_gate(env, command_name, min_progress)
+    return progress_gate * lifted.float() * outside_goal_xy * torch.mean(opened, dim=1)
+
+
 def gripper_closed_near_goal(
     env: ManagerBasedRLEnv,
     threshold: float,
@@ -699,6 +726,33 @@ def gripper_closed_near_goal_xy(
     closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
     progress_gate = _goal_curriculum_gate(env, command_name, min_progress)
     return progress_gate * lifted.float() * near_goal_xy * torch.mean(closed, dim=1)
+
+
+def gripper_closed_far_from_goal_xy(
+    env: ManagerBasedRLEnv,
+    xy_threshold: float,
+    minimal_height: float,
+    command_name: str,
+    open_joint_pos: float,
+    min_progress: float = 0.0,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
+) -> torch.Tensor:
+    """Reward keeping the gripper closed while carrying outside the basket XY basin."""
+
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
+    distance_xy = torch.norm(goal_pos_w[:, :2] - obj.data.root_pos_w[:, :2], dim=1)
+    outside_goal_xy = 1.0 - torch.clamp((xy_threshold - distance_xy) / xy_threshold, min=0.0, max=1.0)
+    lifted = obj.data.root_pos_w[:, 2] > minimal_height
+
+    gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
+    closed = torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0)
+    progress_gate = _goal_curriculum_gate(env, command_name, min_progress)
+    return progress_gate * lifted.float() * outside_goal_xy * torch.mean(closed, dim=1)
 
 
 def gripper_open_before_final_goal(
