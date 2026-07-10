@@ -13,7 +13,10 @@ Set `OPENARM_TEST_USD_PATH` to use a different local USD file.
 - `Isaac-Reach-OpenArm-TestUSD-Bi-v0`
 - `Isaac-Reach-OpenArm-TestUSD-Bi-Play-v0`
 - `Isaac-PickPlace-OpenArm-TestUSD-Bi-v0`
+- `Isaac-PickPlace-OpenArm-TestUSD-Bi-FineTune-v0`
 - `Isaac-PickPlace-OpenArm-TestUSD-Bi-Play-v0`
+- `Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0`
+- `Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0`
 
 ## Scene
 
@@ -53,16 +56,24 @@ Headless pick-and-place training:
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
 
+Train v25 completely from scratch. It keeps the v24 transport controller, but makes gripper phase
+control deterministic and requires bilateral, TCP-coupled grasp/lift/transport validation before
+assist or success. Do not add resume, checkpoint, load-run, or bootstrap arguments:
+
+```bash
+python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs 5120 --device cuda --max_iterations 5000 --headless --run_name fresh_verified_grasp_mean_v25
+```
+
 GUI pick-and-place training check:
 
 ```bash
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 16 --device cuda --max_iterations 200
 ```
 
-Play a pick-and-place checkpoint:
+Play a stage-aligned pick-and-place checkpoint:
 
 ```bash
-python scripts/rsl_rl/play.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-Play-v0 --num_envs 16 --device cuda --checkpoint logs/rsl_rl/openarm_testusd_bi_pick_place/<run>/model_<N>.pt --real-time
+python scripts/rsl_rl/play.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0 --num_envs=1 --device=cuda --checkpoint=logs/rsl_rl/openarm_testusd_bi_pick_place/<run>/model_<N>.pt --real-time
 ```
 
 Reach training remains available:

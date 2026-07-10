@@ -39,13 +39,23 @@ OBJECT_START_POS_B = (
     OBJECT_START_POS_W[1] - ROBOT_ROOT_POS[1],
     OBJECT_START_POS_W[2] - ROBOT_ROOT_POS[2],
 )
-BASKET_SETTLE_POS_B = (0.48, 0.20, 0.30)
+BASKET_CENTER_POS_B = (0.48, 0.17, 0.30)
+# The packing-table parent maps -0.05 local X to -0.03 world Y.
+BASKET_PRIM_TRANSLATION = (0.2833333333333334, -0.28, 0.9925656570552239)
+# Reachable point inside the basket for the right arm at the final place height.
+BASKET_SETTLE_POS_B = (0.37, 0.07, 0.30)
 BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.33)
 LIFT_PROGRESS_START_HEIGHT_W = OBJECT_START_POS_W[2]
 EARLY_LIFT_HEIGHT_W = 0.645
 TRANSPORT_LIFT_HEIGHT_W = 0.64
 MIN_LIFT_HEIGHT_W = 0.68
 CARRY_LIFT_HEIGHT_W = 0.72
+STAGE_CARRY_MIN_HEIGHT_W = 0.73
+STAGE_CARRY_TARGET_HEIGHT_W = 0.75
+STAGE_CARRY_TARGET_HEIGHT_B = STAGE_CARRY_TARGET_HEIGHT_W - ROBOT_ROOT_POS[2]
+STAGE_CARRY_MAX_HEIGHT_W = 0.79
+STAGE_ASSIST_ENTRY_XY_THRESHOLD = 0.14
+STAGE_ASSIST_OUTER_XY_THRESHOLD = 0.24
 HAND_LIFT_START_HEIGHT_W = OBJECT_START_POS_W[2] - 0.12
 HAND_LIFT_TARGET_HEIGHT_W = CARRY_LIFT_HEIGHT_W + 0.02
 GOAL_BONUS_COARSE_THRESHOLD = 0.36
@@ -147,7 +157,12 @@ class OpenArmTestUsdPickPlaceSceneCfg(InteractiveSceneCfg):
 
     original_usd: AssetBaseCfg = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Scene",
-        spawn=OriginalUsdSceneCfg(func=spawn_original_usd_scene, usd_path=ORIGINAL_USD_PATH),
+        spawn=OriginalUsdSceneCfg(
+            func=spawn_original_usd_scene,
+            usd_path=ORIGINAL_USD_PATH,
+            translation_overrides={"packing_table/container_h20": BASKET_PRIM_TRANSLATION},
+            disable_gravity_paths=("openarm_bimanual",),
+        ),
     )
 
     robot: ArticulationCfg = MISSING
@@ -166,9 +181,9 @@ class CommandsCfg:
         curriculum_power=0.8,
         debug_vis=True,
         ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
-            pos_x=(BASKET_GOAL_POS_B[0] - 0.03, BASKET_GOAL_POS_B[0] + 0.03),
-            pos_y=(BASKET_GOAL_POS_B[1] - 0.03, BASKET_GOAL_POS_B[1] + 0.03),
-            pos_z=(BASKET_GOAL_POS_B[2] - 0.02, BASKET_GOAL_POS_B[2] + 0.02),
+            pos_x=(BASKET_GOAL_POS_B[0] - 0.01, BASKET_GOAL_POS_B[0] + 0.01),
+            pos_y=(BASKET_GOAL_POS_B[1] - 0.01, BASKET_GOAL_POS_B[1] + 0.01),
+            pos_z=(BASKET_GOAL_POS_B[2] - 0.01, BASKET_GOAL_POS_B[2] + 0.01),
             roll=(0.0, 0.0),
             pitch=(0.0, 0.0),
             yaw=(0.0, 0.0),
@@ -216,7 +231,6 @@ class ObservationsCfg:
             func=mdp.object_to_goal_position_in_robot_root_frame,
             params={"command_name": "object_pose"},
         )
-        object_linear_velocity = ObsTerm(func=mdp.object_linear_velocity_in_robot_root_frame)
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
@@ -343,6 +357,23 @@ class RewardsCfg:
         weight=12.0,
     )
 
+    gripper_open_after_grasp_outside_goal_xy = RewTerm(
+        func=mdp.gripper_open_after_grasp_outside_goal_xy,
+        params={
+            "xy_threshold": GOAL_RELEASE_XY_THRESHOLD,
+            "command_name": "object_pose",
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "proximity_std": GRASP_GATE_STD,
+            "proximity_threshold": 0.45,
+            "closed_threshold": 0.60,
+            "acquisition_steps": 3,
+            "min_progress": GOAL_RELEASE_MIN_PROGRESS,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=-160.0,
+    )
+
     closed_gripper_lift_target = RewTerm(
         func=mdp.closed_gripper_lift_target,
         params={
@@ -417,13 +448,10 @@ class RewardsCfg:
     )
 
     carrying_object_high = RewTerm(
-        func=mdp.object_lift_progress_with_grasp_away_from_goal_xy,
+        func=mdp.object_lift_progress_with_grasp,
         params={
             "start_height": MIN_LIFT_HEIGHT_W,
             "target_height": CARRY_LIFT_HEIGHT_W,
-            "inner_xy_threshold": GOAL_RELEASE_XY_THRESHOLD,
-            "outer_xy_threshold": GOAL_XY_BONUS_WIDE_THRESHOLD,
-            "command_name": "object_pose",
             "grasp_std": GRASP_GATE_STD,
             "open_joint_pos": GRIPPER_OPEN_POS,
             "object_offset": GRASP_OFFSET_W,
@@ -476,6 +504,22 @@ class RewardsCfg:
             "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
         },
         weight=42.0,
+    )
+
+    object_goal_xy_potential_progress = RewTerm(
+        func=mdp.object_goal_xy_potential_progress,
+        params={
+            "minimal_height": TRANSPORT_LIFT_HEIGHT_W,
+            "command_name": "object_pose",
+            "grasp_std": GRASP_GATE_STD,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "object_offset": GRASP_OFFSET_W,
+            "minimum_grasp_gate": 0.25,
+            "max_step_distance": 0.03,
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+        weight=600.0,
     )
 
     object_goal_xy_bonus_wide = RewTerm(
@@ -923,6 +967,215 @@ class CurriculumCfg:
 
 
 @configclass
+class CurriculumCfgV18(CurriculumCfg):
+    """Delay the full lost-hold cost until a fresh policy can discover grasping."""
+
+    action_rate = None
+    joint_vel = None
+    failed_place = CurrTerm(
+        func=mdp.ramp_reward_weight,
+        params={
+            "term_name": "failed_place",
+            "weight": -100.0,
+            "start_num_steps": 4_800,
+            "end_num_steps": 14_400,
+        },
+    )
+
+
+@configclass
+class ObservationsCfgV18:
+    @configclass
+    class PolicyCfg(ObservationsCfg.PolicyCfg):
+        target_object_position = ObsTerm(
+            func=mdp.transport_goal_command,
+            params={
+                "command_name": "object_pose",
+                "carry_height_b": STAGE_CARRY_TARGET_HEIGHT_B,
+            },
+        )
+        object_to_goal_position = ObsTerm(
+            func=mdp.object_to_transport_goal_position_in_robot_root_frame,
+            params={
+                "command_name": "object_pose",
+                "carry_height_b": STAGE_CARRY_TARGET_HEIGHT_B,
+            },
+        )
+        object_linear_velocity = ObsTerm(func=mdp.object_linear_velocity_in_robot_root_frame)
+        task_state = ObsTerm(func=mdp.task_state_observation)
+        grasp_quality = ObsTerm(func=mdp.task_grasp_quality_observation)
+        episode_progress = ObsTerm(func=mdp.episode_progress_observation)
+        release_target = ObsTerm(func=mdp.task_release_target_observation)
+
+    policy: PolicyCfg = PolicyCfg()
+
+
+@configclass
+class RewardsCfgV18:
+    """Rewards for actions the learned actor controls; assist-generated motion is excluded."""
+
+    approach_progress = RewTerm(
+        func=mdp.task_potential_progress,
+        params={"mode": "approach", "max_step_change": 0.20},
+        weight=30.0,
+    )
+    lift_progress = RewTerm(
+        func=mdp.task_potential_progress,
+        params={"mode": "lift", "max_step_change": 0.03},
+        weight=150.0,
+    )
+    transport_progress = RewTerm(
+        func=mdp.task_potential_progress,
+        params={"mode": "transport", "max_step_change": 0.03},
+        weight=150.0,
+    )
+    carry_height_progress = RewTerm(
+        func=mdp.task_potential_progress,
+        params={
+            "mode": "carry_height",
+            "max_step_change": 0.03,
+            "target_height": STAGE_CARRY_TARGET_HEIGHT_W,
+        },
+        weight=150.0,
+    )
+
+    grasp_ready = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "just_grasp_ready"},
+        weight=5.0,
+    )
+    grasp_candidate = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "just_grasp_candidate"},
+        weight=10.0,
+    )
+    grasp_acquired = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "just_grasped"},
+        weight=20.0,
+    )
+    lift_completed = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "just_lifted"},
+        weight=15.0,
+    )
+    assist_engaged = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "just_assist_engaged"},
+        weight=40.0,
+    )
+    object_released = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "just_released"},
+        weight=25.0,
+    )
+    successful_place = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "succeeded"},
+        weight=200.0,
+    )
+    failed_place = RewTerm(
+        func=mdp.task_event_reward,
+        params={"event_name": "failed"},
+        weight=-50.0,
+    )
+
+    incomplete_timeout = RewTerm(func=mdp.task_timeout_without_success, weight=-50.0)
+    elapsed_time = RewTerm(func=mdp.constant_penalty, weight=-0.5)
+    gripper_action_phase_error = RewTerm(func=mdp.task_gripper_action_phase_error, weight=-1.0)
+    carry_height_band = RewTerm(
+        func=mdp.task_carry_height_band_error,
+        params={
+            "minimum_height": STAGE_CARRY_MIN_HEIGHT_W,
+            "maximum_height": STAGE_CARRY_MAX_HEIGHT_W,
+        },
+        weight=-10.0,
+    )
+    action_rate = RewTerm(
+        func=mdp.task_actor_action_rate_l2,
+        weight=-1e-4,
+        params={"max_rate": 2.0},
+    )
+    right_hand_table_clearance = RewTerm(
+        func=mdp.task_actor_body_clearance,
+        params={
+            "minimum_height": RIGHT_HAND_MIN_CLEARANCE_W,
+            "robot_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
+        },
+        weight=-2.0,
+    )
+    joint_vel = RewTerm(
+        func=mdp.task_actor_joint_velocity_l2,
+        weight=-1e-4,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=RIGHT_POLICY_JOINT_NAMES),
+        },
+    )
+
+
+@configclass
+class TerminationsCfgV18:
+    task_state = DoneTerm(
+        func=mdp.TaskStateTracker,
+        params={
+            "object_start_height": OBJECT_START_POS_W[2],
+            "grasp_confirm_height": OBJECT_START_POS_W[2] + 0.015,
+            "carry_height": STAGE_CARRY_MIN_HEIGHT_W,
+            "release_height_levels": (0.73, 0.68),
+            "release_height_probabilities": (0.40, 0.60),
+            "release_height_normalization_bounds": (0.68, 0.75),
+            "settle_height": 0.65,
+            "centering_height": STAGE_CARRY_TARGET_HEIGHT_W,
+            "assist_entry_xy_threshold": STAGE_ASSIST_ENTRY_XY_THRESHOLD,
+            "basket_entry_xy_threshold": 0.10,
+            "place_center_xy_threshold": 0.04,
+            "place_center_height_tolerance": 0.025,
+            "place_center_max_xy_speed": 0.05,
+            "release_xy_threshold": 0.04,
+            "success_xy_threshold": 0.05,
+            "basket_exit_xy_threshold": 0.20,
+            "release_height_tolerance": 0.04,
+            "settle_height_tolerance": 0.045,
+            "release_max_speed": 0.12,
+            "settle_max_speed": 0.08,
+            "proximity_std": GRASP_GATE_STD,
+            "candidate_proximity_threshold": 0.32,
+            "hold_proximity_threshold": 0.25,
+            "candidate_closed_threshold": 0.35,
+            "hold_closed_threshold": 0.20,
+            "grasp_confirm_steps": 5,
+            "lift_confirm_steps": 3,
+            "transport_confirm_steps": 3,
+            "candidate_min_open_fraction": 0.10,
+            "hold_min_open_fraction": 0.08,
+            "coupling_object_lift": 0.010,
+            "coupling_tcp_lift": 0.008,
+            "coupling_max_displacement_error": 0.012,
+            "candidate_max_relative_speed": 0.15,
+            "hold_max_offset_error": 0.025,
+            "hold_max_relative_speed": 0.20,
+            "transport_min_displacement": 0.05,
+            "place_center_confirm_steps": 5,
+            "release_ready_confirm_steps": 5,
+            "release_open_grace_steps": 10,
+            "lost_confirm_steps": 3,
+            "assist_lost_confirm_steps": 6,
+            "basket_exit_confirm_steps": 24,
+            "released_outside_confirm_steps": 10,
+            "settle_confirm_steps": 10,
+            "open_joint_pos": GRIPPER_OPEN_POS,
+            "command_name": "object_pose",
+            "grasp_body_cfg": SceneEntityCfg("robot", body_names=RIGHT_FINGER_BODY_NAMES),
+            "tcp_body_cfg": SceneEntityCfg("robot", body_names=[RIGHT_EE_BODY_NAME]),
+            "gripper_cfg": SceneEntityCfg("robot", joint_names=RIGHT_GRIPPER_JOINT_NAMES),
+        },
+    )
+    time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    task_failed = DoneTerm(func=mdp.task_state_failed)
+    task_succeeded = DoneTerm(func=mdp.task_state_succeeded)
+
+
+@configclass
 class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
     scene: OpenArmTestUsdPickPlaceSceneCfg = OpenArmTestUsdPickPlaceSceneCfg(
         num_envs=1024, env_spacing=2.5, replicate_physics=False
@@ -960,7 +1213,9 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
-        self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
+        # Keep reset/contact headroom when training with 5120 environments.
+        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 64 * 1024
         self.sim.physx.friction_correlation_distance = 0.00625
 
         self.viewer.eye = (1.6, -1.2, 1.2)
@@ -975,6 +1230,89 @@ class OpenArmTestUsdPickPlaceEnvCfg_PLAY(OpenArmTestUsdPickPlaceEnvCfg):
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
         self.commands.object_pose.force_final_goal = True
+        self.commands.object_pose.ranges.pos_x = (BASKET_GOAL_POS_B[0], BASKET_GOAL_POS_B[0])
+        self.commands.object_pose.ranges.pos_y = (BASKET_GOAL_POS_B[1], BASKET_GOAL_POS_B[1])
+        self.commands.object_pose.ranges.pos_z = (BASKET_GOAL_POS_B[2], BASKET_GOAL_POS_B[2])
+
+
+@configclass
+class OpenArmTestUsdPickPlaceEnvCfg_FINETUNE(OpenArmTestUsdPickPlaceEnvCfg):
+    """Fine-tune an existing grasp policy directly against randomized final basket goals."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.object_pose.force_final_goal = True
+
+
+@configclass
+class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
+    """Stage-aligned task with observable grasp state and outcome-based termination."""
+
+    observations: ObservationsCfgV18 = ObservationsCfgV18()
+    rewards: RewardsCfgV18 = RewardsCfgV18()
+    terminations: TerminationsCfgV18 = TerminationsCfgV18()
+    curriculum: CurriculumCfgV18 = CurriculumCfgV18()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.replicate_physics = True
+        self.commands.object_pose.force_final_goal = True
+        self.commands.object_pose.debug_vis = False
+        self.actions.arm_action = mdp.PlaceAssistJointPositionActionCfg(
+            asset_name="robot",
+            joint_names=RIGHT_ARM_JOINT_NAMES,
+            scale=0.5,
+            use_default_offset=True,
+            body_name=RIGHT_EE_BODY_NAME,
+            object_name="object",
+            command_name="object_pose",
+            horizontal_position_gain=0.12,
+            horizontal_velocity_damping=0.25,
+            vertical_position_gain=0.12,
+            vertical_velocity_damping=0.30,
+            centering_height=STAGE_CARRY_TARGET_HEIGHT_W,
+            max_horizontal_step=0.0025,
+            max_vertical_step=0.0030,
+            max_upward_step=0.0025,
+            max_joint_step=0.03,
+            max_target_lead=0.12,
+            max_horizontal_target_lead=0.012,
+            max_upward_target_lead=0.025,
+            max_downward_target_lead=0.012,
+            max_angular_target_lead=0.03,
+            nullspace_gain=0.04,
+            max_nullspace_step=0.003,
+            velocity_ema_decay=0.80,
+            max_object_speed_for_control=0.25,
+            position_deadband=0.003,
+            cartesian_leak_tolerance=0.0002,
+            slip_watchdog_threshold=0.015,
+            slip_watchdog_steps=3,
+            handoff_steps=12,
+            damping=0.08,
+            outer_xy_threshold=STAGE_ASSIST_OUTER_XY_THRESHOLD,
+        )
+        self.actions.gripper_action = mdp.HystereticBinaryJointPositionActionCfg(
+            asset_name="robot",
+            joint_names=RIGHT_GRIPPER_JOINT_NAMES,
+            open_command_expr={"openarm_right_finger_joint.*": GRIPPER_OPEN_POS},
+            close_command_expr={"openarm_right_finger_joint.*": 0.0},
+            open_threshold=0.15,
+            close_threshold=-0.15,
+            enforce_task_phase=True,
+            automatic_phase_control=True,
+        )
+
+
+@configclass
+class OpenArmTestUsdPickPlaceEnvCfg_STAGE_PLAY(OpenArmTestUsdPickPlaceEnvCfg_STAGE):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 1
+        self.observations.policy.enable_corruption = False
+        self.commands.object_pose.debug_vis = True
+        self.terminations.task_state.params["release_height_levels"] = (0.68,)
+        self.terminations.task_state.params["release_height_probabilities"] = (1.0,)
         self.commands.object_pose.ranges.pos_x = (BASKET_GOAL_POS_B[0], BASKET_GOAL_POS_B[0])
         self.commands.object_pose.ranges.pos_y = (BASKET_GOAL_POS_B[1], BASKET_GOAL_POS_B[1])
         self.commands.object_pose.ranges.pos_z = (BASKET_GOAL_POS_B[2], BASKET_GOAL_POS_B[2])
