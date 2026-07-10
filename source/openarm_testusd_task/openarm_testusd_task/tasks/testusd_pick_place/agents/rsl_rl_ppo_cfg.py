@@ -42,7 +42,7 @@ class OpenArmTestUsdPickPlaceStagePPORunnerCfg(OpenArmTestUsdPickPlacePPORunnerC
     num_steps_per_env = 48
     max_iterations = 5000
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=0.15,
+        init_noise_std=0.05,
         noise_std_type="log",
         actor_obs_normalization=False,
         critic_obs_normalization=False,

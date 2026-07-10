@@ -45,9 +45,20 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_lift_completed",
             "task_validated_transport",
             "task_bilateral_finger_proximity",
+            "task_grasp_alignment_quality",
+            "task_grasp_offset_tcp_x",
+            "task_grasp_offset_tcp_y",
+            "task_grasp_offset_tcp_z",
+            "task_finger_distance_asymmetry",
             "task_grasp_relative_speed",
             "task_grasp_coupling_error",
             "task_grasp_offset_error",
+            "task_grasp_closing_progress",
+            "task_grasp_contact_progress",
+            "task_grasp_lift_authorized",
+            "task_grasp_verification_progress",
+            "task_grasp_retry_cooldown",
+            "task_grasp_attempt_aborts",
             "task_transport_displacement",
             "task_assist_engaged",
             "task_assist_active",
@@ -103,9 +114,29 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_lift_completed"] = state.lift_completed.float()
             self.metrics["task_validated_transport"] = state.validated_transport.float()
             self.metrics["task_bilateral_finger_proximity"] = state.bilateral_finger_proximity.clone()
+            self.metrics["task_grasp_alignment_quality"] = state.grasp_alignment_quality.clone()
+            self.metrics["task_grasp_offset_tcp_x"] = state.object_offset_tcp[:, 0].clone()
+            self.metrics["task_grasp_offset_tcp_y"] = state.object_offset_tcp[:, 1].clone()
+            self.metrics["task_grasp_offset_tcp_z"] = state.object_offset_tcp[:, 2].clone()
+            self.metrics["task_finger_distance_asymmetry"] = (
+                state.finger_distance_asymmetry.clone()
+            )
             self.metrics["task_grasp_relative_speed"] = state.grasp_relative_speed.clone()
             self.metrics["task_grasp_coupling_error"] = state.grasp_coupling_error.clone()
             self.metrics["task_grasp_offset_error"] = state.grasp_offset_error.clone()
+            self.metrics["task_grasp_closing_progress"] = (
+                state.grasp_closing_streak.float() / max(state._closing_timeout_steps, 1)
+            )
+            self.metrics["task_grasp_contact_progress"] = (
+                state.grasp_contact_streak.float() / max(state._contact_confirm_steps, 1)
+            )
+            self.metrics["task_grasp_lift_authorized"] = state.grasp_lift_authorized.float()
+            self.metrics["task_grasp_verification_progress"] = (
+                state.grasp_verification_streak.float()
+                / max(state._verification_timeout_steps, 1)
+            )
+            self.metrics["task_grasp_retry_cooldown"] = state.grasp_retry_cooldown.float()
+            self.metrics["task_grasp_attempt_aborts"] = state.grasp_attempt_aborts.float()
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
             self.metrics["task_assist_engaged"] = state.assist_engaged.float()
             self.metrics["task_assist_active"] = state.assist_active.float()
@@ -313,6 +344,15 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._assist_joint_target = torch.zeros(
             (self._env.num_envs, self.action_dim), device=self.device
         )
+        self._grasp_hold_target = torch.zeros(
+            (self._env.num_envs, self.action_dim), device=self.device
+        )
+        self._grasp_was_controlled = torch.zeros(
+            self._env.num_envs, dtype=torch.bool, device=self.device
+        )
+        self._grasp_handoff_steps_remaining = torch.zeros(
+            self._env.num_envs, dtype=torch.long, device=self.device
+        )
         self._handoff_steps_remaining = torch.zeros(
             self._env.num_envs, dtype=torch.long, device=self.device
         )
@@ -354,6 +394,9 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._assist_entry_orientation[resolved_env_ids] = 0.0
         self._slip_streak[resolved_env_ids] = 0
         self._assist_joint_target[resolved_env_ids] = 0.0
+        self._grasp_hold_target[resolved_env_ids] = 0.0
+        self._grasp_was_controlled[resolved_env_ids] = False
+        self._grasp_handoff_steps_remaining[resolved_env_ids] = 0
         self._handoff_steps_remaining[resolved_env_ids] = 0
         self._filtered_object_velocity[resolved_env_ids] = 0.0
         self._previous_object_height[resolved_env_ids] = 0.0
@@ -450,6 +493,60 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
         return xy_safe & z_safe
 
+    def _apply_grasp_verification_lift(
+        self,
+        verification_ids: torch.Tensor,
+        current_joint_pos: torch.Tensor,
+        state: "TaskStateTracker",
+        robot: Articulation,
+    ):
+        """Apply a small orientation-preserving lift to verify physical object coupling."""
+
+        if verification_ids.numel() == 0:
+            return
+        spatial_jacobian = self._asset.root_physx_view.get_jacobians()[
+            :, self._jacobian_body_id, :, :
+        ]
+        task_jacobian = spatial_jacobian[verification_ids][:, :, self._jacobian_joint_ids]
+        delta_twist = torch.zeros((verification_ids.numel(), 6), device=self.device)
+        current_tcp_height = robot.data.body_pos_w[verification_ids, self._body_id, 2]
+        target_tcp_height = (
+            state.grasp_candidate_tcp_origin[verification_ids, 2]
+            + self.cfg.grasp_verification_height
+        )
+        delta_twist[:, 2] = torch.clamp(
+            target_tcp_height - current_tcp_height,
+            min=0.0,
+            max=self.cfg.grasp_verification_step,
+        )
+        jacobian_t = torch.transpose(task_jacobian, 1, 2)
+        damped = task_jacobian @ jacobian_t + self.cfg.damping**2 * self._identity_6.expand(
+            verification_ids.numel(), -1, -1
+        )
+        delta_joint = (
+            jacobian_t
+            @ torch.linalg.solve(
+                damped,
+                delta_twist.unsqueeze(-1),
+            )
+        ).squeeze(-1)
+        delta_joint = self._scale_by_max_abs(
+            delta_joint, self.cfg.grasp_verification_max_joint_step
+        )
+        predicted_twist = (task_jacobian @ delta_joint.unsqueeze(-1)).squeeze(-1)
+        delta_joint = torch.where(
+            (predicted_twist[:, 2] > 0.0)[:, None], delta_joint, 0.0
+        )
+        joint_limits = self._asset.data.soft_joint_pos_limits[verification_ids][
+            :, self._joint_ids
+        ]
+        delta_joint = self._scale_to_joint_limits(
+            current_joint_pos[verification_ids], delta_joint, joint_limits
+        )
+        target = current_joint_pos[verification_ids] + delta_joint
+        self._grasp_hold_target[verification_ids] = target
+        self._processed_actions[verification_ids] = target
+
     def process_actions(self, actions: torch.Tensor):
         super().process_actions(actions)
         policy_target = self._processed_actions.clone()
@@ -474,6 +571,42 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         obj: RigidObject = self._env.scene[self.cfg.object_name]
         current_joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
+        new_grasp_attempt = state.try_start_grasp_attempt(self._env)
+        self._grasp_hold_target[new_grasp_attempt] = current_joint_pos[new_grasp_attempt]
+        closing_hold = (
+            state.grasp_attempt_active
+            & ~state.grasp_lift_authorized
+            & ~state.grasp_acquired
+            & ~state.failed
+        )
+        self._processed_actions[closing_hold] = self._grasp_hold_target[closing_hold]
+        verification_lift = (
+            state.grasp_attempt_active
+            & state.grasp_lift_authorized
+            & ~state.grasp_acquired
+            & ~state.failed
+        )
+        state.grasp_verification_active[:] = verification_lift
+        verification_ids = torch.nonzero(verification_lift, as_tuple=False).squeeze(-1)
+        self._apply_grasp_verification_lift(
+            verification_ids, current_joint_pos, state, robot
+        )
+        grasp_control = closing_hold | verification_lift
+        grasp_control_ended = self._grasp_was_controlled & ~grasp_control
+        self._grasp_handoff_steps_remaining[grasp_control_ended] = self.cfg.grasp_handoff_steps
+        self._grasp_was_controlled[:] = grasp_control
+        grasp_handoff = (
+            ~grasp_control
+            & (self._grasp_handoff_steps_remaining > 0)
+            & ~state.failed
+        )
+        grasp_handoff_delta = self._scale_by_max_abs(
+            policy_target - current_joint_pos, self.cfg.max_joint_step
+        )
+        self._processed_actions[grasp_handoff] = (
+            current_joint_pos + grasp_handoff_delta
+        )[grasp_handoff]
+        self._grasp_handoff_steps_remaining[grasp_handoff] -= 1
         previously_active = self._assist_was_active.clone()
         current_object_height = obj.data.root_pos_w[:, 2]
         current_tcp_height = robot.data.body_pos_w[:, self._body_id, 2]
@@ -569,7 +702,9 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._assist_joint_target[handoff] = (current_joint_pos + handoff_lead)[handoff]
         self._processed_actions[handoff] = self._assist_joint_target[handoff]
         self._handoff_steps_remaining[handoff] -= 1
-        state.assist_owns_arm[:] = assist_active | hold_recovery | handoff
+        state.assist_owns_arm[:] = (
+            grasp_control | grasp_handoff | assist_active | hold_recovery | handoff
+        )
 
         assist_ids = torch.nonzero(assist_active, as_tuple=False).squeeze(-1)
         if assist_ids.numel() == 0:
@@ -809,6 +944,10 @@ class PlaceAssistJointPositionActionCfg(JointPositionActionCfg):
     handoff_steps: int = 12
     damping: float = 0.08
     outer_xy_threshold: float = 0.24
+    grasp_verification_height: float = 0.018
+    grasp_verification_step: float = 0.0015
+    grasp_verification_max_joint_step: float = 0.015
+    grasp_handoff_steps: int = 6
 
 
 def object_body_distance(
@@ -1289,11 +1428,22 @@ class TaskStateTracker(ManagerTermBase):
         self.basket_exit_streak = torch.zeros_like(self.grasp_streak)
         self.outside_streak = torch.zeros_like(self.grasp_streak)
         self.settle_streak = torch.zeros_like(self.grasp_streak)
+        self.grasp_closing_streak = torch.zeros_like(self.grasp_streak)
+        self.grasp_contact_streak = torch.zeros_like(self.grasp_streak)
+        self.grasp_attempt_lost_streak = torch.zeros_like(self.grasp_streak)
+        self.grasp_verification_streak = torch.zeros_like(self.grasp_streak)
+        self.grasp_retry_cooldown = torch.zeros_like(self.grasp_streak)
+        self.grasp_attempt_aborts = torch.zeros_like(self.grasp_streak)
 
         self.grasp_ready = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self.grasp_candidate = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self.grasp_attempt_active = torch.zeros_like(self.grasp_candidate)
         self.grasp_candidate_tracking = torch.zeros_like(self.grasp_candidate)
+        self.grasp_alignment_ready = torch.zeros_like(self.grasp_candidate)
+        self.grasp_attempt_continuation = torch.zeros_like(self.grasp_candidate)
+        self.grasp_lift_authorized = torch.zeros_like(self.grasp_candidate)
+        self.grasp_verification_active = torch.zeros_like(self.grasp_candidate)
+        self.grasp_attempt_started = torch.zeros_like(self.grasp_candidate)
         self.grasp_ready_reached = torch.zeros_like(self.grasp_candidate)
         self.grasp_candidate_reached = torch.zeros_like(self.grasp_candidate)
         self.grasp_acquired = torch.zeros_like(self.grasp_candidate)
@@ -1318,6 +1468,7 @@ class TaskStateTracker(ManagerTermBase):
 
         self.just_grasp_ready = torch.zeros_like(self.grasp_candidate)
         self.just_grasp_candidate = torch.zeros_like(self.grasp_candidate)
+        self.just_grasp_retry = torch.zeros_like(self.grasp_candidate)
         self.just_grasped = torch.zeros_like(self.grasp_candidate)
         self.just_lifted = torch.zeros_like(self.grasp_candidate)
         self.just_validated_transport = torch.zeros_like(self.grasp_candidate)
@@ -1333,6 +1484,8 @@ class TaskStateTracker(ManagerTermBase):
         self.closed_fraction = torch.zeros_like(self.finger_proximity)
         self.open_fraction = torch.zeros_like(self.finger_proximity)
         self.grasp_relative_speed = torch.zeros_like(self.finger_proximity)
+        self.finger_distance_asymmetry = torch.zeros_like(self.finger_proximity)
+        self.grasp_alignment_quality = torch.zeros_like(self.finger_proximity)
         self.grasp_coupling_error = torch.zeros_like(self.finger_proximity)
         self.grasp_offset_error = torch.zeros_like(self.finger_proximity)
         self.transport_displacement = torch.zeros_like(self.finger_proximity)
@@ -1351,6 +1504,52 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_candidate_tcp_offset = torch.zeros((env.num_envs, 3), device=env.device)
         self.grasp_object_origin = torch.zeros((env.num_envs, 3), device=env.device)
         self.grasp_tcp_offset = torch.zeros((env.num_envs, 3), device=env.device)
+        self.object_offset_tcp = torch.zeros((env.num_envs, 3), device=env.device)
+        params = cfg.params
+        self._proximity_std = float(params["proximity_std"])
+        self._candidate_proximity_threshold = float(params["candidate_proximity_threshold"])
+        self._attempt_hold_proximity_threshold = float(
+            params["attempt_hold_proximity_threshold"]
+        )
+        self._candidate_closed_threshold = float(params["candidate_closed_threshold"])
+        self._candidate_min_open_fraction = float(params["candidate_min_open_fraction"])
+        self._candidate_max_relative_speed = float(params["candidate_max_relative_speed"])
+        self._alignment_max_relative_speed = float(params["alignment_max_relative_speed"])
+        self._preclose_min_open_fraction = float(params["preclose_min_open_fraction"])
+        self._alignment_target = torch.tensor(
+            params["alignment_target"], device=env.device, dtype=torch.float32
+        )
+        self._alignment_lower_bounds = torch.tensor(
+            params["alignment_lower_bounds"], device=env.device, dtype=torch.float32
+        )
+        self._alignment_upper_bounds = torch.tensor(
+            params["alignment_upper_bounds"], device=env.device, dtype=torch.float32
+        )
+        self._alignment_hold_lower_bounds = torch.tensor(
+            params["alignment_hold_lower_bounds"], device=env.device, dtype=torch.float32
+        )
+        self._alignment_hold_upper_bounds = torch.tensor(
+            params["alignment_hold_upper_bounds"], device=env.device, dtype=torch.float32
+        )
+        self._alignment_quality_scales = torch.tensor(
+            params["alignment_quality_scales"], device=env.device, dtype=torch.float32
+        )
+        self._alignment_max_finger_asymmetry = float(
+            params["alignment_max_finger_asymmetry"]
+        )
+        self._alignment_hold_max_finger_asymmetry = float(
+            params["alignment_hold_max_finger_asymmetry"]
+        )
+        self._closing_min_steps = int(params["closing_min_steps"])
+        self._contact_confirm_steps = int(params["contact_confirm_steps"])
+        self._attempt_lost_confirm_steps = int(params["attempt_lost_confirm_steps"])
+        self._closing_timeout_steps = int(params["closing_timeout_steps"])
+        self._verification_timeout_steps = int(params["verification_timeout_steps"])
+        self._retry_cooldown_steps = int(params["retry_cooldown_steps"])
+        self._open_joint_pos = float(params["open_joint_pos"])
+        self._grasp_body_cfg = params["grasp_body_cfg"]
+        self._tcp_body_cfg = params["tcp_body_cfg"]
+        self._gripper_cfg = params["gripper_cfg"]
         levels = cfg.params.get("release_height_levels", (0.73, 0.68))
         probabilities = cfg.params.get("release_height_probabilities", (0.40, 0.60))
         if len(levels) == 0 or len(levels) != len(probabilities):
@@ -1399,6 +1598,118 @@ class TaskStateTracker(ManagerTermBase):
 
         self.release_commanded |= request_mask & ~self.release_commanded
 
+    def update_grasp_geometry(self, env: ManagerBasedRLEnv):
+        """Refresh measured grasp geometry for both the action and termination phases."""
+
+        robot: Articulation = env.scene[self._grasp_body_cfg.name]
+        obj: RigidObject = env.scene["object"]
+        finger_pos_w = robot.data.body_pos_w[:, self._grasp_body_cfg.body_ids, :]
+        finger_distance = torch.norm(obj.data.root_pos_w[:, None, :] - finger_pos_w, dim=-1)
+        per_finger_proximity = 1.0 - torch.tanh(finger_distance / self._proximity_std)
+        self.finger_proximity[:] = torch.mean(per_finger_proximity, dim=1)
+        self.bilateral_finger_proximity[:] = torch.amin(per_finger_proximity, dim=1)
+        self.finger_distance_asymmetry[:] = torch.amax(finger_distance, dim=1) - torch.amin(
+            finger_distance, dim=1
+        )
+
+        gripper_pos = robot.data.joint_pos[:, self._gripper_cfg.joint_ids]
+        self.closed_fraction[:] = torch.mean(
+            torch.clamp(
+                (self._open_joint_pos - gripper_pos) / self._open_joint_pos,
+                min=0.0,
+                max=1.0,
+            ),
+            dim=1,
+        )
+        self.open_fraction[:] = torch.mean(
+            torch.clamp(gripper_pos / self._open_joint_pos, min=0.0, max=1.0), dim=1
+        )
+
+        tcp_body_id = self._tcp_body_cfg.body_ids[0]
+        tcp_pos_w = robot.data.body_pos_w[:, tcp_body_id]
+        tcp_quat_w = robot.data.body_quat_w[:, tcp_body_id]
+        object_offset_w = obj.data.root_pos_w - tcp_pos_w
+        self.object_offset_tcp[:] = quat_apply_inverse(tcp_quat_w, object_offset_w)
+        tcp_velocity_at_object_w = robot.data.body_link_lin_vel_w[:, tcp_body_id] + torch.cross(
+            robot.data.body_link_ang_vel_w[:, tcp_body_id], object_offset_w, dim=1
+        )
+        self.grasp_relative_speed[:] = torch.norm(
+            obj.data.root_link_lin_vel_w - tcp_velocity_at_object_w, dim=1
+        )
+
+        alignment_error = (
+            self.object_offset_tcp - self._alignment_target
+        ) / self._alignment_quality_scales
+        pose_quality = torch.exp(-0.5 * torch.sum(torch.square(alignment_error), dim=1))
+        symmetry_quality = torch.exp(
+            -0.5 * torch.square(self.finger_distance_asymmetry / 0.012)
+        )
+        speed_quality = torch.exp(
+            -0.5
+            * torch.square(
+                self.grasp_relative_speed / self._alignment_max_relative_speed
+            )
+        )
+        proximity_quality = torch.clamp(
+            self.bilateral_finger_proximity / self._candidate_proximity_threshold,
+            min=0.0,
+            max=1.0,
+        )
+        self.grasp_alignment_quality[:] = (
+            pose_quality
+            * symmetry_quality
+            * speed_quality
+            * (0.5 + 0.5 * proximity_quality)
+        )
+
+        inside_alignment = torch.all(
+            (self.object_offset_tcp >= self._alignment_lower_bounds)
+            & (self.object_offset_tcp <= self._alignment_upper_bounds),
+            dim=1,
+        )
+        self.grasp_alignment_ready[:] = (
+            inside_alignment
+            & (self.bilateral_finger_proximity >= self._candidate_proximity_threshold)
+            & (self.finger_distance_asymmetry <= self._alignment_max_finger_asymmetry)
+            & (self.open_fraction >= self._preclose_min_open_fraction)
+            & (self.grasp_relative_speed <= self._alignment_max_relative_speed)
+        )
+        inside_hold_alignment = torch.all(
+            (self.object_offset_tcp >= self._alignment_hold_lower_bounds)
+            & (self.object_offset_tcp <= self._alignment_hold_upper_bounds),
+            dim=1,
+        )
+        self.grasp_attempt_continuation[:] = (
+            inside_hold_alignment
+            & (self.bilateral_finger_proximity >= self._attempt_hold_proximity_threshold)
+            & (
+                self.finger_distance_asymmetry
+                <= self._alignment_hold_max_finger_asymmetry
+            )
+        )
+        self.grasp_ready[:] = self.grasp_alignment_ready
+
+    def try_start_grasp_attempt(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        """Latch a centered grasp before the actor can move the arm away on this control step."""
+
+        self.update_grasp_geometry(env)
+        new_attempt = (
+            self.grasp_alignment_ready
+            & ~self.grasp_attempt_active
+            & ~self.grasp_acquired
+            & ~self.failed
+            & (self.grasp_retry_cooldown == 0)
+        )
+        self.grasp_attempt_active[new_attempt] = True
+        self.grasp_attempt_started[new_attempt] = True
+        self.grasp_lift_authorized[new_attempt] = False
+        self.grasp_candidate_tracking[new_attempt] = False
+        self.grasp_closing_streak[new_attempt] = 0
+        self.grasp_contact_streak[new_attempt] = 0
+        self.grasp_attempt_lost_streak[new_attempt] = 0
+        self.grasp_verification_streak[new_attempt] = 0
+        return new_attempt
+
     def reset(self, env_ids: torch.Tensor | None = None):
         if env_ids is None:
             resolved_env_ids = torch.arange(self.num_envs, device=self.device)
@@ -1416,7 +1727,6 @@ class TaskStateTracker(ManagerTermBase):
         self,
         env: ManagerBasedRLEnv,
         object_start_height: float,
-        grasp_confirm_height: float,
         carry_height: float,
         release_height_levels: tuple[float, ...],
         release_height_probabilities: tuple[float, ...],
@@ -1437,6 +1747,7 @@ class TaskStateTracker(ManagerTermBase):
         settle_max_speed: float,
         proximity_std: float,
         candidate_proximity_threshold: float,
+        attempt_hold_proximity_threshold: float,
         hold_proximity_threshold: float,
         candidate_closed_threshold: float,
         hold_closed_threshold: float,
@@ -1445,6 +1756,23 @@ class TaskStateTracker(ManagerTermBase):
         transport_confirm_steps: int,
         candidate_min_open_fraction: float,
         hold_min_open_fraction: float,
+        alignment_target: tuple[float, float, float],
+        alignment_lower_bounds: tuple[float, float, float],
+        alignment_upper_bounds: tuple[float, float, float],
+        alignment_hold_lower_bounds: tuple[float, float, float],
+        alignment_hold_upper_bounds: tuple[float, float, float],
+        alignment_quality_scales: tuple[float, float, float],
+        alignment_max_finger_asymmetry: float,
+        alignment_hold_max_finger_asymmetry: float,
+        alignment_max_relative_speed: float,
+        preclose_min_open_fraction: float,
+        closing_min_steps: int,
+        contact_confirm_steps: int,
+        attempt_lost_confirm_steps: int,
+        closing_timeout_steps: int,
+        verification_timeout_steps: int,
+        retry_cooldown_steps: int,
+        max_grasp_attempts: int,
         coupling_object_lift: float,
         coupling_tcp_lift: float,
         coupling_max_displacement_error: float,
@@ -1472,35 +1800,108 @@ class TaskStateTracker(ManagerTermBase):
     ) -> torch.Tensor:
         robot: Articulation = env.scene[robot_cfg.name]
         obj: RigidObject = env.scene[object_cfg.name]
-        body_pos_w = robot.data.body_pos_w[:, grasp_body_cfg.body_ids, :]
-        finger_distance = torch.norm(obj.data.root_pos_w[:, None, :] - body_pos_w, dim=-1)
-        per_finger_proximity = 1.0 - torch.tanh(finger_distance / proximity_std)
-        self.finger_proximity[:] = torch.mean(per_finger_proximity, dim=1)
-        self.bilateral_finger_proximity[:] = torch.amin(per_finger_proximity, dim=1)
+        self.update_grasp_geometry(env)
+        self.grasp_retry_cooldown[:] = torch.clamp(self.grasp_retry_cooldown - 1, min=0)
 
-        gripper_pos = robot.data.joint_pos[:, gripper_cfg.joint_ids]
-        self.closed_fraction[:] = torch.mean(
-            torch.clamp((open_joint_pos - gripper_pos) / open_joint_pos, min=0.0, max=1.0), dim=1
+        attempt_active = self.grasp_attempt_active & ~self.grasp_acquired
+        closing = attempt_active & ~self.grasp_lift_authorized & ~self.gripper_target_open
+        self.grasp_closing_streak[:] = torch.where(
+            closing,
+            torch.clamp(self.grasp_closing_streak + 1, max=closing_timeout_steps),
+            torch.where(self.grasp_lift_authorized, self.grasp_closing_streak, 0),
         )
-        self.open_fraction[:] = torch.mean(
-            torch.clamp(gripper_pos / open_joint_pos, min=0.0, max=1.0), dim=1
-        )
-        self.grasp_ready[:] = self.bilateral_finger_proximity >= candidate_proximity_threshold
-        keep_attempt = (
-            self.grasp_attempt_active
-            & ~self.grasp_acquired
-            & (self.bilateral_finger_proximity >= hold_proximity_threshold)
-        )
-        self.grasp_attempt_active[:] = (self.grasp_ready & ~self.grasp_acquired) | keep_attempt
-        self.grasp_candidate[:] = (
-            self.grasp_attempt_active
-            & ~self.gripper_target_open
+        contact_geometry = (
+            closing
+            & self.grasp_attempt_continuation
             & (self.bilateral_finger_proximity >= candidate_proximity_threshold)
             & (self.closed_fraction >= candidate_closed_threshold)
             & (self.open_fraction >= candidate_min_open_fraction)
+            & (self.grasp_relative_speed <= candidate_max_relative_speed)
+            & (self.grasp_closing_streak >= closing_min_steps)
         )
+        self.grasp_contact_streak[:] = torch.where(
+            contact_geometry,
+            torch.clamp(self.grasp_contact_streak + 1, max=contact_confirm_steps),
+            0,
+        )
+        was_lift_authorized = self.grasp_lift_authorized.clone()
+        newly_authorized = (
+            (self.grasp_contact_streak >= contact_confirm_steps)
+            & attempt_active
+            & ~self.grasp_lift_authorized
+        )
+        self.grasp_lift_authorized |= newly_authorized
+
+        tcp_body_id = tcp_body_cfg.body_ids[0]
+        tcp_pos_w = robot.data.body_pos_w[:, tcp_body_id]
+        self.grasp_candidate_object_origin[newly_authorized] = obj.data.root_pos_w[
+            newly_authorized
+        ]
+        self.grasp_candidate_tcp_origin[newly_authorized] = tcp_pos_w[newly_authorized]
+        self.grasp_candidate_tcp_offset[newly_authorized] = self.object_offset_tcp[
+            newly_authorized
+        ]
+        verifying = attempt_active & self.grasp_lift_authorized
+        verified_contact_geometry = (
+            self.grasp_attempt_continuation
+            & (self.closed_fraction >= candidate_closed_threshold)
+            & (self.open_fraction >= candidate_min_open_fraction)
+        )
+        self.grasp_verification_streak[:] = torch.where(
+            attempt_active & was_lift_authorized,
+            torch.clamp(
+                self.grasp_verification_streak + 1,
+                max=verification_timeout_steps + 1,
+            ),
+            0,
+        )
+        lost_attempt_geometry = attempt_active & (
+            ~self.grasp_attempt_continuation
+            | (self.grasp_lift_authorized & ~verified_contact_geometry)
+        )
+        self.grasp_attempt_lost_streak[:] = torch.where(
+            lost_attempt_geometry,
+            torch.clamp(
+                self.grasp_attempt_lost_streak + 1, max=attempt_lost_confirm_steps
+            ),
+            0,
+        )
+        close_timed_out = (
+            closing
+            & ~newly_authorized
+            & (self.grasp_closing_streak >= closing_timeout_steps)
+        )
+        verification_timed_out = verifying & (
+            self.grasp_verification_streak > verification_timeout_steps
+        )
+        attempt_aborted = attempt_active & (
+            (self.grasp_attempt_lost_streak >= attempt_lost_confirm_steps)
+            | close_timed_out
+            | verification_timed_out
+        )
+        self.just_grasp_retry[:] = attempt_aborted
+        self.grasp_attempt_aborts += attempt_aborted.long()
+        self.grasp_attempt_active[attempt_aborted] = False
+        self.grasp_lift_authorized[attempt_aborted] = False
+        self.grasp_verification_active[attempt_aborted] = False
+        self.grasp_candidate_tracking[attempt_aborted] = False
+        self.grasp_retry_cooldown[attempt_aborted] = retry_cooldown_steps
+        self.grasp_closing_streak[attempt_aborted] = 0
+        self.grasp_contact_streak[attempt_aborted] = 0
+        self.grasp_attempt_lost_streak[attempt_aborted] = 0
+        self.grasp_verification_streak[attempt_aborted] = 0
+
+        self.grasp_candidate[:] = (
+            self.grasp_attempt_active
+            & self.grasp_lift_authorized
+            & verified_contact_geometry
+            & ~attempt_aborted
+        )
+        attempt_started = self.grasp_attempt_started.clone()
+        self.grasp_attempt_started[:] = False
         previous_grasp_ready = self.grasp_ready_reached.clone()
         self.grasp_ready_reached |= self.grasp_ready & ~self.grasp_acquired
+        self.grasp_ready_reached |= attempt_started
         self.just_grasp_ready[:] = self.grasp_ready_reached & ~previous_grasp_ready
         previous_grasp_candidate = self.grasp_candidate_reached.clone()
         self.grasp_candidate_reached |= self.grasp_candidate & ~self.grasp_acquired
@@ -1518,32 +1919,12 @@ class TaskStateTracker(ManagerTermBase):
         self.inside_release_xy[:] = self.distance_xy <= release_xy_threshold
         self.inside_release_safe_xy[:] = self.distance_xy <= success_xy_threshold
 
-        tcp_body_id = tcp_body_cfg.body_ids[0]
-        tcp_pos_w = robot.data.body_pos_w[:, tcp_body_id]
-        tcp_quat_w = robot.data.body_quat_w[:, tcp_body_id]
-        tcp_velocity_w = robot.data.body_link_lin_vel_w[:, tcp_body_id]
-        tcp_angular_velocity_w = robot.data.body_link_ang_vel_w[:, tcp_body_id]
-        object_offset_w = obj.data.root_pos_w - tcp_pos_w
-        tcp_velocity_at_object_w = tcp_velocity_w + torch.cross(
-            tcp_angular_velocity_w,
-            object_offset_w,
-            dim=1,
-        )
-        self.grasp_relative_speed[:] = torch.norm(
-            obj.data.root_link_lin_vel_w - tcp_velocity_at_object_w,
-            dim=1,
-        )
-        object_offset_tcp = quat_apply_inverse(tcp_quat_w, object_offset_w)
-
         candidate_active = self.grasp_candidate & ~self.grasp_acquired
-        was_tracking_candidate = self.grasp_candidate_tracking.clone()
-        new_candidate = candidate_active & ~was_tracking_candidate
-        self.grasp_candidate_object_origin[new_candidate] = obj.data.root_pos_w[new_candidate]
-        self.grasp_candidate_tcp_origin[new_candidate] = tcp_pos_w[new_candidate]
-        self.grasp_candidate_tcp_offset[new_candidate] = object_offset_tcp[new_candidate]
         object_candidate_delta = obj.data.root_pos_w - self.grasp_candidate_object_origin
         tcp_candidate_delta = tcp_pos_w - self.grasp_candidate_tcp_origin
-        coupling_error = torch.norm(object_offset_tcp - self.grasp_candidate_tcp_offset, dim=1)
+        coupling_error = torch.norm(
+            self.object_offset_tcp - self.grasp_candidate_tcp_offset, dim=1
+        )
         unstable_candidate = candidate_active & (
             (coupling_error > coupling_max_displacement_error)
             | (self.grasp_relative_speed > candidate_max_relative_speed)
@@ -1556,7 +1937,6 @@ class TaskStateTracker(ManagerTermBase):
         )
         grasp_confirmed = (
             self.grasp_candidate_tracking
-            & (obj.data.root_pos_w[:, 2] >= grasp_confirm_height)
             & (object_candidate_delta[:, 2] >= coupling_object_lift)
             & (tcp_candidate_delta[:, 2] >= coupling_tcp_lift)
             & (self.grasp_coupling_error <= coupling_max_displacement_error)
@@ -1570,10 +1950,14 @@ class TaskStateTracker(ManagerTermBase):
         previous_grasp = self.grasp_acquired.clone()
         self.grasp_acquired |= self.grasp_streak >= grasp_confirm_steps
         self.just_grasped[:] = self.grasp_acquired & ~previous_grasp
-        self.grasp_tcp_offset[self.just_grasped] = object_offset_tcp[self.just_grasped]
+        self.grasp_tcp_offset[self.just_grasped] = self.object_offset_tcp[self.just_grasped]
         self.grasp_object_origin[self.just_grasped] = obj.data.root_pos_w[self.just_grasped]
+        self.grasp_attempt_active[self.grasp_acquired] = False
+        self.grasp_lift_authorized[self.grasp_acquired] = False
+        self.grasp_verification_active[self.grasp_acquired] = False
+        self.grasp_candidate_tracking[self.grasp_acquired] = False
 
-        offset_error = torch.norm(object_offset_tcp - self.grasp_tcp_offset, dim=1)
+        offset_error = torch.norm(self.object_offset_tcp - self.grasp_tcp_offset, dim=1)
         self.grasp_offset_error[:] = torch.where(
             self.grasp_acquired,
             offset_error,
@@ -1738,6 +2122,7 @@ class TaskStateTracker(ManagerTermBase):
         )
         self.failed[:] = (
             premature_release
+            | (self.grasp_attempt_aborts >= max_grasp_attempts)
             | (opening & (self.opening_streak >= release_open_timeout_steps))
             | (self.lost_streak >= lost_confirm_limit)
             | (self.basket_exit_streak >= basket_exit_confirm_steps)
@@ -1787,14 +2172,17 @@ def task_state_observation(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 
 def task_grasp_quality_observation(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Expose continuous proximity and gripper closure needed to discover a grasp from scratch."""
+    """Expose normalized TCP-local object alignment; finger joints are already observed."""
 
     state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
     if state is None:
         return torch.zeros((env.num_envs, 3), device=env.device)
-    return torch.stack(
-        (state.bilateral_finger_proximity, state.closed_fraction, state.open_fraction),
-        dim=1,
+    state.update_grasp_geometry(env)
+    return torch.clamp(
+        (state.object_offset_tcp - state._alignment_target)
+        / state._alignment_quality_scales,
+        min=-3.0,
+        max=3.0,
     )
 
 
@@ -1897,11 +2285,15 @@ class task_potential_progress(ManagerTermBase):
         state: TaskStateTracker = env._openarm_pick_place_state
         obj: RigidObject = env.scene[object_cfg.name]
         if mode == "approach":
-            potential = state.bilateral_finger_proximity
-            active = ~state.grasp_acquired
+            potential = state.grasp_alignment_quality
+            active = (
+                ~state.grasp_acquired
+                & ~state.grasp_attempt_active
+                & (state.grasp_retry_cooldown == 0)
+            )
         elif mode == "lift":
             potential = obj.data.root_pos_w[:, 2]
-            active = (state.grasp_candidate | state.grasp_acquired) & ~state.lift_completed & ~state.released
+            active = state.grasp_acquired & ~state.lift_completed & ~state.released
         elif mode == "transport":
             potential = -state.distance_xy
             active = (
