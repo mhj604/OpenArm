@@ -56,13 +56,13 @@ Headless pick-and-place training:
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
 
-Train v26 completely from scratch. It keeps the v25 transport/place controller, but closes only in
-the measured centered grasp basin, freezes the arm while the fingers close, verifies object coupling
-with a bounded 18 mm lift, and reopens after a failed attempt. Do not add resume, checkpoint,
-load-run, or bootstrap arguments:
+Train v27 completely from scratch. It keeps the v25 post-grasp transport/place controller, but uses
+a stable centered-grasp dwell, bilateral stopped-finger contact, actor-owned coupling lift, and
+penalty-free retry/repositioning before grasp acquisition. The policy contract is now 83/8/21, so
+do not add resume, checkpoint, load-run, or bootstrap arguments:
 
 ```bash
-python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_centered_grasp_v26
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_bilateral_grasp_v27
 ```
 
 GUI pick-and-place training check:

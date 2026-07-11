@@ -968,19 +968,10 @@ class CurriculumCfg:
 
 @configclass
 class CurriculumCfgV18(CurriculumCfg):
-    """Delay the full lost-hold cost until a fresh policy can discover grasping."""
+    """Keep task outcome costs stationary while a fresh policy discovers grasping."""
 
     action_rate = None
     joint_vel = None
-    failed_place = CurrTerm(
-        func=mdp.ramp_reward_weight,
-        params={
-            "term_name": "failed_place",
-            "weight": -100.0,
-            "start_num_steps": 4_800,
-            "end_num_steps": 14_400,
-        },
-    )
 
 
 @configclass
@@ -1049,15 +1040,10 @@ class RewardsCfgV18:
         params={"event_name": "just_grasp_candidate"},
         weight=10.0,
     )
-    grasp_retry = RewTerm(
-        func=mdp.task_event_reward,
-        params={"event_name": "just_grasp_retry"},
-        weight=-10.0,
-    )
     grasp_acquired = RewTerm(
         func=mdp.task_event_reward,
         params={"event_name": "just_grasped"},
-        weight=20.0,
+        weight=50.0,
     )
     lift_completed = RewTerm(
         func=mdp.task_event_reward,
@@ -1080,13 +1066,19 @@ class RewardsCfgV18:
         weight=200.0,
     )
     failed_place = RewTerm(
-        func=mdp.task_event_reward,
-        params={"event_name": "failed"},
-        weight=-50.0,
+        func=mdp.task_failure_with_post_grasp_cost,
+        params={"post_grasp_multiplier": 2.0},
+        weight=-55.0,
     )
 
-    incomplete_timeout = RewTerm(func=mdp.task_timeout_without_success, weight=-50.0)
+    incomplete_timeout = RewTerm(
+        func=mdp.task_timeout_without_success,
+        params={"post_grasp_multiplier": 2.0},
+        weight=-50.0,
+    )
     elapsed_time = RewTerm(func=mdp.constant_penalty, weight=-0.5)
+    pregrasp_delay = RewTerm(func=mdp.task_pregrasp_delay_penalty, weight=-7.5)
+    preassist_delay = RewTerm(func=mdp.task_preassist_delay_penalty, weight=-15.0)
     gripper_action_phase_error = RewTerm(func=mdp.task_gripper_action_phase_error, weight=-1.0)
     carry_height_band = RewTerm(
         func=mdp.task_carry_height_band_error,
@@ -1151,7 +1143,7 @@ class TerminationsCfgV18:
             "grasp_confirm_steps": 5,
             "lift_confirm_steps": 3,
             "transport_confirm_steps": 3,
-            "candidate_min_open_fraction": 0.30,
+            "candidate_min_open_fraction": 0.08,
             "hold_min_open_fraction": 0.08,
             "alignment_target": (-0.008, 0.003, -0.028),
             "alignment_lower_bounds": (-0.020, -0.005, -0.040),
@@ -1163,13 +1155,16 @@ class TerminationsCfgV18:
             "alignment_hold_max_finger_asymmetry": 0.012,
             "alignment_max_relative_speed": 0.10,
             "preclose_min_open_fraction": 0.85,
-            "closing_min_steps": 8,
+            "alignment_confirm_steps": 3,
+            "contact_max_gripper_speed": 0.03,
+            "contact_max_aperture_asymmetry": 0.20,
+            "closing_min_steps": 10,
             "contact_confirm_steps": 3,
-            "attempt_lost_confirm_steps": 3,
-            "closing_timeout_steps": 18,
-            "verification_timeout_steps": 30,
-            "retry_cooldown_steps": 3,
-            "max_grasp_attempts": 3,
+            "attempt_lost_confirm_steps": 6,
+            "closing_timeout_steps": 30,
+            "verification_timeout_steps": 90,
+            "reopen_arm_hold_steps": 12,
+            "retry_cooldown_steps": 6,
             "coupling_object_lift": 0.012,
             "coupling_tcp_lift": 0.010,
             "coupling_max_displacement_error": 0.012,
@@ -1313,10 +1308,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             handoff_steps=12,
             damping=0.08,
             outer_xy_threshold=STAGE_ASSIST_OUTER_XY_THRESHOLD,
-            grasp_verification_height=0.018,
-            grasp_verification_step=0.018,
-            grasp_verification_max_joint_step=0.05,
-            grasp_handoff_steps=6,
+            grasp_handoff_steps=12,
         )
         self.actions.gripper_action = mdp.HystereticBinaryJointPositionActionCfg(
             asset_name="robot",

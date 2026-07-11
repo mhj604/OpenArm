@@ -42,7 +42,7 @@ class OpenArmTestUsdPickPlaceStagePPORunnerCfg(OpenArmTestUsdPickPlacePPORunnerC
     num_steps_per_env = 48
     max_iterations = 5000
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=0.05,
+        init_noise_std=0.15,
         noise_std_type="log",
         actor_obs_normalization=False,
         critic_obs_normalization=False,
@@ -54,7 +54,7 @@ class OpenArmTestUsdPickPlaceStagePPORunnerCfg(OpenArmTestUsdPickPlacePPORunnerC
         value_loss_coef=0.25,
         use_clipped_value_loss=True,
         clip_param=0.1,
-        entropy_coef=0.0,
+        entropy_coef=0.0001,
         num_learning_epochs=2,
         num_mini_batches=24,
         learning_rate=5.0e-6,
