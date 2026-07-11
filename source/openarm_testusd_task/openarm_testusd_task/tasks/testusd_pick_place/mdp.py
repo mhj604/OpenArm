@@ -2405,6 +2405,31 @@ def task_pregrasp_delay_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return (~state.grasp_acquired & ~state.failed).float()
 
 
+def task_pregrasp_centering_reward(
+    env: ManagerBasedRLEnv,
+    quality_scale: float,
+    dwell_scale: float,
+) -> torch.Tensor:
+    """Reward current centered alignment and consecutive dwell while the actor owns the arm."""
+
+    state: TaskStateTracker = env._openarm_pick_place_state
+    actor_controlled = ~state.assist_owns_arm
+    active = (
+        ~state.grasp_acquired
+        & ~state.grasp_attempt_active
+        & ~state.failed
+        & actor_controlled
+    )
+    quality = torch.clamp(state.grasp_alignment_quality, min=0.0, max=1.0)
+    actor_dwell_steps = max(state._alignment_confirm_steps - 1, 1)
+    dwell = torch.clamp(
+        state.grasp_alignment_streak.float() / actor_dwell_steps,
+        min=0.0,
+        max=1.0,
+    )
+    return active.float() * (quality_scale * quality + dwell_scale * dwell)
+
+
 class task_potential_progress(ManagerTermBase):
     """Reward bounded progress without repaying approach or lift cycles."""
 

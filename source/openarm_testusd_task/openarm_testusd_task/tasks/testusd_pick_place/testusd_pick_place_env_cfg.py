@@ -33,7 +33,8 @@ ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
 EPISODE_LENGTH_S = 16.0
 
 # Workspace coordinates are expressed in the robot root frame unless noted otherwise.
-OBJECT_START_POS_W = (0.40, -0.10, 0.625)
+# Keep enough finger clearance from the basket wall on the cube-facing side.
+OBJECT_START_POS_W = (0.40, -0.15, 0.625)
 OBJECT_START_POS_B = (
     OBJECT_START_POS_W[0] - ROBOT_ROOT_POS[0],
     OBJECT_START_POS_W[1] - ROBOT_ROOT_POS[1],
@@ -101,13 +102,13 @@ RIGHT_HAND_BODY_NAME = "openarm_right_hand"
 RIGHT_EE_BODY_NAME = "openarm_right_ee_tcp"
 RIGHT_FINGER_BODY_NAMES = ["openarm_right_left_finger", "openarm_right_right_finger"]
 RIGHT_READY_JOINT_POS = {
-    "openarm_right_joint1": 0.84664,
-    "openarm_right_joint2": -0.17450,
-    "openarm_right_joint3": -0.57209,
-    "openarm_right_joint4": 0.00010,
-    "openarm_right_joint5": 1.04863,
-    "openarm_right_joint6": -0.45328,
-    "openarm_right_joint7": -0.09522,
+    "openarm_right_joint1": 0.710210,
+    "openarm_right_joint2": 0.028596,
+    "openarm_right_joint3": -0.575045,
+    "openarm_right_joint4": 0.328137,
+    "openarm_right_joint5": 0.987903,
+    "openarm_right_joint6": -0.490837,
+    "openarm_right_joint7": -0.247898,
 }
 
 
@@ -978,6 +979,8 @@ class CurriculumCfgV18(CurriculumCfg):
 class ObservationsCfgV18:
     @configclass
     class PolicyCfg(ObservationsCfg.PolicyCfg):
+        # Raw sampled actions differ from deterministic play and from targets overridden by the task FSM.
+        actions = None
         target_object_position = ObsTerm(
             func=mdp.transport_goal_command,
             params={
@@ -1005,10 +1008,13 @@ class ObservationsCfgV18:
 class RewardsCfgV18:
     """Rewards for actions the learned actor controls; assist-generated motion is excluded."""
 
-    approach_progress = RewTerm(
-        func=mdp.task_potential_progress,
-        params={"mode": "approach", "max_step_change": 0.20},
-        weight=30.0,
+    pregrasp_centering = RewTerm(
+        func=mdp.task_pregrasp_centering_reward,
+        params={
+            "quality_scale": 5.0,
+            "dwell_scale": 1.0,
+        },
+        weight=1.0,
     )
     lift_progress = RewTerm(
         func=mdp.task_potential_progress,
@@ -1087,11 +1093,6 @@ class RewardsCfgV18:
             "maximum_height": STAGE_CARRY_MAX_HEIGHT_W,
         },
         weight=-10.0,
-    )
-    action_rate = RewTerm(
-        func=mdp.task_actor_action_rate_l2,
-        weight=-1e-4,
-        params={"max_rate": 2.0},
     )
     right_hand_table_clearance = RewTerm(
         func=mdp.task_actor_body_clearance,

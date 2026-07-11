@@ -50,22 +50,28 @@ Static GUI check:
 python scripts/environments/static_viewer.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1 --device cuda
 ```
 
-Headless pick-and-place training:
+Legacy base-task smoke only; this is not the current Stage policy workflow:
 
 ```bash
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
 
-Train v27 completely from scratch. It keeps the v25 post-grasp transport/place controller, but uses
-a stable centered-grasp dwell, bilateral stopped-finger contact, actor-owned coupling lift, and
-penalty-free retry/repositioning before grasp acquisition. The policy contract is now 83/8/21, so
-do not add resume, checkpoint, load-run, or bootstrap arguments:
+Train v28 completely from scratch. The cube is moved 5 cm toward the right arm with a matching ready
+pose, leaving physical finger clearance from the basket wall without changing the initial grasp
+alignment. Current centered alignment and consecutive dwell replace the best-only approach reward.
+Raw sampled actions are removed from the observation, and the initial Stage exploration noise is
+reduced to target a smaller sampled-versus-mean gap. The policy contract is now 75/8/20, so do
+not add resume, checkpoint, load-run, or bootstrap arguments:
 
 ```bash
-python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_bilateral_grasp_v27
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_clearance_mean_grasp_v28
 ```
 
-GUI pick-and-place training check:
+TensorBoard uses sampled Gaussian actions and is a training diagnostic, not a checkpoint acceptance
+test. Select checkpoints only with actor-mean, first-complete-episode evaluation; require physical
+`lift_completed` and `validated_transport`, then confirm the same actor mean in the GUI.
+
+Legacy base-task GUI smoke only; use Stage-Play below for checkpoint evaluation:
 
 ```bash
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 16 --device cuda --max_iterations 200
@@ -74,7 +80,7 @@ python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --nu
 Play a stage-aligned pick-and-place checkpoint:
 
 ```bash
-python scripts/rsl_rl/play.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0 --num_envs=1 --device=cuda --checkpoint=logs/rsl_rl/openarm_testusd_bi_pick_place/<run>/model_<N>.pt --real-time
+python scripts/rsl_rl/play.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0 --num_envs=1 --device=cuda --seed=42 --checkpoint=logs/rsl_rl/openarm_testusd_bi_pick_place/<run>/model_<N>.pt --real-time
 ```
 
 Reach training remains available:
