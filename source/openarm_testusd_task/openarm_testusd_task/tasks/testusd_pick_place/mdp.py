@@ -85,6 +85,12 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_object_height",
             "task_release_target_height",
             "task_release_height_error",
+            "task_release_command_height",
+            "task_release_command_height_error",
+            "task_release_command_speed",
+            "task_actual_release_height",
+            "task_actual_release_height_error",
+            "task_actual_release_speed",
             "task_release_curriculum_progress",
             "task_object_speed",
             "task_object_xy_speed",
@@ -193,6 +199,16 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_object_height"] = state.object_height.clone()
             self.metrics["task_release_target_height"] = state.release_target_height.clone()
             self.metrics["task_release_height_error"] = state.release_height_error.clone()
+            self.metrics["task_release_command_height"] = state.release_command_height.clone()
+            self.metrics["task_release_command_height_error"] = (
+                state.release_command_height_error.clone()
+            )
+            self.metrics["task_release_command_speed"] = state.release_command_speed.clone()
+            self.metrics["task_actual_release_height"] = state.actual_release_height.clone()
+            self.metrics["task_actual_release_height_error"] = (
+                state.actual_release_height_error.clone()
+            )
+            self.metrics["task_actual_release_speed"] = state.actual_release_speed.clone()
             self.metrics["task_release_curriculum_progress"] = state.release_curriculum_progress.clone()
             self.metrics["task_object_speed"] = state.object_speed.clone()
             self.metrics["task_object_xy_speed"] = state.object_xy_speed.clone()
@@ -1515,6 +1531,12 @@ class TaskStateTracker(ManagerTermBase):
         self.release_target_height = torch.zeros_like(self.finger_proximity)
         self.release_height_delta = torch.zeros_like(self.finger_proximity)
         self.release_height_error = torch.zeros_like(self.finger_proximity)
+        self.release_command_height = torch.zeros_like(self.finger_proximity)
+        self.release_command_height_error = torch.zeros_like(self.finger_proximity)
+        self.release_command_speed = torch.zeros_like(self.finger_proximity)
+        self.actual_release_height = torch.zeros_like(self.finger_proximity)
+        self.actual_release_height_error = torch.zeros_like(self.finger_proximity)
+        self.actual_release_speed = torch.zeros_like(self.finger_proximity)
         self.release_curriculum_progress = torch.zeros_like(self.finger_proximity)
         self.grasp_candidate_object_origin = torch.zeros((env.num_envs, 3), device=env.device)
         self.grasp_candidate_tcp_origin = torch.zeros((env.num_envs, 3), device=env.device)
@@ -1572,7 +1594,7 @@ class TaskStateTracker(ManagerTermBase):
         self._grasp_body_cfg = params["grasp_body_cfg"]
         self._tcp_body_cfg = params["tcp_body_cfg"]
         self._gripper_cfg = params["gripper_cfg"]
-        levels = cfg.params.get("release_height_levels", (0.73, 0.674))
+        levels = cfg.params.get("release_height_levels", (0.73, 0.670))
         probabilities = cfg.params.get("release_height_probabilities", (0.40, 0.60))
         if len(levels) == 0 or len(levels) != len(probabilities):
             raise ValueError("release height levels and probabilities must have the same non-zero length")
@@ -1581,7 +1603,7 @@ class TaskStateTracker(ManagerTermBase):
         self._release_height_levels = torch.tensor(levels, device=env.device, dtype=torch.float32)
         self._release_height_probabilities = torch.tensor(probabilities, device=env.device, dtype=torch.float32)
         self._release_height_probabilities /= torch.sum(self._release_height_probabilities)
-        normalization_bounds = cfg.params.get("release_height_normalization_bounds", (0.674, 0.75))
+        normalization_bounds = cfg.params.get("release_height_normalization_bounds", (0.670, 0.75))
         if len(normalization_bounds) != 2 or normalization_bounds[1] <= normalization_bounds[0]:
             raise ValueError("release height normalization bounds must be an increasing pair")
         if min(levels) < normalization_bounds[0] or max(levels) > normalization_bounds[1]:
@@ -1618,7 +1640,11 @@ class TaskStateTracker(ManagerTermBase):
     def request_release(self, request_mask: torch.Tensor):
         """Latch only a release request that passed the current physical readiness guard."""
 
-        self.release_commanded |= request_mask & ~self.release_commanded
+        new_request = request_mask & ~self.release_commanded
+        self.release_command_height[new_request] = self.object_height[new_request]
+        self.release_command_height_error[new_request] = self.release_height_error[new_request]
+        self.release_command_speed[new_request] = self.object_speed[new_request]
+        self.release_commanded |= new_request
 
     def update_grasp_geometry(self, env: ManagerBasedRLEnv):
         """Refresh measured grasp geometry for both the action and termination phases."""
@@ -1780,7 +1806,8 @@ class TaskStateTracker(ManagerTermBase):
         release_xy_threshold: float,
         success_xy_threshold: float,
         basket_exit_xy_threshold: float,
-        release_height_tolerance: float,
+        release_height_above_tolerance: float,
+        release_height_below_tolerance: float,
         settle_height_tolerance: float,
         release_max_speed: float,
         settle_max_speed: float,
@@ -2141,7 +2168,8 @@ class TaskStateTracker(ManagerTermBase):
             & self.validated_transport
             & self.place_centered
             & self.inside_release_xy
-            & (self.release_height_error <= release_height_tolerance)
+            & (self.release_height_delta >= -release_height_above_tolerance)
+            & (self.release_height_delta <= release_height_below_tolerance)
             & (self.object_speed <= release_max_speed)
         )
         self.ready_streak[:] = torch.where(
@@ -2166,6 +2194,21 @@ class TaskStateTracker(ManagerTermBase):
             & (self.bilateral_open_fraction >= 0.70)
         )
         self.just_released[:] = self.released & ~previous_released
+        self.actual_release_height[:] = torch.where(
+            self.just_released,
+            self.object_height,
+            self.actual_release_height,
+        )
+        self.actual_release_height_error[:] = torch.where(
+            self.just_released,
+            self.release_height_error,
+            self.actual_release_height_error,
+        )
+        self.actual_release_speed[:] = torch.where(
+            self.just_released,
+            self.object_speed,
+            self.actual_release_speed,
+        )
         opening = self.release_commanded & ~self.released
         release_open_timeout_steps = release_open_grace_steps + lost_confirm_steps
         self.opening_streak[:] = torch.where(

@@ -57,7 +57,7 @@ class OpenArmTestUsdPickPlaceStagePPORunnerCfg(OpenArmTestUsdPickPlacePPORunnerC
         entropy_coef=0.0,
         num_learning_epochs=2,
         num_mini_batches=24,
-        learning_rate=5.0e-6,
+        learning_rate=2.5e-6,
         schedule="fixed",
         gamma=0.995,
         lam=0.95,

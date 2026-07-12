@@ -59,15 +59,16 @@ Legacy base-task smoke only; this is not the current Stage policy workflow:
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
 
-Train v30 completely from scratch. It retains the validated v29 transport, assist, and release
-controller. Grasp closure now requires four stable alignment controls, and the one-shot ready and
-physical-contact rewards are strengthened without relaxing any bilateral contact or coupling gate.
-The persistent pre-grasp reward remains below the time cost, so centered hovering is still
-unprofitable. The final release target is lowered by another geometry-safe 1 mm. The policy contract
-remains 75/8/20, so do not add resume, checkpoint, load-run, or bootstrap arguments:
+Train v31 completely from scratch. It restores the validated v28/v29 three-control grasp entry while
+retaining v30's one-shot ready and physical-contact bonuses. The strict bilateral contact, coupled
+object/TCP lift, v29 transport slew, assist handoff, and release hold remain unchanged. The final
+release is now authorized only within 2 mm above or 3 mm below the 0.670 m target and below 0.06 m/s.
+The Stage learning rate is halved for the long run to reduce post-peak policy drift. Configuration
+defaults already select CUDA and 5000 iterations; do not add resume, checkpoint, load-run, or
+bootstrap arguments:
 
 ```bash
-python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_stable_grasp_lower_place_v30
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless
 ```
 
 TensorBoard uses sampled Gaussian actions and is a training diagnostic, not a checkpoint acceptance

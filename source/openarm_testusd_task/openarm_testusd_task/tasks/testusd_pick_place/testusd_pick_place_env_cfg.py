@@ -45,8 +45,8 @@ BASKET_CENTER_POS_B = (0.48, 0.17, 0.30)
 BASKET_PRIM_TRANSLATION = (0.2833333333333334, -0.28, 0.9925656570552239)
 # Reachable point inside the basket for the right arm at the final place height.
 BASKET_SETTLE_POS_B = (0.37, 0.07, 0.30)
-# Keep the cube bottom just above the basket rim before release.
-BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.324)
+# Place the cube shallowly inside the basket before release.
+BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.320)
 LIFT_PROGRESS_START_HEIGHT_W = OBJECT_START_POS_W[2]
 EARLY_LIFT_HEIGHT_W = 0.645
 TRANSPORT_LIFT_HEIGHT_W = 0.64
@@ -1013,7 +1013,7 @@ class RewardsCfgV18:
         func=mdp.task_pregrasp_centering_reward,
         params={
             "quality_scale": 5.0,
-            "dwell_scale": 1.5,
+            "dwell_scale": 1.0,
         },
         weight=1.0,
     )
@@ -1119,9 +1119,9 @@ class TerminationsCfgV18:
         params={
             "object_start_height": OBJECT_START_POS_W[2],
             "carry_height": STAGE_CARRY_MIN_HEIGHT_W,
-            "release_height_levels": (0.73, 0.674),
+            "release_height_levels": (0.73, 0.670),
             "release_height_probabilities": (0.40, 0.60),
-            "release_height_normalization_bounds": (0.674, 0.75),
+            "release_height_normalization_bounds": (0.670, 0.75),
             "settle_height": 0.65,
             "centering_height": STAGE_CARRY_TARGET_HEIGHT_W,
             "assist_entry_xy_threshold": STAGE_ASSIST_ENTRY_XY_THRESHOLD,
@@ -1132,9 +1132,10 @@ class TerminationsCfgV18:
             "release_xy_threshold": 0.04,
             "success_xy_threshold": 0.05,
             "basket_exit_xy_threshold": 0.20,
-            "release_height_tolerance": 0.04,
+            "release_height_above_tolerance": 0.002,
+            "release_height_below_tolerance": 0.003,
             "settle_height_tolerance": 0.045,
-            "release_max_speed": 0.12,
+            "release_max_speed": 0.06,
             "settle_max_speed": 0.08,
             "proximity_std": GRASP_GATE_STD,
             "candidate_proximity_threshold": 0.48,
@@ -1157,7 +1158,7 @@ class TerminationsCfgV18:
             "alignment_hold_max_finger_asymmetry": 0.012,
             "alignment_max_relative_speed": 0.10,
             "preclose_min_open_fraction": 0.85,
-            "alignment_confirm_steps": 4,
+            "alignment_confirm_steps": 3,
             "contact_max_gripper_speed": 0.03,
             "contact_max_aperture_asymmetry": 0.20,
             "closing_min_steps": 10,
@@ -1285,7 +1286,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             body_name=RIGHT_EE_BODY_NAME,
             object_name="object",
             command_name="object_pose",
-            horizontal_position_gain=0.12,
+            horizontal_position_gain=0.16,
             horizontal_velocity_damping=0.25,
             vertical_position_gain=0.12,
             vertical_velocity_damping=0.30,
@@ -1303,7 +1304,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             max_nullspace_step=0.003,
             velocity_ema_decay=0.80,
             max_object_speed_for_control=0.25,
-            position_deadband=0.003,
+            position_deadband=0.002,
             cartesian_leak_tolerance=0.0002,
             slip_watchdog_threshold=0.015,
             slip_watchdog_steps=3,
@@ -1331,7 +1332,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE_PLAY(OpenArmTestUsdPickPlaceEnvCfg_STA
         self.scene.num_envs = 1
         self.observations.policy.enable_corruption = False
         self.commands.object_pose.debug_vis = True
-        self.terminations.task_state.params["release_height_levels"] = (0.674,)
+        self.terminations.task_state.params["release_height_levels"] = (0.670,)
         self.terminations.task_state.params["release_height_probabilities"] = (1.0,)
         self.commands.object_pose.ranges.pos_x = (BASKET_GOAL_POS_B[0], BASKET_GOAL_POS_B[0])
         self.commands.object_pose.ranges.pos_y = (BASKET_GOAL_POS_B[1], BASKET_GOAL_POS_B[1])

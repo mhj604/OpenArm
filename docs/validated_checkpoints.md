@@ -36,6 +36,7 @@ v29 fec454a3aec1770408a7c8d553deba3d20fd7d890531affe17f6082f20121ea3
 | 버전 | Run | 상태 |
 | --- | --- | --- |
 | v30 | `2026-07-12_22-06-37/model_1775.pt` | run 최고점 보존 및 GUI 검토 중; 이후 정책이 0%로 붕괴해 good baseline 3개에는 포함하지 않음 |
+| v31 | 아직 없음 | v29 기반 회귀 복구·정밀 release 소스 준비; fresh 학습과 GUI 검증 전이므로 good baseline에 포함하지 않음 |
 
 ## 등록 규칙
 
