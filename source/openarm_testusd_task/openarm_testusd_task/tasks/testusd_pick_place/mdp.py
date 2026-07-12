@@ -667,7 +667,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         state.assist_active[:] = assist_active
         deactivated = previously_active & ~assist_active & ~hold_recovery
         self._handoff_steps_remaining[deactivated] = self.cfg.handoff_steps
-        release_handoff = deactivated & state.released
+        release_handoff = (deactivated & state.released) | state.just_released
+        self._handoff_steps_remaining[release_handoff] = self.cfg.handoff_steps
         self._assist_joint_target[release_handoff] = current_joint_pos[release_handoff]
         newly_active = assist_active & ~self._assist_was_active
         resuming_handoff = newly_active & (self._handoff_steps_remaining > 0)
@@ -680,17 +681,23 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             fresh_assist, self._body_id
         ]
         self._slip_streak[fresh_assist] = 0
-        entry_lead = self._scale_by_max_abs(
-            policy_target - current_joint_pos, self.cfg.max_target_lead
-        )
-        self._assist_joint_target[fresh_assist] = (
-            current_joint_pos + entry_lead
-        )[fresh_assist]
+        # Start assist from the measured pose. The DLS target then builds its load-bearing
+        # lead incrementally instead of inheriting a discontinuous absolute actor target.
+        self._assist_joint_target[fresh_assist] = current_joint_pos[fresh_assist]
         self._handoff_steps_remaining[assist_active] = 0
         self._assist_was_active[:] = assist_active
         self._slip_streak[~assist_active] = 0
 
-        policy_slew = state.assist_engaged & ~assist_active & ~hold_recovery
+        # Keep the actor's absolute target bounded throughout post-grasp transport. The
+        # old finite handoff expired after 0.4 s and exposed the raw target mid-carry.
+        pre_assist_slew = (
+            state.grasp_acquired
+            & ~state.assist_engaged
+            & ~state.released
+            & ~state.failed
+        )
+        post_assist_slew = state.assist_engaged & ~assist_active & ~hold_recovery
+        policy_slew = pre_assist_slew | post_assist_slew
         policy_delta = self._scale_by_max_abs(
             policy_target - current_joint_pos, self.cfg.max_joint_step
         )
@@ -1565,7 +1572,7 @@ class TaskStateTracker(ManagerTermBase):
         self._grasp_body_cfg = params["grasp_body_cfg"]
         self._tcp_body_cfg = params["tcp_body_cfg"]
         self._gripper_cfg = params["gripper_cfg"]
-        levels = cfg.params.get("release_height_levels", (0.73, 0.68))
+        levels = cfg.params.get("release_height_levels", (0.73, 0.675))
         probabilities = cfg.params.get("release_height_probabilities", (0.40, 0.60))
         if len(levels) == 0 or len(levels) != len(probabilities):
             raise ValueError("release height levels and probabilities must have the same non-zero length")
@@ -1574,7 +1581,7 @@ class TaskStateTracker(ManagerTermBase):
         self._release_height_levels = torch.tensor(levels, device=env.device, dtype=torch.float32)
         self._release_height_probabilities = torch.tensor(probabilities, device=env.device, dtype=torch.float32)
         self._release_height_probabilities /= torch.sum(self._release_height_probabilities)
-        normalization_bounds = cfg.params.get("release_height_normalization_bounds", (0.68, 0.75))
+        normalization_bounds = cfg.params.get("release_height_normalization_bounds", (0.675, 0.75))
         if len(normalization_bounds) != 2 or normalization_bounds[1] <= normalization_bounds[0]:
             raise ValueError("release height normalization bounds must be an increasing pair")
         if min(levels) < normalization_bounds[0] or max(levels) > normalization_bounds[1]:
@@ -2410,7 +2417,7 @@ def task_pregrasp_centering_reward(
     quality_scale: float,
     dwell_scale: float,
 ) -> torch.Tensor:
-    """Reward current centered alignment and consecutive dwell while the actor owns the arm."""
+    """Reward geometry inside the same narrow basin that authorizes grasp closure."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
     actor_controlled = ~state.assist_owns_arm
@@ -2418,9 +2425,28 @@ def task_pregrasp_centering_reward(
         ~state.grasp_acquired
         & ~state.grasp_attempt_active
         & ~state.failed
+        & (state.grasp_retry_cooldown == 0)
         & actor_controlled
     )
-    quality = torch.clamp(state.grasp_alignment_quality, min=0.0, max=1.0)
+    offset_error = state.object_offset_tcp - state._alignment_target
+    negative_span = state._alignment_target - state._alignment_lower_bounds
+    positive_span = state._alignment_upper_bounds - state._alignment_target
+    gate_span = torch.where(offset_error < 0.0, negative_span, positive_span)
+    normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)
+    pose_quality = torch.exp(-0.5 * torch.sum(torch.square(normalized_offset), dim=1))
+    symmetry_quality = torch.exp(
+        -0.5
+        * torch.square(
+            state.finger_distance_asymmetry
+            / max(state._alignment_max_finger_asymmetry, 1.0e-6)
+        )
+    )
+    proximity_quality = torch.clamp(
+        state.bilateral_finger_proximity / state._candidate_proximity_threshold,
+        min=0.0,
+        max=1.0,
+    )
+    quality = pose_quality * symmetry_quality * proximity_quality
     actor_dwell_steps = max(state._alignment_confirm_steps - 1, 1)
     dwell = torch.clamp(
         state.grasp_alignment_streak.float() / actor_dwell_steps,

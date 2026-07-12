@@ -45,7 +45,8 @@ BASKET_CENTER_POS_B = (0.48, 0.17, 0.30)
 BASKET_PRIM_TRANSLATION = (0.2833333333333334, -0.28, 0.9925656570552239)
 # Reachable point inside the basket for the right arm at the final place height.
 BASKET_SETTLE_POS_B = (0.37, 0.07, 0.30)
-BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.33)
+# Keep the cube bottom just above the basket rim before release.
+BASKET_GOAL_POS_B = (BASKET_SETTLE_POS_B[0], BASKET_SETTLE_POS_B[1], 0.325)
 LIFT_PROGRESS_START_HEIGHT_W = OBJECT_START_POS_W[2]
 EARLY_LIFT_HEIGHT_W = 0.645
 TRANSPORT_LIFT_HEIGHT_W = 0.64
@@ -1118,9 +1119,9 @@ class TerminationsCfgV18:
         params={
             "object_start_height": OBJECT_START_POS_W[2],
             "carry_height": STAGE_CARRY_MIN_HEIGHT_W,
-            "release_height_levels": (0.73, 0.68),
+            "release_height_levels": (0.73, 0.675),
             "release_height_probabilities": (0.40, 0.60),
-            "release_height_normalization_bounds": (0.68, 0.75),
+            "release_height_normalization_bounds": (0.675, 0.75),
             "settle_height": 0.65,
             "centering_height": STAGE_CARRY_TARGET_HEIGHT_W,
             "assist_entry_xy_threshold": STAGE_ASSIST_ENTRY_XY_THRESHOLD,
@@ -1330,7 +1331,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE_PLAY(OpenArmTestUsdPickPlaceEnvCfg_STA
         self.scene.num_envs = 1
         self.observations.policy.enable_corruption = False
         self.commands.object_pose.debug_vis = True
-        self.terminations.task_state.params["release_height_levels"] = (0.68,)
+        self.terminations.task_state.params["release_height_levels"] = (0.675,)
         self.terminations.task_state.params["release_height_probabilities"] = (1.0,)
         self.commands.object_pose.ranges.pos_x = (BASKET_GOAL_POS_B[0], BASKET_GOAL_POS_B[0])
         self.commands.object_pose.ranges.pos_y = (BASKET_GOAL_POS_B[1], BASKET_GOAL_POS_B[1])
