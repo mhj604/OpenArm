@@ -1572,7 +1572,7 @@ class TaskStateTracker(ManagerTermBase):
         self._grasp_body_cfg = params["grasp_body_cfg"]
         self._tcp_body_cfg = params["tcp_body_cfg"]
         self._gripper_cfg = params["gripper_cfg"]
-        levels = cfg.params.get("release_height_levels", (0.73, 0.675))
+        levels = cfg.params.get("release_height_levels", (0.73, 0.674))
         probabilities = cfg.params.get("release_height_probabilities", (0.40, 0.60))
         if len(levels) == 0 or len(levels) != len(probabilities):
             raise ValueError("release height levels and probabilities must have the same non-zero length")
@@ -1581,7 +1581,7 @@ class TaskStateTracker(ManagerTermBase):
         self._release_height_levels = torch.tensor(levels, device=env.device, dtype=torch.float32)
         self._release_height_probabilities = torch.tensor(probabilities, device=env.device, dtype=torch.float32)
         self._release_height_probabilities /= torch.sum(self._release_height_probabilities)
-        normalization_bounds = cfg.params.get("release_height_normalization_bounds", (0.675, 0.75))
+        normalization_bounds = cfg.params.get("release_height_normalization_bounds", (0.674, 0.75))
         if len(normalization_bounds) != 2 or normalization_bounds[1] <= normalization_bounds[0]:
             raise ValueError("release height normalization bounds must be an increasing pair")
         if min(levels) < normalization_bounds[0] or max(levels) > normalization_bounds[1]:

@@ -36,8 +36,9 @@ Set `OPENARM_TEST_USD_PATH` to use a different local USD file.
 - Older pick-and-place checkpoints trained with the previous 15-action policy are not compatible with this task version.
 
 Daily policy/code changes are tracked in Korean under `docs/daily_changes/`.
-Selected v18-v28 checkpoints and their resolved training configurations are archived under
-`artifacts/checkpoints/openarm_pick_place/`.
+Selected v18-v29 checkpoints and their resolved training configurations are archived under
+`artifacts/checkpoints/openarm_pick_place/`. User-approved good baselines are tracked separately in
+`docs/validated_checkpoints.md`; pending training versions are not counted until GUI validation.
 
 ## Run
 
@@ -58,15 +59,15 @@ Legacy base-task smoke only; this is not the current Stage policy workflow:
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
 
-Train v29 completely from scratch. It retains the v28 scene, strict physical grasp validation, and
-successful transport/place structure. Pre-grasp shaping now uses the exact hard-gate geometry so the
-actor is driven to the closure basin instead of hovering in a broad slow-motion reward basin. The
-post-grasp absolute joint target stays slew-limited throughout actor transport, and place assist
-starts from the measured joint pose. The final release target is lowered safely by 5 mm. The policy
-contract remains 75/8/20, so do not add resume, checkpoint, load-run, or bootstrap arguments:
+Train v30 completely from scratch. It retains the validated v29 transport, assist, and release
+controller. Grasp closure now requires four stable alignment controls, and the one-shot ready and
+physical-contact rewards are strengthened without relaxing any bilateral contact or coupling gate.
+The persistent pre-grasp reward remains below the time cost, so centered hovering is still
+unprofitable. The final release target is lowered by another geometry-safe 1 mm. The policy contract
+remains 75/8/20, so do not add resume, checkpoint, load-run, or bootstrap arguments:
 
 ```bash
-python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_precise_smooth_place_v29
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_stable_grasp_lower_place_v30
 ```
 
 TensorBoard uses sampled Gaussian actions and is a training diagnostic, not a checkpoint acceptance

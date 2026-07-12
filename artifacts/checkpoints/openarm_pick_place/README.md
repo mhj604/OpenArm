@@ -1,7 +1,7 @@
 # OpenArm Pick-and-Place Checkpoint Archive
 
 This archive preserves one representative checkpoint and the resolved RSL-RL/Isaac Lab
-configuration for each policy version from v18 through v28. Raw training directories remain
+configuration for each policy version from v18 through v29. Raw training directories remain
 ignored because they contain thousands of redundant checkpoints and several gigabytes of logs.
 
 Each version directory contains:
@@ -32,6 +32,14 @@ sha256sum --check SHA256SUMS
 | v26 | `2026-07-11_05-23-39/model_125.pt` | Nearest saved model to the documented iteration-114 peak |
 | v27 | `2026-07-11_19-14-07/model_3650.pt` | Actor-mean checkpoint used to diagnose grasp failure |
 | v28 | `2026-07-12_03-16-50/model_4999.pt` | User-validated successful grasp, transport, and placement |
+| v29 | `2026-07-12_15-37-08/model_2100.pt` | User-approved optimized baseline; minor grasp/height refinements remained |
+
+## User-Approved Baselines
+
+The three user-approved good references are v18 `model_825`, v28 `model_4999`, and v29
+`model_2100`. Their validation scope and remaining caveats are recorded in
+`docs/validated_checkpoints.md` and the structured `validated_baselines` manifest field. User
+approval is intentionally distinct from the pending multi-seed formal acceptance protocol.
 
 ## Source History Boundary
 
@@ -48,6 +56,7 @@ Version-specific source boundaries are available from v25 onward:
 | v26 | `3856bcacf22a7cb773ab7ddabf1d8bbc4e4f0506` |
 | v27 | `816e94301c0edcfefc08355f170b77c4f921d8e7` |
 | v28 | `b4bedeaab9f9b4b41bb7d887d10d03c91705481f` |
+| v29 | `afe12f3a0c2f15174365fc3ff5a145bc7b8eba83` |
 
 Do not compare TensorBoard sampled-action success directly with GUI actor-mean behavior. A
 checkpoint is accepted only after actor-mean, first-complete-episode physical grasp, lift, transport,
