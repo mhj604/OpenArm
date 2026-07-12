@@ -1,0 +1,50 @@
+seed: 42
+device: cuda:0
+num_steps_per_env: 48
+max_iterations: 1500
+empirical_normalization: true
+obs_groups: {}
+clip_actions: 1.0
+save_interval: 25
+experiment_name: openarm_testusd_bi_pick_place
+run_name: hybrid_place_v18
+logger: tensorboard
+neptune_project: isaaclab
+wandb_project: isaaclab
+resume: true
+load_run: 2026-07-10_16-26-00_model650_hybrid_v18_bootstrap
+load_checkpoint: model_0.pt
+class_name: OnPolicyRunner
+policy:
+  class_name: ActorCritic
+  init_noise_std: 0.15
+  noise_std_type: log
+  state_dependent_std: false
+  actor_obs_normalization: {}
+  critic_obs_normalization: {}
+  actor_hidden_dims:
+  - 256
+  - 128
+  - 64
+  critic_hidden_dims:
+  - 256
+  - 128
+  - 64
+  activation: elu
+algorithm:
+  class_name: PPO
+  num_learning_epochs: 2
+  num_mini_batches: 16
+  learning_rate: 2.0e-05
+  schedule: fixed
+  gamma: 0.995
+  lam: 0.95
+  entropy_coef: 0.0005
+  desired_kl: 0.006
+  max_grad_norm: 0.25
+  value_loss_coef: 0.25
+  use_clipped_value_loss: true
+  clip_param: 0.1
+  normalize_advantage_per_mini_batch: false
+  rnd_cfg: null
+  symmetry_cfg: null

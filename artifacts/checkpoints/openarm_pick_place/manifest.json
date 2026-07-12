@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "archive": "openarm_pick_place_v18_v28",
+  "task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0",
+  "play_task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0",
+  "checkpoint_filename": "checkpoint.pt",
+  "source_history": {
+    "v18_v24": "No exact standalone source commits exist; changes first appear cumulatively in 4455992afa7f72d129a71c4677ed1f6ad6a7d383.",
+    "v25": "4455992afa7f72d129a71c4677ed1f6ad6a7d383",
+    "v26": "3856bcacf22a7cb773ab7ddabf1d8bbc4e4f0506",
+    "v27": "816e94301c0edcfefc08355f170b77c4f921d8e7",
+    "v28": "b4bedeaab9f9b4b41bb7d887d10d03c91705481f"
+  },
+  "checkpoints": [
+    {
+      "version": "v18",
+      "source_run": "2026-07-10_16-30-21_hybrid_place_v18",
+      "source_checkpoint": "model_825.pt",
+      "size_bytes": 1427051,
+      "sha256": "fa0fce2fb50b6871ad04620037f8db8e24493cdbb728e1023e45dadaa85e6d8e",
+      "selection": "User-requested historical grasp and transport reference."
+    },
+    {
+      "version": "v19",
+      "source_run": "2026-07-10_17-55-28_reachable_place_v19",
+      "source_checkpoint": "model_900.pt",
+      "size_bytes": 1439339,
+      "sha256": "ef7bf7727bb1431f30f1202714be14f5d3d54bc037d95288966740bcb95b581d",
+      "selection": "Diagnosed stable grasp and lift with incomplete basket travel."
+    },
+    {
+      "version": "v20",
+      "source_run": "2026-07-10_19-53-47_legacy_transport_assisted_place_v20",
+      "source_checkpoint": "model_225.pt",
+      "size_bytes": 1445483,
+      "sha256": "802caaeb1fd86f9d9986a97641eed5d2d8a260ec3fac620d753640b98fef080b",
+      "selection": "Strongest documented stable v20 checkpoint."
+    },
+    {
+      "version": "v21",
+      "source_run": "2026-07-10_20-39-44_stabilized_vertical_place_v21",
+      "source_checkpoint": "model_400.pt",
+      "size_bytes": 1445483,
+      "sha256": "44e62b93cd4fc69a438b14e5711101d963099b2950b26db2f812000ddb07a4d4",
+      "selection": "Representative final vertical-place policy."
+    },
+    {
+      "version": "v22",
+      "source_run": "2026-07-10_21-32-18",
+      "source_checkpoint": "model_1300.pt",
+      "size_bytes": 1476277,
+      "sha256": "d0b7a12863a8eebd369a0a5fd8461f3095da881a567c0cfd3431d18008206a27",
+      "selection": "Nearest saved model to the documented iteration-1304 diagnosis."
+    },
+    {
+      "version": "v23",
+      "source_run": "2026-07-10_23-12-11",
+      "source_checkpoint": "model_500.pt",
+      "size_bytes": 1476203,
+      "sha256": "1e5eb3a813ea3ffb7c4e1563a2f127b50fd9ce6cbf5a838bfaadb61bb6a09578",
+      "selection": "Documented grasp, lift, and assist learning checkpoint."
+    },
+    {
+      "version": "v24",
+      "source_run": "2026-07-11_00-21-25",
+      "source_checkpoint": "model_1125.pt",
+      "size_bytes": 1476277,
+      "sha256": "40dc3b84be94aaaf17b2c52d9e02b091d12524fe4aa132b11c0a3c9119e251d1",
+      "selection": "GUI-reviewed checkpoint exposing the metric and behavior mismatch."
+    },
+    {
+      "version": "v25",
+      "source_run": "2026-07-11_02-45-03",
+      "source_checkpoint": "model_1000.pt",
+      "size_bytes": 1476277,
+      "sha256": "ac23a9818567594a09c6368512ec4b43b27c48c4e0209dd2ad05b24c12defe7f",
+      "selection": "Sampled-policy peak used for deterministic validation work."
+    },
+    {
+      "version": "v26",
+      "source_run": "2026-07-11_05-23-39",
+      "source_checkpoint": "model_125.pt",
+      "size_bytes": 1476203,
+      "sha256": "213b365ecb8570ddb505c3da96bd5c0c542a799f3dd44425072155323a3a04e4",
+      "selection": "Nearest saved model to the documented iteration-114 peak."
+    },
+    {
+      "version": "v27",
+      "source_run": "2026-07-11_19-14-07",
+      "source_checkpoint": "model_3650.pt",
+      "size_bytes": 1531573,
+      "sha256": "47d8fd454857963a0b687d735ca76a4671deca991dc2ca8a0291968597c79600",
+      "selection": "Actor-mean checkpoint used to diagnose the physical-grasp failure."
+    },
+    {
+      "version": "v28",
+      "source_run": "2026-07-12_03-16-50",
+      "source_checkpoint": "model_4999.pt",
+      "size_bytes": 1482421,
+      "sha256": "0b165eaf5e8e087b856fd53111981a0433e4ee248f6bf108363b3ca4609dbf84",
+      "selection": "User-validated successful grasp, transport, and placement."
+    }
+  ]
+}

@@ -6,6 +6,10 @@ outputs/
 runs/
 wandb/
 
+# Training checkpoints are opt-in artifacts. Keep raw runs out of Git.
+*.pt
+!artifacts/checkpoints/**/checkpoint.pt
+
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
