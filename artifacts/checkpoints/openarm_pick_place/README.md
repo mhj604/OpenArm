@@ -1,7 +1,7 @@
 # OpenArm Pick-and-Place Checkpoint Archive
 
 This archive preserves one representative checkpoint and the resolved RSL-RL/Isaac Lab
-configuration for each policy version from v18 through v29. Raw training directories remain
+configuration for each policy version from v18 through v30. Raw training directories remain
 ignored because they contain thousands of redundant checkpoints and several gigabytes of logs.
 
 Each version directory contains:
@@ -33,13 +33,15 @@ sha256sum --check SHA256SUMS
 | v27 | `2026-07-11_19-14-07/model_3650.pt` | Actor-mean checkpoint used to diagnose grasp failure |
 | v28 | `2026-07-12_03-16-50/model_4999.pt` | User-validated successful grasp, transport, and placement |
 | v29 | `2026-07-12_15-37-08/model_2100.pt` | User-approved optimized baseline; minor grasp/height refinements remained |
+| v30 | `2026-07-12_22-06-37/model_1775.pt` | Best sampled window in a run that later collapsed; diagnostic candidate only |
 
 ## User-Approved Baselines
 
 The three user-approved good references are v18 `model_825`, v28 `model_4999`, and v29
 `model_2100`. Their validation scope and remaining caveats are recorded in
 `docs/validated_checkpoints.md` and the structured `validated_baselines` manifest field. User
-approval is intentionally distinct from the pending multi-seed formal acceptance protocol.
+approval is intentionally distinct from the pending multi-seed formal acceptance protocol. v30 is
+not one of these three baselines; its best-of-run checkpoint is retained for diagnosis and GUI review.
 
 ## Source History Boundary
 
@@ -57,6 +59,7 @@ Version-specific source boundaries are available from v25 onward:
 | v27 | `816e94301c0edcfefc08355f170b77c4f921d8e7` |
 | v28 | `b4bedeaab9f9b4b41bb7d887d10d03c91705481f` |
 | v29 | `afe12f3a0c2f15174365fc3ff5a145bc7b8eba83` |
+| v30 | `cbd5ac941c6c3bdb0f5859186f7de7da8d84e64f` |
 
 Do not compare TensorBoard sampled-action success directly with GUI actor-mean behavior. A
 checkpoint is accepted only after actor-mean, first-complete-episode physical grasp, lift, transport,

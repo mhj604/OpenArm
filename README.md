@@ -36,7 +36,7 @@ Set `OPENARM_TEST_USD_PATH` to use a different local USD file.
 - Older pick-and-place checkpoints trained with the previous 15-action policy are not compatible with this task version.
 
 Daily policy/code changes are tracked in Korean under `docs/daily_changes/`.
-Selected v18-v29 checkpoints and their resolved training configurations are archived under
+Selected v18-v30 checkpoints and their resolved training configurations are archived under
 `artifacts/checkpoints/openarm_pick_place/`. User-approved good baselines are tracked separately in
 `docs/validated_checkpoints.md`; pending training versions are not counted until GUI validation.
 

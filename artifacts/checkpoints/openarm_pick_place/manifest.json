@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "archive": "openarm_pick_place_v18_v29",
+  "archive": "openarm_pick_place_v18_v30",
   "task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0",
   "play_task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0",
   "checkpoint_filename": "checkpoint.pt",
@@ -10,7 +10,8 @@
     "v26": "3856bcacf22a7cb773ab7ddabf1d8bbc4e4f0506",
     "v27": "816e94301c0edcfefc08355f170b77c4f921d8e7",
     "v28": "b4bedeaab9f9b4b41bb7d887d10d03c91705481f",
-    "v29": "afe12f3a0c2f15174365fc3ff5a145bc7b8eba83"
+    "v29": "afe12f3a0c2f15174365fc3ff5a145bc7b8eba83",
+    "v30": "cbd5ac941c6c3bdb0f5859186f7de7da8d84e64f"
   },
   "validated_baselines": [
     {
@@ -128,6 +129,14 @@
       "size_bytes": 1482421,
       "sha256": "fec454a3aec1770408a7c8d553deba3d20fd7d890531affe17f6082f20121ea3",
       "selection": "User-approved optimized baseline with only grasp-probability and final-height refinements remaining."
+    },
+    {
+      "version": "v30",
+      "source_run": "2026-07-12_22-06-37",
+      "source_checkpoint": "model_1775.pt",
+      "size_bytes": 1482421,
+      "sha256": "069f83ee7820fd7b803eefc8b854fd0a2e55d1e0a9bcc18e4a9a6f01cfafc94a",
+      "selection": "Best rolling-50 sampled checkpoint in v30; the run later collapsed to zero grasp and this remains a diagnostic candidate, not a user-approved baseline."
     }
   ]
 }
