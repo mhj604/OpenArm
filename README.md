@@ -59,16 +59,16 @@ Legacy base-task smoke only; this is not the current Stage policy workflow:
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-v0 --num_envs 1024 --device cuda --max_iterations 5000 --headless
 ```
 
-Train v31 completely from scratch. It restores the validated v28/v29 three-control grasp entry while
-retaining v30's one-shot ready and physical-contact bonuses. The strict bilateral contact, coupled
-object/TCP lift, v29 transport slew, assist handoff, and release hold remain unchanged. The final
-release is now authorized only within 2 mm above or 3 mm below the 0.670 m target and below 0.06 m/s.
-The Stage learning rate is halved for the long run to reduce post-peak policy drift. Configuration
+Train v32 completely from scratch. It keeps v31's strict bilateral grasp, coupled object/TCP lift,
+transport slew, exact release gate, and motion caps. PlaceAssist now follows a monotonic two-stage
+smoothstep: it descends while completing XY motion instead of waiting above the basket and then moving
+straight down. Terminal penalties remain doubled only while the learned actor owns post-grasp
+transport; controller-owned final alignment no longer teaches PPO to avoid grasping. Configuration
 defaults already select CUDA and 5000 iterations; do not add resume, checkpoint, load-run, or
 bootstrap arguments:
 
 ```bash
-python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --run_name=fresh_coupled_descent_v32
 ```
 
 TensorBoard uses sampled Gaussian actions and is a training diagnostic, not a checkpoint acceptance

@@ -97,6 +97,8 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_object_vertical_speed",
             "task_distance_xy",
             "task_centering_height_error",
+            "task_descent_progress",
+            "task_descent_target_height",
             "task_assist_control_steps",
             "task_assist_requested_vertical_step",
             "task_assist_incremental_vertical_step",
@@ -215,6 +217,8 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_object_vertical_speed"] = state.object_vertical_speed.clone()
             self.metrics["task_distance_xy"] = state.distance_xy.clone()
             self.metrics["task_centering_height_error"] = state.centering_height_error.clone()
+            self.metrics["task_descent_progress"] = state.descent_progress.clone()
+            self.metrics["task_descent_target_height"] = state.descent_target_height.clone()
             arm_action = self._env.action_manager.get_term("arm_action")
             if hasattr(arm_action, "assist_vertical_step"):
                 self.metrics["task_assist_control_steps"].add_(state.assist_active.float())
@@ -769,11 +773,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         command = self._env.command_manager.get_command(self.cfg.command_name)
         goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
         target_object_position = goal_pos_w[assist_ids, :3].clone()
-        target_object_position[:, 2] = torch.where(
-            state.place_centered[assist_ids],
-            state.release_target_height[assist_ids],
-            self.cfg.centering_height,
-        )
+        target_object_position[:, 2] = state.descent_target_height[assist_ids]
         object_error = target_object_position - obj.data.root_pos_w[assist_ids]
         filtered_velocity = self._filtered_object_velocity[assist_ids]
         delta_position[:, :2] = self._bounded_direction_step(
@@ -949,7 +949,6 @@ class PlaceAssistJointPositionActionCfg(JointPositionActionCfg):
     horizontal_velocity_damping: float = 0.25
     vertical_position_gain: float = 0.12
     vertical_velocity_damping: float = 0.30
-    centering_height: float = 0.75
     max_horizontal_step: float = 0.0020
     max_vertical_step: float = 0.0030
     max_upward_step: float = 0.0025
@@ -1528,6 +1527,8 @@ class TaskStateTracker(ManagerTermBase):
         self.object_vertical_speed = torch.zeros_like(self.finger_proximity)
         self.object_height = torch.zeros_like(self.finger_proximity)
         self.centering_height_error = torch.zeros_like(self.finger_proximity)
+        self.descent_progress = torch.zeros_like(self.finger_proximity)
+        self.descent_target_height = torch.zeros_like(self.finger_proximity)
         self.release_target_height = torch.zeros_like(self.finger_proximity)
         self.release_height_delta = torch.zeros_like(self.finger_proximity)
         self.release_height_error = torch.zeros_like(self.finger_proximity)
@@ -1610,6 +1611,17 @@ class TaskStateTracker(ManagerTermBase):
             raise ValueError("release height levels must stay inside the fixed normalization bounds")
         self._release_height_min = float(normalization_bounds[0])
         self._release_height_max = float(normalization_bounds[1])
+        self._centering_height = float(params["centering_height"])
+        self._descent_start_xy = float(params["descent_start_xy_threshold"])
+        self._descent_transition_xy = float(params["descent_transition_xy_threshold"])
+        self._descent_end_xy = float(params["descent_end_xy_threshold"])
+        self._preplace_height_above_release = float(params["preplace_height_above_release"])
+        if not self._descent_start_xy > self._descent_transition_xy > self._descent_end_xy >= 0.0:
+            raise ValueError("descent XY thresholds must be strictly decreasing and non-negative")
+        if self._preplace_height_above_release < 0.0:
+            raise ValueError("preplace height above release must be non-negative")
+        if max(levels) > self._centering_height:
+            raise ValueError("release height levels must not exceed the centering height")
         self._place_center_confirm_steps = int(cfg.params.get("place_center_confirm_steps", 5))
         self._grasp_confirm_steps = int(cfg.params.get("grasp_confirm_steps", 5))
         self._lift_confirm_steps = int(cfg.params.get("lift_confirm_steps", 3))
@@ -1622,7 +1634,35 @@ class TaskStateTracker(ManagerTermBase):
         self._released_outside_confirm_steps = int(cfg.params.get("released_outside_confirm_steps", 6))
         self._settle_confirm_steps = int(cfg.params.get("settle_confirm_steps", 10))
         self._sample_release_targets(torch.arange(env.num_envs, device=env.device))
+        self.descent_target_height.fill_(self._centering_height)
         env._openarm_pick_place_state = self
+
+    @staticmethod
+    def _smoothstep01(progress: torch.Tensor) -> torch.Tensor:
+        progress = torch.clamp(progress, min=0.0, max=1.0)
+        return progress * progress * (3.0 - 2.0 * progress)
+
+    def _descent_height_from_xy(self, distance_xy: torch.Tensor) -> torch.Tensor:
+        """Return the C1-continuous XY-coupled height target for the held object."""
+
+        stage_one = self._smoothstep01(
+            (self._descent_start_xy - distance_xy)
+            / (self._descent_start_xy - self._descent_transition_xy)
+        )
+        stage_two = self._smoothstep01(
+            (self._descent_transition_xy - distance_xy)
+            / (self._descent_transition_xy - self._descent_end_xy)
+        )
+        preplace_height = torch.minimum(
+            torch.full_like(self.release_target_height, self._centering_height),
+            self.release_target_height + self._preplace_height_above_release,
+        )
+        stage_one_target = self._centering_height + stage_one * (
+            preplace_height - self._centering_height
+        )
+        return stage_one_target + stage_two * (
+            self.release_target_height - preplace_height
+        )
 
     def _sample_release_targets(self, env_ids: torch.Tensor):
         if env_ids.numel() == 0:
@@ -1787,6 +1827,7 @@ class TaskStateTracker(ManagerTermBase):
                 value[resolved_env_ids] = 0
         self.gripper_target_open[resolved_env_ids] = True
         self._sample_release_targets(resolved_env_ids)
+        self.descent_target_height[resolved_env_ids] = self._centering_height
 
     def __call__(
         self,
@@ -1798,10 +1839,13 @@ class TaskStateTracker(ManagerTermBase):
         release_height_normalization_bounds: tuple[float, float],
         settle_height: float,
         centering_height: float,
+        descent_start_xy_threshold: float,
+        descent_transition_xy_threshold: float,
+        descent_end_xy_threshold: float,
+        preplace_height_above_release: float,
         assist_entry_xy_threshold: float,
         basket_entry_xy_threshold: float,
         place_center_xy_threshold: float,
-        place_center_height_tolerance: float,
         place_center_max_xy_speed: float,
         release_xy_threshold: float,
         success_xy_threshold: float,
@@ -2027,7 +2071,6 @@ class TaskStateTracker(ManagerTermBase):
         self.object_xy_speed[:] = torch.norm(obj.data.root_lin_vel_w[:, :2], dim=1)
         self.object_vertical_speed[:] = torch.abs(obj.data.root_lin_vel_w[:, 2])
         self.object_height[:] = obj.data.root_pos_w[:, 2]
-        self.centering_height_error[:] = torch.abs(obj.data.root_pos_w[:, 2] - centering_height)
         self.inside_basket_entry_xy[:] = self.distance_xy <= basket_entry_xy_threshold
         self.inside_release_xy[:] = self.distance_xy <= release_xy_threshold
         self.inside_release_safe_xy[:] = self.distance_xy <= success_xy_threshold
@@ -2133,6 +2176,34 @@ class TaskStateTracker(ManagerTermBase):
         )
         self.just_assist_engaged[:] = self.assist_engaged & ~previous_assist
 
+        raw_descent_height = self._descent_height_from_xy(self.distance_xy)
+        height_span = torch.clamp(
+            centering_height - self.release_target_height,
+            min=1.0e-6,
+        )
+        raw_descent_progress = torch.clamp(
+            (centering_height - raw_descent_height) / height_span,
+            min=0.0,
+            max=1.0,
+        )
+        descent_active = (
+            self.assist_engaged
+            & self.current_hold
+            & ~self.released
+            & ~self.failed
+        )
+        self.descent_progress[:] = torch.where(
+            descent_active,
+            torch.maximum(self.descent_progress, raw_descent_progress),
+            self.descent_progress,
+        )
+        self.descent_target_height[:] = centering_height + self.descent_progress * (
+            self.release_target_height - centering_height
+        )
+        self.centering_height_error[:] = torch.abs(
+            obj.data.root_pos_w[:, 2] - self.descent_target_height
+        )
+
         previous_basket = self.basket_reached.clone()
         self.basket_reached |= (
             self.grasp_acquired
@@ -2147,7 +2218,6 @@ class TaskStateTracker(ManagerTermBase):
             self.basket_reached
             & self.current_hold
             & (self.distance_xy <= place_center_xy_threshold)
-            & (self.centering_height_error <= place_center_height_tolerance)
             & (self.object_xy_speed <= place_center_max_xy_speed)
         )
         self.center_streak[:] = torch.where(
@@ -2409,16 +2479,17 @@ def task_event_reward(env: ManagerBasedRLEnv, event_name: str) -> torch.Tensor:
     return getattr(state, event_name).float() / env.step_dt
 
 
-def task_failure_with_post_grasp_cost(
+def task_failure_with_preassist_cost(
     env: ManagerBasedRLEnv,
-    post_grasp_multiplier: float,
+    preassist_multiplier: float,
 ) -> torch.Tensor:
-    """Charge a larger terminal cost only after a physically verified grasp."""
+    """Charge actor-owned post-grasp failures more without blaming assist control."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
+    actor_owns_transport = state.grasp_acquired & ~state.assist_engaged
     multiplier = torch.where(
-        state.grasp_acquired,
-        post_grasp_multiplier,
+        actor_owns_transport,
+        preassist_multiplier,
         1.0,
     )
     return state.failed.float() * multiplier / env.step_dt
@@ -2603,16 +2674,17 @@ def constant_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 def task_timeout_without_success(
     env: ManagerBasedRLEnv,
-    post_grasp_multiplier: float = 1.0,
+    preassist_multiplier: float = 1.0,
 ) -> torch.Tensor:
-    """Return a one-shot timeout cost, scaled after a verified grasp."""
+    """Return a one-shot timeout cost, scaled only during actor-owned transport."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
     timed_out = env.episode_length_buf >= env.max_episode_length
     incomplete = timed_out & ~state.succeeded & ~state.failed
+    actor_owns_transport = state.grasp_acquired & ~state.assist_engaged
     multiplier = torch.where(
-        state.grasp_acquired,
-        post_grasp_multiplier,
+        actor_owns_transport,
+        preassist_multiplier,
         1.0,
     )
     return incomplete.float() * multiplier / env.step_dt

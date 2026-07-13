@@ -1073,14 +1073,14 @@ class RewardsCfgV18:
         weight=200.0,
     )
     failed_place = RewTerm(
-        func=mdp.task_failure_with_post_grasp_cost,
-        params={"post_grasp_multiplier": 2.0},
+        func=mdp.task_failure_with_preassist_cost,
+        params={"preassist_multiplier": 2.0},
         weight=-55.0,
     )
 
     incomplete_timeout = RewTerm(
         func=mdp.task_timeout_without_success,
-        params={"post_grasp_multiplier": 2.0},
+        params={"preassist_multiplier": 2.0},
         weight=-50.0,
     )
     elapsed_time = RewTerm(func=mdp.constant_penalty, weight=-0.5)
@@ -1124,10 +1124,13 @@ class TerminationsCfgV18:
             "release_height_normalization_bounds": (0.670, 0.75),
             "settle_height": 0.65,
             "centering_height": STAGE_CARRY_TARGET_HEIGHT_W,
+            "descent_start_xy_threshold": 0.12,
+            "descent_transition_xy_threshold": 0.04,
+            "descent_end_xy_threshold": 0.002,
+            "preplace_height_above_release": 0.020,
             "assist_entry_xy_threshold": STAGE_ASSIST_ENTRY_XY_THRESHOLD,
             "basket_entry_xy_threshold": 0.10,
             "place_center_xy_threshold": 0.04,
-            "place_center_height_tolerance": 0.025,
             "place_center_max_xy_speed": 0.05,
             "release_xy_threshold": 0.04,
             "success_xy_threshold": 0.05,
@@ -1175,8 +1178,8 @@ class TerminationsCfgV18:
             "hold_max_offset_error": 0.025,
             "hold_max_relative_speed": 0.20,
             "transport_min_displacement": 0.05,
-            "place_center_confirm_steps": 5,
-            "release_ready_confirm_steps": 5,
+            "place_center_confirm_steps": 3,
+            "release_ready_confirm_steps": 3,
             "release_open_grace_steps": 10,
             "lost_confirm_steps": 3,
             "assist_lost_confirm_steps": 6,
@@ -1286,11 +1289,10 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             body_name=RIGHT_EE_BODY_NAME,
             object_name="object",
             command_name="object_pose",
-            horizontal_position_gain=0.16,
+            horizontal_position_gain=0.20,
             horizontal_velocity_damping=0.25,
-            vertical_position_gain=0.12,
+            vertical_position_gain=0.16,
             vertical_velocity_damping=0.30,
-            centering_height=STAGE_CARRY_TARGET_HEIGHT_W,
             max_horizontal_step=0.0025,
             max_vertical_step=0.0030,
             max_upward_step=0.0025,
