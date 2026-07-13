@@ -39,6 +39,8 @@ Daily policy/code changes are tracked in Korean under `docs/daily_changes/`.
 Selected v18-v30 checkpoints and their resolved training configurations are archived under
 `artifacts/checkpoints/openarm_pick_place/`. User-approved good baselines are tracked separately in
 `docs/validated_checkpoints.md`; pending training versions are not counted until GUI validation.
+The current operational handoff is maintained in `docs/OPENARM_HANDOFF.md`. Historical one-shot scene
+construction scripts are retained under `scripts/scene_authoring/legacy/` and are not runtime task code.
 
 ## Run
 
