@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "archive": "openarm_pick_place_v18_v30",
+  "archive": "openarm_pick_place_v18_v33",
   "task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0",
   "play_task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0",
   "checkpoint_filename": "checkpoint.pt",
@@ -11,7 +11,10 @@
     "v27": "816e94301c0edcfefc08355f170b77c4f921d8e7",
     "v28": "b4bedeaab9f9b4b41bb7d887d10d03c91705481f",
     "v29": "afe12f3a0c2f15174365fc3ff5a145bc7b8eba83",
-    "v30": "cbd5ac941c6c3bdb0f5859186f7de7da8d84e64f"
+    "v30": "cbd5ac941c6c3bdb0f5859186f7de7da8d84e64f",
+    "v31": "4b0ea6082a89cb1f94009362282c2b18464c756f",
+    "v32": "aa9ddf88a0690fa9f282bb896083377a4243bbc5",
+    "v33": "7155085720262b22dddd888f101e96a5a7f6af0c"
   },
   "validated_baselines": [
     {
@@ -31,6 +34,12 @@
       "checkpoint": "v29/checkpoint.pt",
       "status": "USER_APPROVED_WITH_CAVEATS",
       "scope": "Transport, deceleration, descent, and release accepted in GUI; grasp probability and final height remained refinement targets."
+    },
+    {
+      "version": "v33",
+      "checkpoint": "v33/checkpoint.pt",
+      "status": "USER_APPROVED_WITH_CAVEATS",
+      "scope": "Strong GUI grasp, lift, transport, and overall pick-and-place behavior; final assist latency, basket-rim interference, and timeout remain refinement targets."
     }
   ],
   "checkpoints": [
@@ -137,6 +146,14 @@
       "size_bytes": 1482421,
       "sha256": "069f83ee7820fd7b803eefc8b854fd0a2e55d1e0a9bcc18e4a9a6f01cfafc94a",
       "selection": "Best rolling-50 sampled checkpoint in v30; the run later collapsed to zero grasp and this remains a diagnostic candidate, not a user-approved baseline."
+    },
+    {
+      "version": "v33",
+      "source_run": "2026-07-13_20-04-29_fresh_continuous_assist_v33",
+      "source_checkpoint": "model_4999.pt",
+      "size_bytes": 1482421,
+      "sha256": "7deef10bbdd0462f55a157c607507c478ddf45287d6922d80d60b3cd53a43c28",
+      "selection": "User-approved strong v33 candidate with 97.30% rolling-50 grasp and 68.98% sampled success; final assist latency and basket-rim interference remain."
     }
   ]
 }

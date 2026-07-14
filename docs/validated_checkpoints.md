@@ -1,7 +1,7 @@
 # OpenArm 검증 체크포인트 등록부
 
 이 문서는 TensorBoard 수치가 아니라 사용자가 GUI에서 직접 확인해 좋은 기준으로 지정한 정책만
-기록한다. 현재 확정된 good baseline은 **3개**다. 새 버전은 학습 중이거나 sampled 지표만 좋으면
+기록한다. 현재 확정된 good baseline은 **4개**다. 새 버전은 학습 중이거나 sampled 지표만 좋으면
 포함하지 않으며, 정확한 run과 checkpoint를 GUI로 확인한 뒤 추가한다.
 
 ## 확정 목록
@@ -11,6 +11,7 @@
 | v18 | `USER_APPROVED_REFERENCE` | `2026-07-10_16-30-21_hybrid_place_v18/model_825.pt` | standalone commit 없음; 변경은 `4455992`에 누적 반영 | 사용자가 다시 지정한 강한 파지·들기·초기 운반 기준 | 완전한 최종 place 검증 기록은 없음 |
 | v28 | `USER_APPROVED` | `2026-07-12_03-16-50/model_4999.pt` | `b4bedea` | 실제 grasp, lift, transport, place 성공 | 파지 확률, 운반 가속, 최종 높이의 자연스러움 보완 필요 |
 | v29 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-12_15-37-08/model_2100.pt` | `afe12f3` | 운반, 감속, 하강, release가 정상인 최적화 기준 | 파지 확률을 더 높이고 최종 목표를 조금 낮출 필요 |
+| v33 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt` | `7155085` | 파지·들기·운반이 강하고 전체 pick-and-place 동작이 보존할 가치가 있음 | final assist가 길고 바스켓 림 간섭 및 timeout이 남음 |
 
 세 모델은 모두 사용자 GUI 승인 기준이다. 아직 `4 seeds x 128 env`와 GUI 10회로 구성된 정식
 acceptance 전체를 통과한 것으로 기록하지 않으며, `formal_acceptance`는 별도 검증 전까지 pending이다.
@@ -21,6 +22,7 @@ acceptance 전체를 통과한 것으로 기록하지 않으며, `formal_accepta
 artifacts/checkpoints/openarm_pick_place/v18/checkpoint.pt
 artifacts/checkpoints/openarm_pick_place/v28/checkpoint.pt
 artifacts/checkpoints/openarm_pick_place/v29/checkpoint.pt
+artifacts/checkpoints/openarm_pick_place/v33/checkpoint.pt
 ```
 
 SHA-256:
@@ -29,6 +31,7 @@ SHA-256:
 v18 fa0fce2fb50b6871ad04620037f8db8e24493cdbb728e1023e45dadaa85e6d8e
 v28 0b165eaf5e8e087b856fd53111981a0433e4ee248f6bf108363b3ca4609dbf84
 v29 fec454a3aec1770408a7c8d553deba3d20fd7d890531affe17f6082f20121ea3
+v33 7deef10bbdd0462f55a157c607507c478ddf45287d6922d80d60b3cd53a43c28
 ```
 
 ## 평가 대기
@@ -37,7 +40,7 @@ v29 fec454a3aec1770408a7c8d553deba3d20fd7d890531affe17f6082f20121ea3
 | --- | --- | --- |
 | v30 | `2026-07-12_22-06-37/model_1775.pt` | run 최고점 보존 및 GUI 검토 중; 이후 정책이 0%로 붕괴해 good baseline 3개에는 포함하지 않음 |
 | v31 | `2026-07-13_01-57-04/model_2500.pt` | 파지·들기·XY 운반은 좋았으나 final center/release가 느리고 timeout이 높아 good baseline에 포함하지 않음 |
-| v32 | 아직 없음 | v31의 파지·운반을 유지하면서 XY-Z 결합 하강과 assist 이후 timeout 보상 책임을 교정한 fresh 학습 대기 |
+| v32 | `2026-07-13_12-22-03/model_2875.pt` | 파지·들기·운반·배치는 동작하지만 assist가 평균 약 8초로 길고 목표 근처 감속 및 timeout이 남아 진단 기준으로만 보존 |
 
 ## 등록 규칙
 
