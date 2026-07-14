@@ -32,10 +32,13 @@ from .controller_math import (
     limit_vector_norm,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
+    realized_translation_progress,
     scale_delta_to_joint_limits,
     solve_primary_dls_delta,
     solve_prioritized_dls_delta,
+    target_lead_constraint_intersection,
     target_lead_constraints_valid,
+    translation_progress_ratios,
 )
 
 if TYPE_CHECKING:
@@ -130,7 +133,11 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_actual_tcp_vertical_delta",
             "task_assist_object_vertical_tracking",
             "task_assist_tcp_vertical_tracking",
-            "task_assist_effort_ratio",
+            "task_assist_realized_requested_xy_step",
+            "task_assist_realized_requested_z_step",
+            "task_assist_realized_object_xy_progress",
+            "task_assist_realized_object_z_progress",
+            "task_assist_effort_demand_ratio",
             "task_assist_tcp_orientation_error",
             "task_assist_object_slip",
             "task_assist_watchdog_trips",
@@ -147,12 +154,20 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_safety_brake_steps",
             "task_assist_entry_seeded",
             "task_assist_active_progress_ratio_sum",
+            "task_assist_xy_progress_ratio_sum",
+            "task_assist_z_progress_ratio_sum",
             "task_assist_low_progress_steps",
+            "task_assist_xy_low_progress_steps",
+            "task_assist_z_low_progress_steps",
             "task_assist_incremental_safety_stops",
             "task_assist_lead_fallbacks",
             "task_assist_lead_previous_fallbacks",
             "task_assist_lead_incremental_fallbacks",
             "task_assist_lead_safety_stops",
+            "task_assist_lead_constraint_rebases",
+            "task_assist_target_backlog",
+            "task_assist_current_joint_limit_proximity",
+            "task_assist_target_joint_limit_proximity",
             "task_phase_approach_steps",
             "task_phase_close_verify_steps",
             "task_phase_retry_reopen_steps",
@@ -324,8 +339,21 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 self.metrics["task_assist_tcp_vertical_tracking"].add_(
                     arm_action.assist_tcp_vertical_tracking
                 )
-                self.metrics["task_assist_effort_ratio"] = torch.maximum(
-                    self.metrics["task_assist_effort_ratio"], arm_action.assist_effort_ratio
+                self.metrics["task_assist_realized_requested_xy_step"].add_(
+                    arm_action.assist_realized_requested_xy_step
+                )
+                self.metrics["task_assist_realized_requested_z_step"].add_(
+                    arm_action.assist_realized_requested_z_step
+                )
+                self.metrics["task_assist_realized_object_xy_progress"].add_(
+                    arm_action.assist_realized_object_xy_progress
+                )
+                self.metrics["task_assist_realized_object_z_progress"].add_(
+                    arm_action.assist_realized_object_z_progress
+                )
+                self.metrics["task_assist_effort_demand_ratio"] = torch.maximum(
+                    self.metrics["task_assist_effort_demand_ratio"],
+                    arm_action.assist_effort_demand_ratio,
                 )
                 self.metrics["task_assist_tcp_orientation_error"] = torch.maximum(
                     self.metrics["task_assist_tcp_orientation_error"],
@@ -382,8 +410,22 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                         | (arm_action.assist_z_active > 0.0)
                     ).float()
                 )
+                self.metrics["task_assist_xy_progress_ratio_sum"].add_(
+                    arm_action.assist_xy_progress_ratio
+                    * (arm_action.assist_xy_active > 0.0).float()
+                )
+                self.metrics["task_assist_z_progress_ratio_sum"].add_(
+                    arm_action.assist_z_progress_ratio
+                    * (arm_action.assist_z_active > 0.0).float()
+                )
                 self.metrics["task_assist_low_progress_steps"].add_(
                     arm_action.assist_low_progress
+                )
+                self.metrics["task_assist_xy_low_progress_steps"].add_(
+                    arm_action.assist_xy_low_progress
+                )
+                self.metrics["task_assist_z_low_progress_steps"].add_(
+                    arm_action.assist_z_low_progress
                 )
                 self.metrics["task_assist_incremental_safety_stops"].add_(
                     arm_action.assist_incremental_safety_stop
@@ -399,6 +441,21 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 )
                 self.metrics["task_assist_lead_safety_stops"].add_(
                     arm_action.assist_lead_safety_stop
+                )
+                self.metrics["task_assist_lead_constraint_rebases"].add_(
+                    arm_action.assist_lead_constraint_rebase
+                )
+                self.metrics["task_assist_target_backlog"] = torch.maximum(
+                    self.metrics["task_assist_target_backlog"],
+                    arm_action.assist_target_backlog,
+                )
+                self.metrics["task_assist_current_joint_limit_proximity"] = torch.maximum(
+                    self.metrics["task_assist_current_joint_limit_proximity"],
+                    arm_action.assist_current_joint_limit_proximity,
+                )
+                self.metrics["task_assist_target_joint_limit_proximity"] = torch.maximum(
+                    self.metrics["task_assist_target_joint_limit_proximity"],
+                    arm_action.assist_target_joint_limit_proximity,
                 )
             self.sync_task_latched_metrics(state)
             self.metrics["task_centering_progress"] = state.center_streak.float() / max(
@@ -565,6 +622,13 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         super().__init__(cfg, env)
         if cfg.assist_entry_blend_steps < 0 or cfg.assist_entry_target_lead_steps < 0:
             raise ValueError("assist entry step counts must be non-negative")
+        if cfg.assist_target_lead_steps < 1:
+            raise ValueError("assist target lead steps must be positive")
+        if min(
+            cfg.horizontal_position_deadband,
+            cfg.vertical_position_deadband,
+        ) <= 0.0:
+            raise ValueError("assist position deadbands must be positive")
         if min(
             cfg.max_horizontal_acceleration,
             cfg.max_vertical_acceleration,
@@ -629,11 +693,17 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
         self._previous_object_height = torch.zeros(self._env.num_envs, device=self.device)
         self._previous_tcp_height = torch.zeros(self._env.num_envs, device=self.device)
+        self._previous_object_position = torch.zeros(
+            (self._env.num_envs, 3), device=self.device
+        )
         self._motion_height_initialized = torch.zeros(
             self._env.num_envs, dtype=torch.bool, device=self.device
         )
         self._previous_requested_vertical_step = torch.zeros(
             self._env.num_envs, device=self.device
+        )
+        self._previous_requested_translation = torch.zeros(
+            (self._env.num_envs, 3), device=self.device
         )
         self.assist_requested_vertical_step = torch.zeros(self._env.num_envs, device=self.device)
         self.assist_incremental_vertical_step = torch.zeros(self._env.num_envs, device=self.device)
@@ -648,7 +718,21 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self._env.num_envs, device=self.device
         )
         self.assist_tcp_vertical_tracking = torch.zeros(self._env.num_envs, device=self.device)
-        self.assist_effort_ratio = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_realized_requested_xy_step = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_realized_requested_z_step = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_realized_object_xy_progress = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_realized_object_z_progress = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_effort_demand_ratio = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
         self.assist_tcp_orientation_error = torch.zeros(self._env.num_envs, device=self.device)
         self.assist_object_slip = torch.zeros(self._env.num_envs, device=self.device)
         self.assist_watchdog_trip = torch.zeros(self._env.num_envs, device=self.device)
@@ -667,7 +751,19 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_active_progress_ratio = torch.zeros(
             self._env.num_envs, device=self.device
         )
+        self.assist_xy_progress_ratio = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_z_progress_ratio = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
         self.assist_low_progress = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_xy_low_progress = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_z_low_progress = torch.zeros(
             self._env.num_envs, device=self.device
         )
         self.assist_incremental_safety_stop = torch.zeros(
@@ -681,6 +777,18 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self._env.num_envs, device=self.device
         )
         self.assist_lead_safety_stop = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_constraint_rebase = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_target_backlog = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_current_joint_limit_proximity = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_target_joint_limit_proximity = torch.zeros(
             self._env.num_envs, device=self.device
         )
 
@@ -706,8 +814,10 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._slip_recovery_steps_remaining[resolved_env_ids] = 0
         self._previous_object_height[resolved_env_ids] = 0.0
         self._previous_tcp_height[resolved_env_ids] = 0.0
+        self._previous_object_position[resolved_env_ids] = 0.0
         self._motion_height_initialized[resolved_env_ids] = False
         self._previous_requested_vertical_step[resolved_env_ids] = 0.0
+        self._previous_requested_translation[resolved_env_ids] = 0.0
         self.assist_requested_vertical_step[resolved_env_ids] = 0.0
         self.assist_incremental_vertical_step[resolved_env_ids] = 0.0
         self.assist_vertical_step[resolved_env_ids] = 0.0
@@ -715,7 +825,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_actual_tcp_vertical_delta[resolved_env_ids] = 0.0
         self.assist_object_vertical_tracking[resolved_env_ids] = 0.0
         self.assist_tcp_vertical_tracking[resolved_env_ids] = 0.0
-        self.assist_effort_ratio[resolved_env_ids] = 0.0
+        self.assist_realized_requested_xy_step[resolved_env_ids] = 0.0
+        self.assist_realized_requested_z_step[resolved_env_ids] = 0.0
+        self.assist_realized_object_xy_progress[resolved_env_ids] = 0.0
+        self.assist_realized_object_z_progress[resolved_env_ids] = 0.0
+        self.assist_effort_demand_ratio[resolved_env_ids] = 0.0
         self.assist_tcp_orientation_error[resolved_env_ids] = 0.0
         self.assist_object_slip[resolved_env_ids] = 0.0
         self.assist_watchdog_trip[resolved_env_ids] = 0.0
@@ -732,12 +846,20 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_safety_brake[resolved_env_ids] = 0.0
         self.assist_entry_seeded[resolved_env_ids] = 0.0
         self.assist_active_progress_ratio[resolved_env_ids] = 0.0
+        self.assist_xy_progress_ratio[resolved_env_ids] = 0.0
+        self.assist_z_progress_ratio[resolved_env_ids] = 0.0
         self.assist_low_progress[resolved_env_ids] = 0.0
+        self.assist_xy_low_progress[resolved_env_ids] = 0.0
+        self.assist_z_low_progress[resolved_env_ids] = 0.0
         self.assist_incremental_safety_stop[resolved_env_ids] = 0.0
         self.assist_lead_fallback[resolved_env_ids] = 0.0
         self.assist_lead_previous_fallback[resolved_env_ids] = 0.0
         self.assist_lead_incremental_fallback[resolved_env_ids] = 0.0
         self.assist_lead_safety_stop[resolved_env_ids] = 0.0
+        self.assist_lead_constraint_rebase[resolved_env_ids] = 0.0
+        self.assist_target_backlog[resolved_env_ids] = 0.0
+        self.assist_current_joint_limit_proximity[resolved_env_ids] = 0.0
+        self.assist_target_joint_limit_proximity[resolved_env_ids] = 0.0
 
     @staticmethod
     def _bounded_direction_step(
@@ -799,7 +921,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         xy_error = torch.norm(position_error[:, :2], dim=1)
         xy_progress = torch.sum(predicted_step[:, :2] * position_error[:, :2], dim=1)
         xy_remaining = torch.norm(position_error[:, :2] - predicted_step[:, :2], dim=1)
-        xy_active = xy_error > self.cfg.position_deadband
+        xy_active = xy_error > self.cfg.horizontal_position_deadband
         xy_safe = torch.where(
             xy_active,
             (xy_progress >= -1.0e-9) & (xy_remaining <= xy_error + 1.0e-9),
@@ -807,7 +929,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
         z_error = position_error[:, 2]
         z_remaining = torch.abs(z_error - predicted_step[:, 2])
-        z_active = torch.abs(z_error) > self.cfg.position_deadband
+        z_active = torch.abs(z_error) > self.cfg.vertical_position_deadband
         z_safe = torch.where(
             z_active,
             (predicted_step[:, 2] * z_error >= -1.0e-9)
@@ -869,7 +991,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_actual_tcp_vertical_delta[:] = 0.0
         self.assist_object_vertical_tracking[:] = 0.0
         self.assist_tcp_vertical_tracking[:] = 0.0
-        self.assist_effort_ratio[:] = 0.0
+        self.assist_realized_requested_xy_step[:] = 0.0
+        self.assist_realized_requested_z_step[:] = 0.0
+        self.assist_realized_object_xy_progress[:] = 0.0
+        self.assist_realized_object_z_progress[:] = 0.0
+        self.assist_effort_demand_ratio[:] = 0.0
         self.assist_tcp_orientation_error[:] = 0.0
         self.assist_object_slip[:] = 0.0
         self.assist_watchdog_trip[:] = 0.0
@@ -886,12 +1012,20 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_safety_brake[:] = 0.0
         self.assist_entry_seeded[:] = 0.0
         self.assist_active_progress_ratio[:] = 0.0
+        self.assist_xy_progress_ratio[:] = 0.0
+        self.assist_z_progress_ratio[:] = 0.0
         self.assist_low_progress[:] = 0.0
+        self.assist_xy_low_progress[:] = 0.0
+        self.assist_z_low_progress[:] = 0.0
         self.assist_incremental_safety_stop[:] = 0.0
         self.assist_lead_fallback[:] = 0.0
         self.assist_lead_previous_fallback[:] = 0.0
         self.assist_lead_incremental_fallback[:] = 0.0
         self.assist_lead_safety_stop[:] = 0.0
+        self.assist_lead_constraint_rebase[:] = 0.0
+        self.assist_target_backlog[:] = 0.0
+        self.assist_current_joint_limit_proximity[:] = 0.0
+        self.assist_target_joint_limit_proximity[:] = 0.0
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         obj: RigidObject = self._env.scene[self.cfg.object_name]
         current_joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
@@ -943,9 +1077,15 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         counted_grasp_handoff = grasp_handoff & (self._grasp_handoff_steps_remaining > 0)
         self._grasp_handoff_steps_remaining[counted_grasp_handoff] -= 1
         previously_active = self._assist_was_active.clone()
+        current_object_position = obj.data.root_pos_w
         current_object_height = obj.data.root_pos_w[:, 2]
         current_tcp_height = robot.data.body_pos_w[:, self._body_id, 2]
         initialized = self._motion_height_initialized
+        object_translation_delta = torch.where(
+            initialized[:, None],
+            current_object_position - self._previous_object_position,
+            0.0,
+        )
         object_vertical_delta = torch.where(
             initialized, current_object_height - self._previous_object_height, 0.0
         )
@@ -965,16 +1105,43 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_tcp_vertical_tracking[previously_active] = (
             previous_vertical_direction * tcp_vertical_delta
         )[previously_active]
+        (
+            previous_requested_xy_norm,
+            previous_requested_z,
+            realized_object_xy_progress,
+            realized_object_z_progress,
+        ) = realized_translation_progress(
+            object_translation_delta,
+            self._previous_requested_translation,
+        )
+        realized_xy = previously_active & (previous_requested_xy_norm > 1.0e-9)
+        realized_z = previously_active & (previous_requested_z > 1.0e-9)
+        self.assist_realized_requested_xy_step[realized_xy] = (
+            previous_requested_xy_norm[realized_xy]
+        )
+        self.assist_realized_requested_z_step[realized_z] = previous_requested_z[
+            realized_z
+        ]
+        self.assist_realized_object_xy_progress[realized_xy] = (
+            realized_object_xy_progress[realized_xy]
+        )
+        self.assist_realized_object_z_progress[realized_z] = (
+            realized_object_z_progress[realized_z]
+        )
         self._previous_requested_vertical_step[:] = 0.0
+        self._previous_requested_translation[:] = 0.0
         effort_limits = torch.clamp(
             robot.data.joint_effort_limits[:, self._joint_ids], min=1.0e-6
         )
-        effort_ratio = torch.amax(
+        effort_demand_ratio = torch.amax(
             torch.abs(robot.data.computed_torque[:, self._joint_ids]) / effort_limits, dim=1
         )
-        self.assist_effort_ratio[previously_active] = effort_ratio[previously_active]
+        self.assist_effort_demand_ratio[previously_active] = effort_demand_ratio[
+            previously_active
+        ]
         self._previous_object_height[:] = current_object_height
         self._previous_tcp_height[:] = current_tcp_height
+        self._previous_object_position[:] = current_object_position
         self._motion_height_initialized[:] = True
         bounded_object_velocity = torch.clamp(
             obj.data.root_lin_vel_w,
@@ -1123,7 +1290,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self.cfg.horizontal_velocity_damping,
             self._env.step_dt,
             self.cfg.max_horizontal_step,
-            self.cfg.position_deadband,
+            self.cfg.horizontal_position_deadband,
         )
         vertical_error = object_error[:, 2:3]
         vertical_limit = torch.where(
@@ -1141,7 +1308,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         vertical_magnitude = torch.minimum(vertical_magnitude, vertical_limit)
         vertical_magnitude = torch.minimum(vertical_magnitude, torch.abs(vertical_error))
         vertical_magnitude = torch.where(
-            torch.abs(vertical_error) > self.cfg.position_deadband,
+            torch.abs(vertical_error) > self.cfg.vertical_position_deadband,
             vertical_magnitude,
             0.0,
         )
@@ -1151,7 +1318,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         bounded_entry_velocity = apply_stopping_speed_envelope(
             self._assist_entry_velocity[assist_ids],
             object_error,
-            self.cfg.position_deadband,
+            self.cfg.horizontal_position_deadband,
+            self.cfg.vertical_position_deadband,
             self.cfg.max_horizontal_acceleration,
             self.cfg.max_vertical_acceleration,
             self.cfg.max_horizontal_jerk,
@@ -1163,7 +1331,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self.cfg.max_horizontal_step,
             self.cfg.max_upward_step,
             self.cfg.max_vertical_step,
-            self.cfg.position_deadband,
+            self.cfg.horizontal_position_deadband,
+            self.cfg.vertical_position_deadband,
         )
         entry_velocity = entry_step / step_dt
         fresh_local = newly_active[assist_ids]
@@ -1198,7 +1367,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         desired_velocity = apply_stopping_speed_envelope(
             desired_velocity,
             object_error,
-            self.cfg.position_deadband,
+            self.cfg.horizontal_position_deadband,
+            self.cfg.vertical_position_deadband,
             self.cfg.max_horizontal_acceleration,
             self.cfg.max_vertical_acceleration,
             self.cfg.max_horizontal_jerk,
@@ -1223,7 +1393,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self.cfg.max_horizontal_step,
             self.cfg.max_upward_step,
             self.cfg.max_vertical_step,
-            self.cfg.position_deadband,
+            self.cfg.horizontal_position_deadband,
+            self.cfg.vertical_position_deadband,
         )
         delta_position[recovery_hold] = 0.0
         applied_velocity = delta_position / step_dt
@@ -1249,15 +1420,19 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             applied_acceleration, dim=1
         )
         xy_error_active = (
-            torch.norm(object_error[:, :2], dim=1) > self.cfg.position_deadband
+            torch.norm(object_error[:, :2], dim=1)
+            > self.cfg.horizontal_position_deadband
         )
-        z_error_active = torch.abs(object_error[:, 2]) > self.cfg.position_deadband
+        z_error_active = (
+            torch.abs(object_error[:, 2]) > self.cfg.vertical_position_deadband
+        )
         self.assist_xy_active[assist_ids] = xy_error_active.float()
         self.assist_z_active[assist_ids] = z_error_active.float()
         self.assist_recovery_hold[assist_ids] = recovery_hold.float()
         self.assist_safety_brake[assist_ids] = safety_override.float()
         self.assist_requested_vertical_step[assist_ids] = delta_position[:, 2]
         self._previous_requested_vertical_step[assist_ids] = delta_position[:, 2]
+        self._previous_requested_translation[assist_ids] = delta_position
         requested_xy_norm = torch.norm(delta_position[:, :2], dim=1)
         requested_z = torch.abs(delta_position[:, 2])
         requested_xy_active = requested_xy_norm > 1.0e-9
@@ -1286,7 +1461,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 self.cfg.max_horizontal_target_lead,
                 self.cfg.max_upward_target_lead,
                 self.cfg.max_downward_target_lead,
-                self.cfg.position_deadband,
+                self.cfg.horizontal_position_deadband,
+                self.cfg.vertical_position_deadband,
             )
             entry_target_twist = torch.zeros(
                 (fresh_local_ids.numel(), 6), device=self.device
@@ -1327,13 +1503,13 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             ).squeeze(-1)
             entry_xy_limit = torch.clamp(
                 torch.norm(object_error[fresh_local_ids, :2], dim=1)
-                - self.cfg.position_deadband,
+                - self.cfg.horizontal_position_deadband,
                 min=0.0,
                 max=self.cfg.max_horizontal_target_lead,
             )
             entry_z_limit = torch.clamp(
                 torch.abs(object_error[fresh_local_ids, 2])
-                - self.cfg.position_deadband,
+                - self.cfg.vertical_position_deadband,
                 min=0.0,
             )
             entry_vertical_limit = torch.where(
@@ -1407,13 +1583,13 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_posture_error[assist_ids] = torch.norm(posture_error, dim=1)
 
         prioritized_delta = self._scale_to_joint_limits(
-            self._assist_joint_target[assist_ids], prioritized_delta, joint_limits
+            current_joint_pos[assist_ids], prioritized_delta, joint_limits
         )
         active_only_delta = self._scale_to_joint_limits(
-            self._assist_joint_target[assist_ids], active_only_delta, joint_limits
+            current_joint_pos[assist_ids], active_only_delta, joint_limits
         )
         postured_delta = self._scale_to_joint_limits(
-            self._assist_joint_target[assist_ids], postured_delta, joint_limits
+            current_joint_pos[assist_ids], postured_delta, joint_limits
         )
 
         def evaluate_delta(
@@ -1500,7 +1676,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self.cfg.cartesian_hard_leak_tolerance,
         )
         increment_valid = (
-            increment_xy_hard_safe
+            selected_valid
+            & increment_xy_hard_safe
             & increment_z_hard_safe
             & torch.all(torch.isfinite(delta_joint), dim=1)
         )
@@ -1510,21 +1687,55 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         predicted_increment_twist = (
             task_jacobian @ delta_joint.unsqueeze(-1)
         ).squeeze(-1)
-        progress_ratio = active_translation_progress_ratio(
+        xy_progress_ratio, z_progress_ratio = translation_progress_ratios(
             predicted_increment_twist[:, :3],
             delta_position,
             requested_xy_active,
             requested_z_active,
+        )
+        progress_ratio = torch.where(
+            requested_xy_active & requested_z_active,
+            torch.minimum(xy_progress_ratio, z_progress_ratio),
+            torch.where(
+                requested_xy_active,
+                xy_progress_ratio,
+                z_progress_ratio,
+            ),
+        )
+        progress_ratio = torch.where(
+            requested_motion,
+            progress_ratio,
+            torch.ones_like(progress_ratio),
         )
         self.assist_active_progress_ratio[assist_ids] = torch.where(
             requested_motion,
             torch.clamp(progress_ratio, min=0.0, max=2.0),
             0.0,
         )
+        self.assist_xy_progress_ratio[assist_ids] = torch.where(
+            requested_xy_active,
+            torch.clamp(xy_progress_ratio, min=0.0, max=2.0),
+            0.0,
+        )
+        self.assist_z_progress_ratio[assist_ids] = torch.where(
+            requested_z_active,
+            torch.clamp(z_progress_ratio, min=0.0, max=2.0),
+            0.0,
+        )
         self.assist_low_progress[assist_ids] = (
             requested_motion
             & increment_valid
             & (progress_ratio < self.cfg.minimum_active_progress_ratio)
+        ).float()
+        self.assist_xy_low_progress[assist_ids] = (
+            requested_xy_active
+            & increment_valid
+            & (xy_progress_ratio < self.cfg.minimum_active_progress_ratio)
+        ).float()
+        self.assist_z_low_progress[assist_ids] = (
+            requested_z_active
+            & increment_valid
+            & (z_progress_ratio < self.cfg.minimum_active_progress_ratio)
         ).float()
         self.assist_incremental_safety_stop[assist_ids] = (
             requested_motion & ~increment_valid
@@ -1533,12 +1744,37 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             predicted_increment_twist[:, 2]
         )
 
+        assist_current = current_joint_pos[assist_ids]
         previous_target = self._assist_joint_target[assist_ids].clone()
-        proposed_target = previous_target + delta_joint
+        _, _, lead_constraint_feasible = target_lead_constraint_intersection(
+            assist_current,
+            previous_target,
+            joint_limits,
+            self.cfg.max_target_lead,
+            self.cfg.max_joint_step,
+        )
+        self.assist_lead_constraint_rebase[assist_ids] = (
+            ~lead_constraint_feasible
+        ).float()
+        self.assist_target_backlog[assist_ids] = torch.amax(
+            torch.abs(previous_target - assist_current), dim=1
+        )
+        joint_span = torch.clamp(
+            joint_limits[:, :, 1] - joint_limits[:, :, 0], min=1.0e-6
+        )
+        current_joint_margin = torch.minimum(
+            assist_current - joint_limits[:, :, 0],
+            joint_limits[:, :, 1] - assist_current,
+        ) / joint_span
+        self.assist_current_joint_limit_proximity[assist_ids] = torch.clamp(
+            1.0 - 2.0 * torch.amin(current_joint_margin, dim=1),
+            min=0.0,
+            max=1.0,
+        )
         lead_xy_error = torch.norm(object_error[:, :2], dim=1)
         lead_z_error = torch.abs(object_error[:, 2])
         allowed_lead_xy = torch.clamp(
-            lead_xy_error - self.cfg.position_deadband,
+            lead_xy_error - self.cfg.horizontal_position_deadband,
             min=0.0,
             max=self.cfg.max_horizontal_target_lead,
         )
@@ -1549,7 +1785,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
         allowed_lead_z = torch.minimum(
             torch.clamp(
-                lead_z_error - self.cfg.position_deadband,
+                lead_z_error - self.cfg.vertical_position_deadband,
                 min=0.0,
             ),
             vertical_target_lead,
@@ -1561,7 +1797,9 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         ) -> tuple[torch.Tensor, torch.Tensor]:
             repaired_all = torch.zeros_like(raw_lead)
             valid_all = torch.zeros_like(eligible)
-            candidate_ids = torch.nonzero(eligible, as_tuple=False).squeeze(-1)
+            candidate_ids = torch.nonzero(
+                eligible & lead_constraint_feasible, as_tuple=False
+            ).squeeze(-1)
             if candidate_ids.numel() == 0:
                 return repaired_all, valid_all
 
@@ -1622,7 +1860,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 allowed_lead_xy[repair_ids],
                 allowed_lead_z[repair_ids],
                 allowed_lead_z[repair_ids],
-                self.cfg.position_deadband,
+                self.cfg.horizontal_position_deadband,
+                self.cfg.vertical_position_deadband,
             )
             safe_twist[:, 3:] = limit_vector_norm(
                 invalid_twist[:, 3:], self.cfg.max_angular_target_lead
@@ -1677,50 +1916,22 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             valid_all[repair_ids] = repaired_valid
             return repaired_all, valid_all
 
-        all_assist = torch.ones_like(requested_motion)
+        steady_assist = lead_constraint_feasible & ~fresh_local
+        preferred_raw_lead = self.cfg.assist_target_lead_steps * delta_joint
         new_lead, new_lead_valid = repair_lead(
-            proposed_target - current_joint_pos[assist_ids],
-            all_assist,
+            preferred_raw_lead,
+            steady_assist & increment_valid,
         )
         previous_lead, previous_lead_valid = repair_lead(
             previous_target - current_joint_pos[assist_ids],
-            ~new_lead_valid,
+            steady_assist & ~new_lead_valid,
         )
-        assist_current = current_joint_pos[assist_ids]
-        incremental_lead = constrain_target_lead(
+        incremental_lead, incremental_lead_valid = repair_lead(
             delta_joint,
-            assist_current,
-            previous_target,
-            joint_limits,
-            self.cfg.max_target_lead,
-            self.cfg.max_joint_step,
-        )
-        incremental_lead_twist = (
-            task_jacobian @ incremental_lead.unsqueeze(-1)
-        ).squeeze(-1)
-        incremental_xy_safe, incremental_z_safe = self._cartesian_axis_safe(
-            incremental_lead_twist[:, :3],
-            object_error,
-            allowed_lead_xy,
-            allowed_lead_z,
-            allowed_lead_z,
-            self.cfg.cartesian_hard_leak_tolerance,
-        )
-        incremental_lead_valid = (
-            incremental_xy_safe
-            & incremental_z_safe
-            & (
-                torch.norm(incremental_lead_twist[:, 3:], dim=1)
-                <= self.cfg.max_angular_target_lead + 1.0e-6
-            )
-            & target_lead_constraints_valid(
-                incremental_lead,
-                assist_current,
-                previous_target,
-                joint_limits,
-                self.cfg.max_target_lead,
-                self.cfg.max_joint_step,
-            )
+            steady_assist
+            & increment_valid
+            & ~new_lead_valid
+            & ~previous_lead_valid,
         )
 
         selected_lead = torch.zeros_like(new_lead)
@@ -1733,11 +1944,17 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         selected_lead = torch.where(
             new_lead_valid[:, None], new_lead, selected_lead
         )
+        entry_seed_lead = previous_target - assist_current
+        selected_lead = torch.where(
+            fresh_local[:, None], entry_seed_lead, selected_lead
+        )
         used_previous = ~new_lead_valid & previous_lead_valid
         used_incremental = (
             ~new_lead_valid & ~previous_lead_valid & incremental_lead_valid
         )
-        used_hold = (
+        used_previous &= ~fresh_local
+        used_incremental &= ~fresh_local
+        used_hold = ~fresh_local & (
             ~new_lead_valid & ~previous_lead_valid & ~incremental_lead_valid
         )
         assisted_target = current_joint_pos[assist_ids] + selected_lead
@@ -1771,7 +1988,18 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
         used_hold |= ~final_lead_safe
         assisted_target = current_joint_pos[assist_ids] + selected_lead
-        self.assist_lead_fallback[assist_ids] = (~new_lead_valid).float()
+        constraint_rebase = ~lead_constraint_feasible
+        used_hold |= constraint_rebase
+        rebase_ids = assist_ids[constraint_rebase]
+        self._assist_command_velocity[rebase_ids] = 0.0
+        self._assist_command_acceleration[rebase_ids] = 0.0
+        self._previous_requested_vertical_step[rebase_ids] = 0.0
+        self._previous_requested_translation[rebase_ids] = 0.0
+        self.assist_command_speed[rebase_ids] = 0.0
+        self.assist_command_acceleration[rebase_ids] = 0.0
+        self.assist_lead_fallback[assist_ids] = (
+            steady_assist & ~new_lead_valid
+        ).float()
         self.assist_lead_previous_fallback[assist_ids] = used_previous.float()
         self.assist_lead_incremental_fallback[assist_ids] = used_incremental.float()
         self.assist_lead_safety_stop[assist_ids] = used_hold.float()
@@ -1791,6 +2019,15 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_z_safe[assist_ids] = final_z_safe.float()
         self.assist_vertical_step[assist_ids] = predicted_applied_twist[:, 2]
         self.assist_target_lead[assist_ids] = torch.amax(torch.abs(applied_delta), dim=1)
+        target_joint_margin = torch.minimum(
+            assisted_target - joint_limits[:, :, 0],
+            joint_limits[:, :, 1] - assisted_target,
+        ) / joint_span
+        self.assist_target_joint_limit_proximity[assist_ids] = torch.clamp(
+            1.0 - 2.0 * torch.amin(target_joint_margin, dim=1),
+            min=0.0,
+            max=1.0,
+        )
         self._processed_actions[assist_ids] = assisted_target
 
 
@@ -1819,11 +2056,13 @@ class PlaceAssistJointPositionActionCfg(JointPositionActionCfg):
     max_object_speed_for_control: float = 0.25
     assist_entry_blend_steps: int = 12
     assist_entry_target_lead_steps: int = 3
+    assist_target_lead_steps: int = 3
     max_horizontal_acceleration: float = 0.60
     max_vertical_acceleration: float = 0.45
     max_horizontal_jerk: float = 6.0
     max_vertical_jerk: float = 4.5
-    position_deadband: float = 0.003
+    horizontal_position_deadband: float = 0.005
+    vertical_position_deadband: float = 0.002
     cartesian_leak_tolerance: float = 0.0002
     cartesian_hard_leak_tolerance: float = 0.0010
     minimum_active_progress_ratio: float = 0.25

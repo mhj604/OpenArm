@@ -27,8 +27,13 @@ constrain_target_lead = controller_math.constrain_target_lead
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
 project_goal_directed_step = controller_math.project_goal_directed_step
 quintic_smoothstep = controller_math.quintic_smoothstep
+realized_translation_progress = controller_math.realized_translation_progress
 solve_prioritized_dls_delta = controller_math.solve_prioritized_dls_delta
 target_lead_constraints_valid = controller_math.target_lead_constraints_valid
+target_lead_constraint_intersection = (
+    controller_math.target_lead_constraint_intersection
+)
+translation_progress_ratios = controller_math.translation_progress_ratios
 
 
 def test_quintic_blend_has_exact_endpoints_and_is_monotonic():
@@ -50,7 +55,8 @@ def test_xy_motion_is_not_throttled_by_inactive_z():
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
-        deadband=0.002,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
     )
 
     assert torch.allclose(projected[:, :2], torch.tensor([[0.0025, 0.0]]))
@@ -67,7 +73,8 @@ def test_z_motion_is_not_throttled_by_inactive_xy():
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
-        deadband=0.002,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
     )
 
     assert torch.allclose(projected[:, :2], torch.zeros((1, 2)))
@@ -84,7 +91,8 @@ def test_away_motion_is_removed_per_axis_without_stopping_safe_axis():
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
-        deadband=0.002,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
     )
 
     assert torch.allclose(projected[:, :2], torch.zeros((1, 2)))
@@ -93,7 +101,7 @@ def test_away_motion_is_removed_per_axis_without_stopping_safe_axis():
 
 def test_projection_stops_at_deadband_instead_of_crossing_it():
     candidate = torch.tensor([[0.0020, 0.0, -0.0020]])
-    error = torch.tensor([[0.0025, 0.0, -0.0025]])
+    error = torch.tensor([[0.0055, 0.0, -0.0025]])
 
     projected = project_goal_directed_step(
         candidate,
@@ -101,7 +109,8 @@ def test_projection_stops_at_deadband_instead_of_crossing_it():
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
-        deadband=0.002,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
     )
 
     assert torch.allclose(projected, torch.tensor([[0.0005, 0.0, -0.0005]]))
@@ -117,7 +126,8 @@ def test_safe_tangential_entry_motion_is_preserved():
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
-        deadband=0.002,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
     )
 
     assert torch.allclose(preserved, candidate)
@@ -130,7 +140,8 @@ def test_stopping_envelope_starts_before_the_deadband():
     bounded = apply_stopping_speed_envelope(
         velocity,
         error,
-        deadband=0.002,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
         maximum_horizontal_acceleration=0.60,
         maximum_vertical_acceleration=0.45,
         maximum_horizontal_jerk=6.0,
@@ -210,6 +221,156 @@ def test_target_lead_regression_near_joint_limit_does_not_reopen_continuity():
         maximum_lead=0.12,
         maximum_target_change=0.03,
     ).item()
+
+
+def test_target_lead_projects_into_the_full_feasible_intersection():
+    current = torch.tensor([[0.0]])
+    previous = torch.tensor([[0.145]])
+    limits = torch.tensor([[[-1.0, 1.0]]])
+
+    lower, upper, feasible = target_lead_constraint_intersection(
+        current,
+        previous,
+        limits,
+        maximum_lead=0.12,
+        maximum_target_change=0.03,
+    )
+    lead = constrain_target_lead(
+        torch.tensor([[0.20]]),
+        current,
+        previous,
+        limits,
+        maximum_lead=0.12,
+        maximum_target_change=0.03,
+    )
+
+    assert feasible.item()
+    assert torch.allclose(lower, torch.tensor([[0.115]]))
+    assert torch.allclose(upper, torch.tensor([[0.120]]))
+    assert torch.allclose(lead, torch.tensor([[0.120]]))
+    assert target_lead_constraints_valid(
+        lead, current, previous, limits, 0.12, 0.03
+    ).item()
+
+
+def test_infeasible_target_lead_rebases_then_recovers_on_the_next_control():
+    current = torch.tensor([[0.0]])
+    previous = torch.tensor([[0.20]])
+    limits = torch.tensor([[[-1.0, 1.0]]])
+
+    lower, upper, feasible = target_lead_constraint_intersection(
+        current, previous, limits, 0.12, 0.03
+    )
+    lead = constrain_target_lead(
+        torch.tensor([[0.03]]), current, previous, limits, 0.12, 0.03
+    )
+
+    assert not feasible.item()
+    assert lower.item() > upper.item()
+    assert torch.equal(lead, torch.zeros_like(lead))
+    assert not target_lead_constraints_valid(
+        lead, current, previous, limits, 0.12, 0.03
+    ).item()
+
+    rebased_previous = current + lead
+    recovered = constrain_target_lead(
+        torch.tensor([[0.03]]),
+        current,
+        rebased_previous,
+        limits,
+        0.12,
+        0.03,
+    )
+    assert torch.allclose(recovered, torch.tensor([[0.03]]))
+    assert target_lead_constraints_valid(
+        recovered, current, rebased_previous, limits, 0.12, 0.03
+    ).item()
+
+
+def test_one_infeasible_joint_rebases_the_whole_environment_row():
+    current = torch.zeros((2, 3))
+    previous = torch.tensor([[0.0, 0.20, 0.0], [0.0, 0.14, 0.0]])
+    limits = torch.tensor([[[-1.0, 1.0]] * 3, [[-1.0, 1.0]] * 3])
+    raw_lead = torch.full((2, 3), 0.03)
+
+    lead = constrain_target_lead(
+        raw_lead, current, previous, limits, 0.12, 0.03
+    )
+
+    assert torch.equal(lead[0], torch.zeros(3))
+    assert not target_lead_constraints_valid(
+        lead, current, previous, limits, 0.12, 0.03
+    )[0].item()
+    assert target_lead_constraints_valid(
+        lead, current, previous, limits, 0.12, 0.03
+    )[1].item()
+
+
+def test_three_control_lookahead_is_current_relative_not_unbounded_cumulative():
+    limits = torch.tensor([[[-1.0, 1.0]]])
+    raw_lookahead = torch.tensor([[0.03]])
+
+    current = torch.tensor([[0.0]])
+    previous = current.clone()
+    for _ in range(10):
+        lead = constrain_target_lead(
+            raw_lookahead, current, previous, limits, 0.12, 0.03
+        )
+        target = current + lead
+        assert torch.allclose(target, torch.tensor([[0.03]]))
+        previous = target
+
+    current = torch.tensor([[0.0]])
+    previous = current.clone()
+    previous_target = None
+    for _ in range(10):
+        lead = constrain_target_lead(
+            raw_lookahead, current, previous, limits, 0.12, 0.03
+        )
+        target = current + lead
+        assert torch.allclose(lead, torch.tensor([[0.03]]))
+        if previous_target is not None:
+            assert torch.allclose(target - previous_target, torch.tensor([[0.01]]))
+        previous_target = target
+        previous = target
+        current = current + 0.01
+
+
+def test_axis_progress_ratios_are_reported_independently():
+    predicted = torch.tensor([[0.005, 0.0, -0.001]])
+    requested = torch.tensor([[0.010, 0.0, -0.004]])
+    xy_ratio, z_ratio = translation_progress_ratios(
+        predicted,
+        requested,
+        active_xy=torch.tensor([True]),
+        active_z=torch.tensor([True]),
+    )
+
+    assert torch.allclose(xy_ratio, torch.tensor([0.5]))
+    assert torch.allclose(z_ratio, torch.tensor([0.25]))
+
+    inactive_xy, regressive_z = translation_progress_ratios(
+        predicted_translation=torch.tensor([[0.0, 0.0, 0.001]]),
+        requested_translation=torch.tensor([[0.0, 0.0, -0.004]]),
+        active_xy=torch.tensor([False]),
+        active_z=torch.tensor([True]),
+    )
+    assert torch.allclose(inactive_xy, torch.ones(1))
+    assert torch.allclose(regressive_z, torch.tensor([-0.25]))
+
+
+def test_realized_progress_uses_the_previous_requested_direction():
+    actual = torch.tensor([[0.003, 0.004, -0.002], [-0.001, 0.0, 0.001]])
+    requested = torch.tensor([[0.006, 0.008, -0.004], [0.002, 0.0, -0.002]])
+
+    requested_xy, requested_z, realized_xy, realized_z = (
+        realized_translation_progress(actual, requested)
+    )
+
+    assert torch.allclose(requested_xy, torch.tensor([0.010, 0.002]))
+    assert torch.allclose(requested_z, torch.tensor([0.004, 0.002]))
+    assert torch.allclose(realized_xy, torch.tensor([0.005, -0.001]))
+    assert torch.allclose(realized_z, torch.tensor([0.002, -0.001]))
 
 
 def test_jerk_limiter_respects_independent_xy_and_z_limits():
@@ -303,7 +464,8 @@ def test_jerk_aware_envelope_reaches_deadband_without_emergency_projection():
         desired = apply_stopping_speed_envelope(
             torch.tensor([[0.0, 0.0, 0.075]]),
             error,
-            deadband=0.002,
+            horizontal_deadband=0.005,
+            vertical_deadband=0.002,
             maximum_horizontal_acceleration=0.60,
             maximum_vertical_acceleration=0.45,
             maximum_horizontal_jerk=6.0,
@@ -325,7 +487,8 @@ def test_jerk_aware_envelope_reaches_deadband_without_emergency_projection():
             maximum_xy=0.0025,
             maximum_up=0.0025,
             maximum_down=0.0030,
-            deadband=0.002,
+            horizontal_deadband=0.005,
+            vertical_deadband=0.002,
         )
         applied_velocity = step / step_dt
         projection_override = torch.norm(applied_velocity - limited_velocity, dim=1)

@@ -78,6 +78,10 @@ def test_v33_recovery_and_assist_safety_parameters_are_explicit():
         '"empty_close_confirm_steps": 3',
         '"closing_contact_grace_steps": 12',
         "assist_entry_blend_steps=12",
+        "assist_entry_target_lead_steps=3",
+        "assist_target_lead_steps=3",
+        "horizontal_position_deadband=0.005",
+        "vertical_position_deadband=0.002",
         "max_horizontal_acceleration=0.60",
         "max_vertical_acceleration=0.45",
         "max_horizontal_jerk=6.0",
@@ -88,6 +92,21 @@ def test_v33_recovery_and_assist_safety_parameters_are_explicit():
     )
     for contract_line in required_v33:
         assert contract_line in ENV_SOURCE
+
+
+def test_v34_lead_is_current_relative_and_entry_seed_is_single_step():
+    assert (
+        "preferred_raw_lead = self.cfg.assist_target_lead_steps * delta_joint"
+        in MDP_SOURCE
+    )
+    assert "proposed_target = previous_target + delta_joint" not in MDP_SOURCE
+    assert "steady_assist = lead_constraint_feasible & ~fresh_local" in MDP_SOURCE
+    assert "fresh_local[:, None], entry_seed_lead, selected_lead" in MDP_SOURCE
+    assert "target_lead_constraint_intersection" in MDP_SOURCE
+    assert "assist_lead_constraint_rebase" in MDP_SOURCE
+    assert "selected_valid\n            & increment_xy_hard_safe" in MDP_SOURCE
+    assert "task_assist_effort_demand_ratio" in MDP_SOURCE
+    assert "task_assist_effort_ratio" not in MDP_SOURCE
 
 
 def test_global_cross_axis_throttle_paths_were_removed():

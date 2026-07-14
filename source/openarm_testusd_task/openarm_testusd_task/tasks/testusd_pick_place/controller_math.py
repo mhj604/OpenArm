@@ -64,15 +64,61 @@ def constrain_target_lead(
     maximum_lead: float,
     maximum_target_change: float,
 ) -> torch.Tensor:
-    """Constrain a lead, applying target continuity last so later scaling cannot undo it."""
+    """Project a desired target into the joint, lead, and continuity intersection.
 
-    lead = scale_by_max_abs(raw_lead, maximum_lead)
-    lead = scale_delta_to_joint_limits(current_position, lead, joint_limits)
-    constrained_target = current_position + lead
-    target_change = scale_by_max_abs(
-        constrained_target - previous_target, maximum_target_change
+    Applying the continuity cap after the lead cap can move the final target back
+    outside ``current_position +/- maximum_lead``.  Projecting the target into the
+    common component-wise interval keeps every constraint true at the same time.
+    When the interval is empty, the current pose is the safest explicit rebase;
+    callers can detect the continuity break with
+    :func:`target_lead_constraints_valid` and count a safety fallback.
+    """
+
+    desired_lead = scale_by_max_abs(raw_lead, maximum_lead)
+    desired_target = current_position + desired_lead
+    lower, upper, feasible = target_lead_constraint_intersection(
+        current_position,
+        previous_target,
+        joint_limits,
+        maximum_lead,
+        maximum_target_change,
     )
-    return previous_target + target_change - current_position
+    projected_target = torch.maximum(torch.minimum(desired_target, upper), lower)
+    safe_rebase_target = torch.maximum(
+        torch.minimum(current_position, joint_limits[:, :, 1]),
+        joint_limits[:, :, 0],
+    )
+    projected_target = torch.where(
+        feasible[:, None], projected_target, safe_rebase_target
+    )
+    return projected_target - current_position
+
+
+def target_lead_constraint_intersection(
+    current_position: torch.Tensor,
+    previous_target: torch.Tensor,
+    joint_limits: torch.Tensor,
+    maximum_lead: float,
+    maximum_target_change: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return the common target interval and whether every joint is feasible."""
+
+    lower = torch.maximum(
+        joint_limits[:, :, 0],
+        torch.maximum(
+            current_position - maximum_lead,
+            previous_target - maximum_target_change,
+        ),
+    )
+    upper = torch.minimum(
+        joint_limits[:, :, 1],
+        torch.minimum(
+            current_position + maximum_lead,
+            previous_target + maximum_target_change,
+        ),
+    )
+    feasible = torch.all(lower <= upper, dim=1)
+    return lower, upper, feasible
 
 
 def target_lead_constraints_valid(
@@ -109,7 +155,8 @@ def project_goal_directed_step(
     maximum_xy: float | torch.Tensor,
     maximum_up: float | torch.Tensor,
     maximum_down: float | torch.Tensor,
-    deadband: float,
+    horizontal_deadband: float,
+    vertical_deadband: float,
 ) -> torch.Tensor:
     """Project XY and Z independently onto bounded, non-overshooting goal motion."""
 
@@ -121,10 +168,10 @@ def project_goal_directed_step(
     xy_limit = torch.as_tensor(maximum_xy, device=candidate_step.device, dtype=candidate_step.dtype)
     if xy_limit.ndim == 0:
         xy_limit = xy_limit.expand(candidate_step.shape[0])
-    xy_remaining = torch.clamp(xy_distance - deadband, min=0.0)
+    xy_remaining = torch.clamp(xy_distance - horizontal_deadband, min=0.0)
     xy_limit = torch.minimum(xy_limit.reshape(-1, 1), xy_remaining)
     xy_progress = torch.minimum(torch.clamp(xy_progress, min=0.0), xy_limit)
-    xy_active = xy_distance > deadband
+    xy_active = xy_distance > horizontal_deadband
     projected[:, :2] = torch.where(xy_active, xy_direction * xy_progress, 0.0)
 
     z_error = position_error[:, 2]
@@ -142,10 +189,12 @@ def project_goal_directed_step(
     if maximum_down_tensor.ndim == 0:
         maximum_down_tensor = maximum_down_tensor.expand(candidate_step.shape[0])
     z_limit = torch.where(z_error >= 0.0, maximum_up_tensor, maximum_down_tensor)
-    z_remaining = torch.clamp(z_distance - deadband, min=0.0)
+    z_remaining = torch.clamp(z_distance - vertical_deadband, min=0.0)
     z_limit = torch.minimum(z_limit, z_remaining)
     z_progress = torch.minimum(torch.clamp(z_progress, min=0.0), z_limit)
-    projected[:, 2] = torch.where(z_distance > deadband, z_direction * z_progress, 0.0)
+    projected[:, 2] = torch.where(
+        z_distance > vertical_deadband, z_direction * z_progress, 0.0
+    )
     return projected
 
 
@@ -155,7 +204,8 @@ def preserve_safe_goal_directed_step(
     maximum_xy: float | torch.Tensor,
     maximum_up: float | torch.Tensor,
     maximum_down: float | torch.Tensor,
-    deadband: float,
+    horizontal_deadband: float,
+    vertical_deadband: float,
 ) -> torch.Tensor:
     """Keep safe incoming direction, projecting only axes that move away or overshoot."""
 
@@ -165,7 +215,8 @@ def preserve_safe_goal_directed_step(
         maximum_xy,
         maximum_up,
         maximum_down,
-        deadband,
+        horizontal_deadband,
+        vertical_deadband,
     )
     result = projected.clone()
     xy_error = position_error[:, :2]
@@ -177,10 +228,10 @@ def preserve_safe_goal_directed_step(
     candidate_xy_progress = torch.sum(candidate_step[:, :2] * xy_error, dim=1)
     candidate_xy_remaining = torch.norm(xy_error - candidate_step[:, :2], dim=1)
     safe_xy = (
-        (xy_distance > deadband)
+        (xy_distance > horizontal_deadband)
         & (candidate_xy_progress >= 0.0)
         & (candidate_xy_remaining <= xy_distance)
-        & (candidate_xy_remaining >= deadband)
+        & (candidate_xy_remaining >= horizontal_deadband)
         & (candidate_xy_norm <= xy_limit)
     )
     result[:, :2] = torch.where(
@@ -198,10 +249,10 @@ def preserve_safe_goal_directed_step(
         down_limit = down_limit.expand(candidate_step.shape[0])
     z_limit = torch.where(z_error >= 0.0, up_limit, down_limit)
     safe_z = (
-        (torch.abs(z_error) > deadband)
+        (torch.abs(z_error) > vertical_deadband)
         & (candidate_step[:, 2] * z_error >= 0.0)
         & (torch.abs(z_error - candidate_step[:, 2]) <= torch.abs(z_error))
-        & (torch.abs(z_error - candidate_step[:, 2]) >= deadband)
+        & (torch.abs(z_error - candidate_step[:, 2]) >= vertical_deadband)
         & (torch.abs(candidate_step[:, 2]) <= z_limit)
     )
     result[:, 2] = torch.where(safe_z, candidate_step[:, 2], projected[:, 2])
@@ -211,7 +262,8 @@ def preserve_safe_goal_directed_step(
 def apply_stopping_speed_envelope(
     velocity: torch.Tensor,
     position_error: torch.Tensor,
-    deadband: float,
+    horizontal_deadband: float,
+    vertical_deadband: float,
     maximum_horizontal_acceleration: float,
     maximum_vertical_acceleration: float,
     maximum_horizontal_jerk: float,
@@ -234,7 +286,7 @@ def apply_stopping_speed_envelope(
 
     bounded = velocity.clone()
     xy_remaining = torch.clamp(
-        torch.norm(position_error[:, :2], dim=1) - deadband,
+        torch.norm(position_error[:, :2], dim=1) - horizontal_deadband,
         min=0.0,
     )
     xy_stopping_speed = stopping_speed(
@@ -243,7 +295,9 @@ def apply_stopping_speed_envelope(
         maximum_horizontal_jerk,
     )
     bounded[:, :2] = limit_vector_norm(bounded[:, :2], xy_stopping_speed)
-    z_remaining = torch.clamp(torch.abs(position_error[:, 2]) - deadband, min=0.0)
+    z_remaining = torch.clamp(
+        torch.abs(position_error[:, 2]) - vertical_deadband, min=0.0
+    )
     z_stopping_speed = stopping_speed(
         z_remaining,
         maximum_vertical_acceleration,
@@ -365,6 +419,28 @@ def active_translation_progress_ratio(
 ) -> torch.Tensor:
     """Return the weakest requested-axis progress ratio for each environment."""
 
+    xy_ratio, z_ratio = translation_progress_ratios(
+        predicted_translation,
+        requested_translation,
+        active_xy,
+        active_z,
+    )
+    ratio = torch.where(
+        active_xy & active_z,
+        torch.minimum(xy_ratio, z_ratio),
+        torch.where(active_xy, xy_ratio, z_ratio),
+    )
+    return torch.where(active_xy | active_z, ratio, torch.ones_like(ratio))
+
+
+def translation_progress_ratios(
+    predicted_translation: torch.Tensor,
+    requested_translation: torch.Tensor,
+    active_xy: torch.Tensor,
+    active_z: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return independent XY and Z progress ratios, using one for inactive axes."""
+
     requested_xy_squared = torch.sum(requested_translation[:, :2] ** 2, dim=1)
     xy_ratio = torch.sum(
         predicted_translation[:, :2] * requested_translation[:, :2], dim=1
@@ -377,8 +453,34 @@ def active_translation_progress_ratio(
     infinite = torch.full_like(xy_ratio, float("inf"))
     xy_ratio = torch.where(active_xy, xy_ratio, infinite)
     z_ratio = torch.where(active_z, z_ratio, infinite)
-    ratio = torch.minimum(xy_ratio, z_ratio)
-    return torch.where(active_xy | active_z, ratio, torch.ones_like(ratio))
+    ones = torch.ones_like(xy_ratio)
+    return torch.where(active_xy, xy_ratio, ones), torch.where(active_z, z_ratio, ones)
+
+
+def realized_translation_progress(
+    actual_translation: torch.Tensor,
+    requested_translation: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Attribute measured translation to the direction requested one control earlier."""
+
+    requested_xy = requested_translation[:, :2]
+    requested_xy_norm = torch.norm(requested_xy, dim=1)
+    requested_xy_direction = requested_xy / torch.clamp(
+        requested_xy_norm[:, None], min=1.0e-9
+    )
+    realized_xy_progress = torch.sum(
+        actual_translation[:, :2] * requested_xy_direction, dim=1
+    )
+    requested_z = torch.abs(requested_translation[:, 2])
+    realized_z_progress = (
+        torch.sign(requested_translation[:, 2]) * actual_translation[:, 2]
+    )
+    return (
+        requested_xy_norm,
+        requested_z,
+        realized_xy_progress,
+        realized_z_progress,
+    )
 
 
 def jerk_limited_cartesian_velocity(

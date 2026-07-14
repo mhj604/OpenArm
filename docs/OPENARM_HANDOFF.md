@@ -1,6 +1,6 @@
 # OpenArm Pick-and-Place Handoff
 
-Last updated: 2026-07-13 KST
+Last updated: 2026-07-14 KST
 
 ## Repository And Tasks
 
@@ -14,8 +14,8 @@ Train: Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0
 GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 ```
 
-Current code target is v33. The fresh v33 run completed all 5000 iterations; its selected checkpoint
-is `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt`.
+Current code target is untrained v34. The preserved v33 baseline completed all 5000 iterations; its
+selected checkpoint is `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt`.
 
 ## V19 Result And Exact Cause
 
@@ -438,3 +438,49 @@ in assist-to-center or center-to-release, and the GUI exposed intermittent baske
 near the final target. Preserve its grasp, transport, strict outcome gates, and continuous handoff as
 the v34 baseline; fix final basket-relative clearance and assist convergence without weakening the
 success definition.
+
+## Current V34 Policy (Untrained)
+
+V33 already reaches rolling-50 grasp/transport `97.30/97.24%`; changing the grasp rewards, policy
+observations, goal, or success gates would confound the remaining final-assist problem. V34 therefore
+keeps `75 observations / 8 actions / 20 rewards`, PPO, the 16-second episode, the `.670m` release
+target, and every strict grasp/release/success condition.
+
+The verified controller faults and fixes are:
+
+- V33 constrained current lead and joint limits, then applied previous-target continuity last. The
+  final continuity correction could reopen the `.12rad` lead bound. V34 projects directly into the
+  component-wise intersection of soft joint limits, current `+/- .12rad`, and previous target
+  `+/- .03rad`.
+- The steady target no longer accumulates `previous_target + delta`. It is a current-relative
+  three-control lookahead, `current + 3 * safe_delta`, while output continuity remains `.03rad` per
+  control.
+- Joint-limit scaling is relative to measured current joints instead of a stale target. An empty
+  constraint intersection explicitly holds/rebases to current pose and clears Cartesian velocity and
+  acceleration before the next control.
+- Entry seeding is the final target for the first assist control. The steady lead path starts on the
+  next control, preventing the old possible `.03 + .03rad` same-control jump.
+- Invalid DLS candidates retain their invalid state; a zeroed candidate can no longer be revived as a
+  valid zero-motion lead. Preferred, previous, incremental, and hold fallbacks now share the same
+  repair and validation path.
+- XY and Z stop independently at `5mm` and `2mm`. The release gate remains XY `40mm`, success XY
+  `50mm`, height `+2/-3mm`, and speed `.06m/s`; no success condition was weakened.
+
+Low-cost training telemetry now separates predicted XY/Z progress from actual next-control object
+tracking, records lead rebases/backlog and current/target joint-limit proximity, and labels the
+pre-clip implicit-actuator value as `effort_demand_ratio`. Direct basket ContactSensor processing is
+not enabled in the 5120-env training task because its FPS and PhysX-buffer cost has not been measured.
+Broad domain randomization is also deferred until this nominal controller passes actor-mean and GUI
+acceptance.
+
+Run fresh as exactly one shell line from `/home/mh/.codex_tmp_openarm_remote`:
+
+```bash
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_current_relative_assist_v34
+```
+
+Do not add resume, load-run, checkpoint, or bootstrap arguments. Compare model 500 for grasp, model
+1000 for lift/transport and first center/release events, then models 2000, 3500, and 4500 for success
+and timeout. Stop and redesign if model 1000 has grasp/lift below 80% or zero center/release events.
+Final acceptance still requires actor-mean multi-seed evaluation and ten GUI episodes; sampled
+TensorBoard success alone is not acceptance.
