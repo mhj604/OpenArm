@@ -23,6 +23,21 @@ from isaaclab.utils.math import (
 
 from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, F403
 
+from .controller_math import (
+    active_translation_progress_ratio,
+    apply_stopping_speed_envelope,
+    build_prioritized_dls_solver,
+    constrain_target_lead,
+    jerk_limited_cartesian_velocity,
+    limit_vector_norm,
+    preserve_safe_goal_directed_step,
+    quintic_smoothstep,
+    scale_delta_to_joint_limits,
+    solve_primary_dls_delta,
+    solve_prioritized_dls_delta,
+    target_lead_constraints_valid,
+)
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -69,12 +84,20 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_grasp_coupling_aborts",
             "task_grasp_close_timeouts",
             "task_grasp_verification_timeouts",
+            "task_grasp_empty_close_progress",
+            "task_grasp_empty_close_aborts",
+            "task_grasp_close_grace_entries",
+            "task_grasp_close_timeout_near_contact",
+            "task_grasp_first_attempt_success",
+            "task_grasp_retry_success",
             "task_grasp_candidate_object_lift",
             "task_grasp_candidate_tcp_lift",
             "task_transport_displacement",
             "task_assist_engaged",
             "task_assist_active",
             "task_assist_owns_arm",
+            "task_grasp_controller_owns_arm",
+            "task_grasp_retry_recovery_active",
             "task_basket_reached",
             "task_inside_release_xy",
             "task_place_centered",
@@ -113,6 +136,39 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_watchdog_trips",
             "task_assist_posture_error",
             "task_assist_target_lead",
+            "task_assist_entry_blend_steps",
+            "task_assist_command_speed",
+            "task_assist_command_acceleration",
+            "task_assist_xy_control_steps",
+            "task_assist_z_control_steps",
+            "task_assist_xy_unsafe_steps",
+            "task_assist_z_unsafe_steps",
+            "task_assist_recovery_hold_steps",
+            "task_assist_safety_brake_steps",
+            "task_assist_entry_seeded",
+            "task_assist_active_progress_ratio_sum",
+            "task_assist_low_progress_steps",
+            "task_assist_incremental_safety_stops",
+            "task_assist_lead_fallbacks",
+            "task_assist_lead_previous_fallbacks",
+            "task_assist_lead_incremental_fallbacks",
+            "task_assist_lead_safety_stops",
+            "task_phase_approach_steps",
+            "task_phase_close_verify_steps",
+            "task_phase_retry_reopen_steps",
+            "task_phase_actor_transport_steps",
+            "task_phase_assist_to_center_steps",
+            "task_phase_center_to_release_steps",
+            "task_phase_opening_steps",
+            "task_phase_settle_steps",
+            "task_timeout_phase_approach",
+            "task_timeout_phase_close_verify",
+            "task_timeout_phase_retry_reopen",
+            "task_timeout_phase_actor_transport",
+            "task_timeout_phase_assist_to_center",
+            "task_timeout_phase_center_to_release",
+            "task_timeout_phase_opening",
+            "task_timeout_phase_settle",
             "task_centering_progress",
             "task_opening_progress",
             "task_basket_exit_progress",
@@ -159,7 +215,11 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_grasp_coupling_error"] = state.grasp_coupling_error.clone()
             self.metrics["task_grasp_offset_error"] = state.grasp_offset_error.clone()
             self.metrics["task_grasp_closing_progress"] = (
-                state.grasp_closing_streak.float() / max(state._closing_timeout_steps, 1)
+                state.grasp_closing_streak.float()
+                / max(
+                    state._closing_timeout_steps + state._closing_contact_grace_steps,
+                    1,
+                )
             )
             self.metrics["task_grasp_contact_progress"] = (
                 state.grasp_contact_streak.float() / max(state._contact_confirm_steps, 1)
@@ -181,6 +241,23 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_grasp_verification_timeouts"] = (
                 state.grasp_verification_timeouts.float()
             )
+            self.metrics["task_grasp_empty_close_progress"] = (
+                state.grasp_empty_close_streak.float()
+                / max(state._empty_close_confirm_steps, 1)
+            )
+            self.metrics["task_grasp_empty_close_aborts"] = (
+                state.grasp_empty_close_aborts.float()
+            )
+            self.metrics["task_grasp_close_grace_entries"] = (
+                state.grasp_close_grace_entries.float()
+            )
+            self.metrics["task_grasp_close_timeout_near_contact"] = (
+                state.grasp_close_timeout_near_contact.float()
+            )
+            self.metrics["task_grasp_first_attempt_success"] = (
+                state.grasp_first_attempt_success.float()
+            )
+            self.metrics["task_grasp_retry_success"] = state.grasp_retry_success.float()
             self.metrics["task_grasp_candidate_object_lift"] = (
                 state.grasp_candidate_object_lift.clone()
             )
@@ -191,6 +268,12 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_assist_engaged"] = state.assist_engaged.float()
             self.metrics["task_assist_active"] = state.assist_active.float()
             self.metrics["task_assist_owns_arm"] = state.assist_owns_arm.float()
+            self.metrics["task_grasp_controller_owns_arm"] = (
+                state.grasp_controller_owns_arm.float()
+            )
+            self.metrics["task_grasp_retry_recovery_active"] = (
+                state.grasp_retry_recovery_active.float()
+            )
             self.metrics["task_basket_reached"] = state.basket_reached.float()
             self.metrics["task_inside_release_xy"] = state.inside_release_xy.float()
             self.metrics["task_place_centered"] = state.place_centered.float()
@@ -258,6 +341,66 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 self.metrics["task_assist_target_lead"] = torch.maximum(
                     self.metrics["task_assist_target_lead"], arm_action.assist_target_lead
                 )
+                blend_active = (
+                    state.assist_active
+                    & (arm_action.assist_entry_blend_progress < 1.0)
+                )
+                self.metrics["task_assist_entry_blend_steps"].add_(blend_active.float())
+                self.metrics["task_assist_command_speed"] = torch.maximum(
+                    self.metrics["task_assist_command_speed"],
+                    arm_action.assist_command_speed,
+                )
+                self.metrics["task_assist_command_acceleration"] = torch.maximum(
+                    self.metrics["task_assist_command_acceleration"],
+                    arm_action.assist_command_acceleration,
+                )
+                self.metrics["task_assist_xy_control_steps"].add_(
+                    arm_action.assist_xy_active
+                )
+                self.metrics["task_assist_z_control_steps"].add_(
+                    arm_action.assist_z_active
+                )
+                self.metrics["task_assist_xy_unsafe_steps"].add_(
+                    arm_action.assist_xy_active * (1.0 - arm_action.assist_xy_safe)
+                )
+                self.metrics["task_assist_z_unsafe_steps"].add_(
+                    arm_action.assist_z_active * (1.0 - arm_action.assist_z_safe)
+                )
+                self.metrics["task_assist_recovery_hold_steps"].add_(
+                    arm_action.assist_recovery_hold
+                )
+                self.metrics["task_assist_safety_brake_steps"].add_(
+                    arm_action.assist_safety_brake
+                )
+                self.metrics["task_assist_entry_seeded"].add_(
+                    arm_action.assist_entry_seeded
+                )
+                self.metrics["task_assist_active_progress_ratio_sum"].add_(
+                    arm_action.assist_active_progress_ratio
+                    * (
+                        (arm_action.assist_xy_active > 0.0)
+                        | (arm_action.assist_z_active > 0.0)
+                    ).float()
+                )
+                self.metrics["task_assist_low_progress_steps"].add_(
+                    arm_action.assist_low_progress
+                )
+                self.metrics["task_assist_incremental_safety_stops"].add_(
+                    arm_action.assist_incremental_safety_stop
+                )
+                self.metrics["task_assist_lead_fallbacks"].add_(
+                    arm_action.assist_lead_fallback
+                )
+                self.metrics["task_assist_lead_previous_fallbacks"].add_(
+                    arm_action.assist_lead_previous_fallback
+                )
+                self.metrics["task_assist_lead_incremental_fallbacks"].add_(
+                    arm_action.assist_lead_incremental_fallback
+                )
+                self.metrics["task_assist_lead_safety_stops"].add_(
+                    arm_action.assist_lead_safety_stop
+                )
+            self.sync_task_latched_metrics(state)
             self.metrics["task_centering_progress"] = state.center_streak.float() / max(
                 state._place_center_confirm_steps, 1
             )
@@ -270,6 +413,43 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_released_outside_progress"] = state.outside_streak.float() / max(
                 state._released_outside_confirm_steps, 1
             )
+
+    def sync_task_latched_metrics(self, state: "TaskStateTracker"):
+        """Copy terminal-safe latches without duplicating cumulative assist metrics."""
+
+        for metric_name, state_name in (
+            ("task_grasp_attempt_aborts", "grasp_attempt_aborts"),
+            ("task_grasp_alignment_aborts", "grasp_alignment_aborts"),
+            ("task_grasp_coupling_aborts", "grasp_coupling_aborts"),
+            ("task_grasp_close_timeouts", "grasp_close_timeouts"),
+            ("task_grasp_verification_timeouts", "grasp_verification_timeouts"),
+            ("task_grasp_empty_close_aborts", "grasp_empty_close_aborts"),
+            ("task_grasp_close_grace_entries", "grasp_close_grace_entries"),
+            (
+                "task_grasp_close_timeout_near_contact",
+                "grasp_close_timeout_near_contact",
+            ),
+            ("task_grasp_first_attempt_success", "grasp_first_attempt_success"),
+            ("task_grasp_retry_success", "grasp_retry_success"),
+        ):
+            self.metrics[metric_name] = getattr(state, state_name).float()
+
+        for phase_name in (
+            "approach",
+            "close_verify",
+            "retry_reopen",
+            "actor_transport",
+            "assist_to_center",
+            "center_to_release",
+            "opening",
+            "settle",
+        ):
+            self.metrics[f"task_phase_{phase_name}_steps"] = getattr(
+                state, f"phase_{phase_name}_steps"
+            ).float()
+            self.metrics[f"task_timeout_phase_{phase_name}"] = getattr(
+                state, f"timeout_phase_{phase_name}"
+            ).float()
 
     def _resample_command(self, env_ids):
         super()._resample_command(env_ids)
@@ -383,6 +563,21 @@ class PlaceAssistJointPositionAction(JointPositionAction):
 
     def __init__(self, cfg: "PlaceAssistJointPositionActionCfg", env):
         super().__init__(cfg, env)
+        if cfg.assist_entry_blend_steps < 0 or cfg.assist_entry_target_lead_steps < 0:
+            raise ValueError("assist entry step counts must be non-negative")
+        if min(
+            cfg.max_horizontal_acceleration,
+            cfg.max_vertical_acceleration,
+            cfg.max_horizontal_jerk,
+            cfg.max_vertical_jerk,
+        ) <= 0.0:
+            raise ValueError("assist acceleration and jerk limits must be positive")
+        if not 0.0 < cfg.minimum_active_progress_ratio <= 1.0:
+            raise ValueError("minimum active progress ratio must be in (0, 1]")
+        if cfg.cartesian_hard_leak_tolerance < cfg.cartesian_leak_tolerance:
+            raise ValueError("hard Cartesian leak tolerance must not be stricter than telemetry")
+        if cfg.slip_recovery_hold_steps < 0:
+            raise ValueError("slip recovery hold steps must be non-negative")
         body_ids, body_names = self._asset.find_bodies(cfg.body_name)
         if len(body_ids) != 1:
             raise ValueError(f"Expected one body for place assist, found {body_names}")
@@ -394,7 +589,6 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             if self._asset.is_fixed_base
             else [joint_id + 6 for joint_id in self._joint_ids]
         )
-        self._identity_6 = torch.eye(6, device=self.device).unsqueeze(0)
         self._identity_joints = torch.eye(self.action_dim, device=self.device).unsqueeze(0)
         self._assist_was_active = torch.zeros(self._env.num_envs, dtype=torch.bool, device=self.device)
         self._assist_posture_ref = torch.zeros(
@@ -422,6 +616,17 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self._env.num_envs, dtype=torch.long, device=self.device
         )
         self._filtered_object_velocity = torch.zeros((self._env.num_envs, 3), device=self.device)
+        self._assist_entry_velocity = torch.zeros((self._env.num_envs, 3), device=self.device)
+        self._assist_command_velocity = torch.zeros((self._env.num_envs, 3), device=self.device)
+        self._assist_command_acceleration = torch.zeros(
+            (self._env.num_envs, 3), device=self.device
+        )
+        self._assist_entry_blend_steps_remaining = torch.zeros(
+            self._env.num_envs, dtype=torch.long, device=self.device
+        )
+        self._slip_recovery_steps_remaining = torch.zeros(
+            self._env.num_envs, dtype=torch.long, device=self.device
+        )
         self._previous_object_height = torch.zeros(self._env.num_envs, device=self.device)
         self._previous_tcp_height = torch.zeros(self._env.num_envs, device=self.device)
         self._motion_height_initialized = torch.zeros(
@@ -449,6 +654,35 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_watchdog_trip = torch.zeros(self._env.num_envs, device=self.device)
         self.assist_posture_error = torch.zeros(self._env.num_envs, device=self.device)
         self.assist_target_lead = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_entry_blend_progress = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_command_speed = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_command_acceleration = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_xy_active = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_z_active = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_xy_safe = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_z_safe = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_recovery_hold = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_safety_brake = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_entry_seeded = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_active_progress_ratio = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_low_progress = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_incremental_safety_stop = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_fallback = torch.zeros(self._env.num_envs, device=self.device)
+        self.assist_lead_previous_fallback = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_incremental_fallback = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_safety_stop = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
 
     def reset(self, env_ids=None):
         super().reset(env_ids)
@@ -465,6 +699,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._grasp_handoff_steps_remaining[resolved_env_ids] = 0
         self._handoff_steps_remaining[resolved_env_ids] = 0
         self._filtered_object_velocity[resolved_env_ids] = 0.0
+        self._assist_entry_velocity[resolved_env_ids] = 0.0
+        self._assist_command_velocity[resolved_env_ids] = 0.0
+        self._assist_command_acceleration[resolved_env_ids] = 0.0
+        self._assist_entry_blend_steps_remaining[resolved_env_ids] = 0
+        self._slip_recovery_steps_remaining[resolved_env_ids] = 0
         self._previous_object_height[resolved_env_ids] = 0.0
         self._previous_tcp_height[resolved_env_ids] = 0.0
         self._motion_height_initialized[resolved_env_ids] = False
@@ -482,6 +721,23 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_watchdog_trip[resolved_env_ids] = 0.0
         self.assist_posture_error[resolved_env_ids] = 0.0
         self.assist_target_lead[resolved_env_ids] = 0.0
+        self.assist_entry_blend_progress[resolved_env_ids] = 0.0
+        self.assist_command_speed[resolved_env_ids] = 0.0
+        self.assist_command_acceleration[resolved_env_ids] = 0.0
+        self.assist_xy_active[resolved_env_ids] = 0.0
+        self.assist_z_active[resolved_env_ids] = 0.0
+        self.assist_xy_safe[resolved_env_ids] = 0.0
+        self.assist_z_safe[resolved_env_ids] = 0.0
+        self.assist_recovery_hold[resolved_env_ids] = 0.0
+        self.assist_safety_brake[resolved_env_ids] = 0.0
+        self.assist_entry_seeded[resolved_env_ids] = 0.0
+        self.assist_active_progress_ratio[resolved_env_ids] = 0.0
+        self.assist_low_progress[resolved_env_ids] = 0.0
+        self.assist_incremental_safety_stop[resolved_env_ids] = 0.0
+        self.assist_lead_fallback[resolved_env_ids] = 0.0
+        self.assist_lead_previous_fallback[resolved_env_ids] = 0.0
+        self.assist_lead_incremental_fallback[resolved_env_ids] = 0.0
+        self.assist_lead_safety_stop[resolved_env_ids] = 0.0
 
     @staticmethod
     def _bounded_direction_step(
@@ -520,44 +776,81 @@ class PlaceAssistJointPositionAction(JointPositionAction):
     ) -> torch.Tensor:
         """Uniformly scale an increment so the target remains inside every joint limit."""
 
-        infinite = torch.full_like(delta, float("inf"))
-        upper_scale = torch.where(
-            delta > 0.0,
-            (joint_limits[:, :, 1] - target) / torch.clamp(delta, min=1.0e-9),
-            infinite,
-        )
-        lower_scale = torch.where(
-            delta < 0.0,
-            (joint_limits[:, :, 0] - target) / torch.clamp(delta, max=-1.0e-9),
-            infinite,
-        )
-        scale = torch.amin(torch.minimum(upper_scale, lower_scale), dim=1, keepdim=True)
-        return delta * torch.clamp(scale, min=0.0, max=1.0)
+        return scale_delta_to_joint_limits(target, delta, joint_limits)
 
-    def _cartesian_direction_safe(
+    def _cartesian_axis_safe(
         self,
         predicted_step: torch.Tensor,
         position_error: torch.Tensor,
-    ) -> torch.Tensor:
-        """Check that predicted TCP motion does not move away on XY or Z."""
+        maximum_xy: float | torch.Tensor | None = None,
+        maximum_up: float | torch.Tensor | None = None,
+        maximum_down: float | torch.Tensor | None = None,
+        inactive_leak_tolerance: float | None = None,
+        active_limit_epsilon: float = 1.0e-6,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Check XY and Z independently for target progress and bounded inactive-axis leak."""
+
+        leak_tolerance = (
+            self.cfg.cartesian_leak_tolerance
+            if inactive_leak_tolerance is None
+            else inactive_leak_tolerance
+        )
 
         xy_error = torch.norm(position_error[:, :2], dim=1)
         xy_progress = torch.sum(predicted_step[:, :2] * position_error[:, :2], dim=1)
         xy_remaining = torch.norm(position_error[:, :2] - predicted_step[:, :2], dim=1)
+        xy_active = xy_error > self.cfg.position_deadband
         xy_safe = torch.where(
-            xy_error > self.cfg.position_deadband,
+            xy_active,
             (xy_progress >= -1.0e-9) & (xy_remaining <= xy_error + 1.0e-9),
-            torch.norm(predicted_step[:, :2], dim=1) <= self.cfg.cartesian_leak_tolerance,
+            torch.norm(predicted_step[:, :2], dim=1) <= leak_tolerance,
         )
         z_error = position_error[:, 2]
         z_remaining = torch.abs(z_error - predicted_step[:, 2])
+        z_active = torch.abs(z_error) > self.cfg.position_deadband
         z_safe = torch.where(
-            torch.abs(z_error) > self.cfg.position_deadband,
+            z_active,
             (predicted_step[:, 2] * z_error >= -1.0e-9)
             & (z_remaining <= torch.abs(z_error) + 1.0e-9),
-            torch.abs(predicted_step[:, 2]) <= self.cfg.cartesian_leak_tolerance,
+            torch.abs(predicted_step[:, 2]) <= leak_tolerance,
         )
-        return xy_safe & z_safe
+        if maximum_xy is not None:
+            xy_limit = torch.as_tensor(
+                maximum_xy,
+                device=predicted_step.device,
+                dtype=predicted_step.dtype,
+            )
+            if xy_limit.ndim == 0:
+                xy_limit = xy_limit.expand(predicted_step.shape[0])
+            xy_safe &= torch.where(
+                xy_active,
+                torch.norm(predicted_step[:, :2], dim=1)
+                <= xy_limit + active_limit_epsilon,
+                torch.ones_like(xy_safe),
+            )
+        if maximum_up is not None and maximum_down is not None:
+            up_limit = torch.as_tensor(
+                maximum_up,
+                device=predicted_step.device,
+                dtype=predicted_step.dtype,
+            )
+            down_limit = torch.as_tensor(
+                maximum_down,
+                device=predicted_step.device,
+                dtype=predicted_step.dtype,
+            )
+            if up_limit.ndim == 0:
+                up_limit = up_limit.expand(predicted_step.shape[0])
+            if down_limit.ndim == 0:
+                down_limit = down_limit.expand(predicted_step.shape[0])
+            z_limit = torch.where(z_error >= 0.0, up_limit, down_limit)
+            z_safe &= torch.where(
+                z_active,
+                torch.abs(predicted_step[:, 2])
+                <= z_limit + active_limit_epsilon,
+                torch.ones_like(z_safe),
+            )
+        return xy_safe, z_safe
 
     def process_actions(self, actions: torch.Tensor):
         super().process_actions(actions)
@@ -567,6 +860,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             return
         state.assist_active[:] = False
         state.assist_owns_arm[:] = False
+        state.grasp_controller_owns_arm[:] = False
+        state.grasp_retry_recovery_active[:] = False
         self.assist_requested_vertical_step[:] = 0.0
         self.assist_incremental_vertical_step[:] = 0.0
         self.assist_vertical_step[:] = 0.0
@@ -580,6 +875,23 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_watchdog_trip[:] = 0.0
         self.assist_posture_error[:] = 0.0
         self.assist_target_lead[:] = 0.0
+        self.assist_entry_blend_progress[:] = 0.0
+        self.assist_command_speed[:] = 0.0
+        self.assist_command_acceleration[:] = 0.0
+        self.assist_xy_active[:] = 0.0
+        self.assist_z_active[:] = 0.0
+        self.assist_xy_safe[:] = 0.0
+        self.assist_z_safe[:] = 0.0
+        self.assist_recovery_hold[:] = 0.0
+        self.assist_safety_brake[:] = 0.0
+        self.assist_entry_seeded[:] = 0.0
+        self.assist_active_progress_ratio[:] = 0.0
+        self.assist_low_progress[:] = 0.0
+        self.assist_incremental_safety_stop[:] = 0.0
+        self.assist_lead_fallback[:] = 0.0
+        self.assist_lead_previous_fallback[:] = 0.0
+        self.assist_lead_incremental_fallback[:] = 0.0
+        self.assist_lead_safety_stop[:] = 0.0
         robot: Articulation = self._env.scene[self.cfg.asset_name]
         obj: RigidObject = self._env.scene[self.cfg.object_name]
         current_joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
@@ -691,22 +1003,37 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._handoff_steps_remaining[release_handoff] = self.cfg.handoff_steps
         self._assist_joint_target[release_handoff] = current_joint_pos[release_handoff]
         newly_active = assist_active & ~self._assist_was_active
-        resuming_handoff = newly_active & (self._handoff_steps_remaining > 0)
-        fresh_assist = newly_active & ~resuming_handoff
-        self._assist_posture_ref[fresh_assist] = current_joint_pos[fresh_assist]
-        self._assist_entry_offset[fresh_assist] = (
-            obj.data.root_pos_w[fresh_assist] - robot.data.body_pos_w[fresh_assist, self._body_id]
+        self._assist_posture_ref[newly_active] = current_joint_pos[newly_active]
+        self._assist_entry_offset[newly_active] = (
+            obj.data.root_pos_w[newly_active] - robot.data.body_pos_w[newly_active, self._body_id]
         )
-        self._assist_entry_orientation[fresh_assist] = robot.data.body_quat_w[
-            fresh_assist, self._body_id
+        self._assist_entry_orientation[newly_active] = robot.data.body_quat_w[
+            newly_active, self._body_id
         ]
-        self._slip_streak[fresh_assist] = 0
-        # Start assist from the measured pose. The DLS target then builds its load-bearing
-        # lead incrementally instead of inheriting a discontinuous absolute actor target.
-        self._assist_joint_target[fresh_assist] = current_joint_pos[fresh_assist]
+        self._slip_streak[newly_active] = 0
+        # The assist owns the arm immediately, but carries only measured goal-directed
+        # object velocity into its bounded Cartesian controller. Raw actor targets stay out.
+        self._assist_joint_target[newly_active] = current_joint_pos[newly_active]
+        self._assist_entry_velocity[newly_active] = self._filtered_object_velocity[
+            newly_active
+        ]
+        self._assist_command_velocity[newly_active] = self._filtered_object_velocity[
+            newly_active
+        ]
+        self._assist_command_acceleration[newly_active] = 0.0
+        self._assist_entry_blend_steps_remaining[newly_active] = (
+            self.cfg.assist_entry_blend_steps
+        )
+        self._slip_recovery_steps_remaining[newly_active] = 0
         self._handoff_steps_remaining[assist_active] = 0
         self._assist_was_active[:] = assist_active
         self._slip_streak[~assist_active] = 0
+        inactive_assist = ~assist_active
+        self._assist_entry_velocity[inactive_assist] = 0.0
+        self._assist_command_velocity[inactive_assist] = 0.0
+        self._assist_command_acceleration[inactive_assist] = 0.0
+        self._assist_entry_blend_steps_remaining[inactive_assist] = 0
+        self._slip_recovery_steps_remaining[inactive_assist] = 0
 
         # Keep the actor's absolute target bounded throughout post-grasp transport. The
         # old finite handoff expired after 0.4 s and exposed the raw target mid-carry.
@@ -735,6 +1062,10 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         state.assist_owns_arm[:] = (
             grasp_control | grasp_handoff | assist_active | hold_recovery | handoff
         )
+        # Only automatic pose holds own the arm for reward purposes. During
+        # verification/handoff the bounded target still comes from the actor.
+        state.grasp_controller_owns_arm[:] = grasp_control
+        state.grasp_retry_recovery_active[:] = retry_recovery
 
         assist_ids = torch.nonzero(assist_active, as_tuple=False).squeeze(-1)
         if assist_ids.numel() == 0:
@@ -768,15 +1099,24 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._assist_joint_target[slip_watchdog_ids] = current_joint_pos[slip_watchdog_ids]
         self._assist_entry_offset[slip_watchdog_ids] = current_object_offset[slip_watchdog]
         self._slip_streak[slip_watchdog_ids] = 0
+        self._assist_entry_velocity[slip_watchdog_ids] = 0.0
+        self._assist_command_velocity[slip_watchdog_ids] = 0.0
+        self._assist_command_acceleration[slip_watchdog_ids] = 0.0
+        self._assist_entry_blend_steps_remaining[slip_watchdog_ids] = (
+            self.cfg.assist_entry_blend_steps
+        )
+        self._slip_recovery_steps_remaining[slip_watchdog_ids] = (
+            self.cfg.slip_recovery_hold_steps
+        )
 
-        delta_position = torch.zeros((assist_ids.numel(), 3), device=self.device)
+        nominal_step = torch.zeros((assist_ids.numel(), 3), device=self.device)
         command = self._env.command_manager.get_command(self.cfg.command_name)
         goal_pos_w, _ = combine_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, command[:, :3])
         target_object_position = goal_pos_w[assist_ids, :3].clone()
         target_object_position[:, 2] = state.descent_target_height[assist_ids]
         object_error = target_object_position - obj.data.root_pos_w[assist_ids]
         filtered_velocity = self._filtered_object_velocity[assist_ids]
-        delta_position[:, :2] = self._bounded_direction_step(
+        nominal_step[:, :2] = self._bounded_direction_step(
             object_error[:, :2],
             filtered_velocity[:, :2],
             self.cfg.horizontal_position_gain,
@@ -805,136 +1145,651 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             vertical_magnitude,
             0.0,
         )
-        delta_position[:, 2:3] = vertical_direction * vertical_magnitude
-        delta_position[slip_watchdog] = 0.0
+        nominal_step[:, 2:3] = vertical_direction * vertical_magnitude
+
+        step_dt = self._env.step_dt
+        bounded_entry_velocity = apply_stopping_speed_envelope(
+            self._assist_entry_velocity[assist_ids],
+            object_error,
+            self.cfg.position_deadband,
+            self.cfg.max_horizontal_acceleration,
+            self.cfg.max_vertical_acceleration,
+            self.cfg.max_horizontal_jerk,
+            self.cfg.max_vertical_jerk,
+        )
+        entry_step = preserve_safe_goal_directed_step(
+            bounded_entry_velocity * step_dt,
+            object_error,
+            self.cfg.max_horizontal_step,
+            self.cfg.max_upward_step,
+            self.cfg.max_vertical_step,
+            self.cfg.position_deadband,
+        )
+        entry_velocity = entry_step / step_dt
+        fresh_local = newly_active[assist_ids]
+        self._assist_entry_velocity[assist_ids] = entry_velocity
+        self._assist_command_velocity[assist_ids] = torch.where(
+            fresh_local[:, None],
+            entry_velocity,
+            self._assist_command_velocity[assist_ids],
+        )
+        self._assist_command_acceleration[assist_ids] = torch.where(
+            fresh_local[:, None],
+            torch.zeros_like(entry_velocity),
+            self._assist_command_acceleration[assist_ids],
+        )
+
+        blend_remaining = self._assist_entry_blend_steps_remaining[assist_ids]
+        if self.cfg.assist_entry_blend_steps > 0:
+            blend_progress = (
+                self.cfg.assist_entry_blend_steps - blend_remaining
+            ).float() / self.cfg.assist_entry_blend_steps
+            blend_alpha = quintic_smoothstep(blend_progress)
+        else:
+            blend_alpha = torch.ones_like(blend_remaining, dtype=nominal_step.dtype)
+        blend_active = blend_remaining > 0
+        nominal_velocity = nominal_step / step_dt
+        desired_velocity = torch.where(
+            blend_active[:, None],
+            (1.0 - blend_alpha[:, None]) * entry_velocity
+            + blend_alpha[:, None] * nominal_velocity,
+            nominal_velocity,
+        )
+        desired_velocity = apply_stopping_speed_envelope(
+            desired_velocity,
+            object_error,
+            self.cfg.position_deadband,
+            self.cfg.max_horizontal_acceleration,
+            self.cfg.max_vertical_acceleration,
+            self.cfg.max_horizontal_jerk,
+            self.cfg.max_vertical_jerk,
+        )
+        recovery_hold = self._slip_recovery_steps_remaining[assist_ids] > 0
+        desired_velocity[recovery_hold] = 0.0
+        previous_velocity = self._assist_command_velocity[assist_ids].clone()
+        limited_velocity, limited_acceleration = jerk_limited_cartesian_velocity(
+            previous_velocity,
+            self._assist_command_acceleration[assist_ids],
+            desired_velocity,
+            step_dt,
+            self.cfg.max_horizontal_acceleration,
+            self.cfg.max_vertical_acceleration,
+            self.cfg.max_horizontal_jerk,
+            self.cfg.max_vertical_jerk,
+        )
+        delta_position = preserve_safe_goal_directed_step(
+            limited_velocity * step_dt,
+            object_error,
+            self.cfg.max_horizontal_step,
+            self.cfg.max_upward_step,
+            self.cfg.max_vertical_step,
+            self.cfg.position_deadband,
+        )
+        delta_position[recovery_hold] = 0.0
+        applied_velocity = delta_position / step_dt
+        applied_acceleration = (applied_velocity - previous_velocity) / step_dt
+        applied_acceleration[recovery_hold] = 0.0
+        safety_override = torch.norm(applied_velocity - limited_velocity, dim=1) > 1.0e-6
+        self._assist_command_velocity[assist_ids] = applied_velocity
+        self._assist_command_acceleration[assist_ids] = torch.where(
+            safety_override[:, None],
+            torch.zeros_like(limited_acceleration),
+            limited_acceleration,
+        )
+        counted_blend = blend_active & ~recovery_hold
+        self._assist_entry_blend_steps_remaining[assist_ids[counted_blend]] -= 1
+        self._slip_recovery_steps_remaining[assist_ids[recovery_hold]] -= 1
+        self.assist_entry_blend_progress[assist_ids] = torch.where(
+            blend_active,
+            blend_alpha,
+            1.0,
+        )
+        self.assist_command_speed[assist_ids] = torch.norm(applied_velocity, dim=1)
+        self.assist_command_acceleration[assist_ids] = torch.norm(
+            applied_acceleration, dim=1
+        )
+        xy_error_active = (
+            torch.norm(object_error[:, :2], dim=1) > self.cfg.position_deadband
+        )
+        z_error_active = torch.abs(object_error[:, 2]) > self.cfg.position_deadband
+        self.assist_xy_active[assist_ids] = xy_error_active.float()
+        self.assist_z_active[assist_ids] = z_error_active.float()
+        self.assist_recovery_hold[assist_ids] = recovery_hold.float()
+        self.assist_safety_brake[assist_ids] = safety_override.float()
         self.assist_requested_vertical_step[assist_ids] = delta_position[:, 2]
         self._previous_requested_vertical_step[assist_ids] = delta_position[:, 2]
-
         requested_xy_norm = torch.norm(delta_position[:, :2], dim=1)
-        braking = (
-            (torch.norm(object_error[:, :2], dim=1) > self.cfg.position_deadband)
-            & (requested_xy_norm <= 1.0e-9)
-        ) | (
-            (torch.abs(vertical_error[:, 0]) > self.cfg.position_deadband)
-            & (torch.abs(delta_position[:, 2]) <= 1.0e-9)
-        )
-        braking_ids = assist_ids[braking]
-        self._assist_joint_target[braking_ids] = current_joint_pos[braking_ids]
+        requested_z = torch.abs(delta_position[:, 2])
+        requested_xy_active = requested_xy_norm > 1.0e-9
+        requested_z_active = requested_z > 1.0e-9
+        requested_motion = requested_xy_active | requested_z_active
 
         delta_twist = torch.zeros((assist_ids.numel(), 6), device=self.device)
         delta_twist[:, :3] = delta_position
-        jacobian_t = torch.transpose(task_jacobian, 1, 2)
-        damped = task_jacobian @ jacobian_t + self.cfg.damping**2 * self._identity_6.expand(
-            assist_ids.numel(), -1, -1
+        primary_row_mask = torch.zeros_like(delta_twist, dtype=torch.bool)
+        primary_row_mask[:, :2] = requested_xy_active[:, None]
+        primary_row_mask[:, 2] = requested_z_active
+        solver = build_prioritized_dls_solver(
+            task_jacobian,
+            primary_row_mask,
+            self.cfg.damping,
         )
-        damped_inverse = torch.linalg.solve(
-            damped, self._identity_6.expand(assist_ids.numel(), -1, -1)
-        )
-        jacobian_pinv = jacobian_t @ damped_inverse
-        primary_delta = (jacobian_pinv @ delta_twist.unsqueeze(-1)).squeeze(-1)
-        primary_residual = delta_twist - (
-            task_jacobian @ primary_delta.unsqueeze(-1)
-        ).squeeze(-1)
-        primary_delta += (jacobian_pinv @ primary_residual.unsqueeze(-1)).squeeze(-1)
+        primary_pinv, primary_nullspace, _, _ = solver
+        joint_limits = self._asset.data.soft_joint_pos_limits[assist_ids][:, self._joint_ids]
 
-        posture_error = self._assist_posture_ref[assist_ids] - current_joint_pos[assist_ids]
-        nullspace_projector = self._identity_joints.expand(assist_ids.numel(), -1, -1) - (
-            jacobian_pinv @ task_jacobian
+        # Seed only newly-entered environments; steady assist avoids this extra solve.
+        fresh_local_ids = torch.nonzero(fresh_local, as_tuple=False).squeeze(-1)
+        if fresh_local_ids.numel() > 0:
+            entry_target_lead = preserve_safe_goal_directed_step(
+                entry_step[fresh_local_ids] * self.cfg.assist_entry_target_lead_steps,
+                object_error[fresh_local_ids],
+                self.cfg.max_horizontal_target_lead,
+                self.cfg.max_upward_target_lead,
+                self.cfg.max_downward_target_lead,
+                self.cfg.position_deadband,
+            )
+            entry_target_twist = torch.zeros(
+                (fresh_local_ids.numel(), 6), device=self.device
+            )
+            entry_target_twist[:, :3] = entry_target_lead
+            entry_primary_mask = torch.zeros_like(
+                entry_target_twist, dtype=torch.bool
+            )
+            entry_primary_mask[:, :2] = (
+                torch.norm(entry_target_lead[:, :2], dim=1) > 1.0e-9
+            )[:, None]
+            entry_primary_mask[:, 2] = (
+                torch.abs(entry_target_lead[:, 2]) > 1.0e-9
+            )
+            entry_solver = build_prioritized_dls_solver(
+                task_jacobian[fresh_local_ids],
+                entry_primary_mask,
+                self.cfg.damping,
+            )
+            entry_joint_lead = solve_prioritized_dls_delta(
+                entry_target_twist,
+                task_jacobian[fresh_local_ids],
+                entry_primary_mask,
+                entry_solver,
+                self.cfg.max_target_lead,
+            )
+            entry_current = current_joint_pos[assist_ids][fresh_local_ids]
+            entry_joint_lead = constrain_target_lead(
+                entry_joint_lead,
+                entry_current,
+                entry_current,
+                joint_limits[fresh_local_ids],
+                self.cfg.max_target_lead,
+                self.cfg.max_joint_step,
+            )
+            predicted_entry_twist = (
+                task_jacobian[fresh_local_ids] @ entry_joint_lead.unsqueeze(-1)
+            ).squeeze(-1)
+            entry_xy_limit = torch.clamp(
+                torch.norm(object_error[fresh_local_ids, :2], dim=1)
+                - self.cfg.position_deadband,
+                min=0.0,
+                max=self.cfg.max_horizontal_target_lead,
+            )
+            entry_z_limit = torch.clamp(
+                torch.abs(object_error[fresh_local_ids, 2])
+                - self.cfg.position_deadband,
+                min=0.0,
+            )
+            entry_vertical_limit = torch.where(
+                object_error[fresh_local_ids, 2] >= 0.0,
+                self.cfg.max_upward_target_lead,
+                self.cfg.max_downward_target_lead,
+            )
+            entry_z_limit = torch.minimum(entry_z_limit, entry_vertical_limit)
+            entry_xy_safe, entry_z_safe = self._cartesian_axis_safe(
+                predicted_entry_twist[:, :3],
+                object_error[fresh_local_ids],
+                entry_xy_limit,
+                entry_z_limit,
+                entry_z_limit,
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            entry_valid = (
+                entry_xy_safe
+                & entry_z_safe
+                & (
+                    torch.norm(predicted_entry_twist[:, 3:], dim=1)
+                    <= self.cfg.max_angular_target_lead + 1.0e-6
+                )
+                & target_lead_constraints_valid(
+                    entry_joint_lead,
+                    entry_current,
+                    entry_current,
+                    joint_limits[fresh_local_ids],
+                    self.cfg.max_target_lead,
+                    self.cfg.max_joint_step,
+                )
+            )
+            entry_joint_lead = torch.where(
+                entry_valid[:, None],
+                entry_joint_lead,
+                torch.zeros_like(entry_joint_lead),
+            )
+            fresh_ids = assist_ids[fresh_local_ids]
+            self._assist_joint_target[fresh_ids] = (
+                current_joint_pos[fresh_ids] + entry_joint_lead
+            )
+            self.assist_entry_seeded[fresh_ids] = (
+                entry_valid & (torch.norm(entry_joint_lead, dim=1) > 1.0e-9)
+            ).float()
+
+        prioritized_delta = solve_prioritized_dls_delta(
+            delta_twist,
+            task_jacobian,
+            primary_row_mask,
+            solver,
+            self.cfg.max_joint_step,
         )
+        active_only_delta = solve_primary_dls_delta(
+            delta_twist,
+            task_jacobian,
+            primary_row_mask,
+            primary_pinv,
+            self.cfg.max_joint_step,
+        )
+        posture_error = self._assist_posture_ref[assist_ids] - current_joint_pos[assist_ids]
         posture_delta = (
-            nullspace_projector @ (self.cfg.nullspace_gain * posture_error).unsqueeze(-1)
+            primary_nullspace
+            @ (self.cfg.nullspace_gain * posture_error).unsqueeze(-1)
         ).squeeze(-1)
         posture_delta = self._scale_by_max_abs(posture_delta, self.cfg.max_nullspace_step)
+        posture_delta[recovery_hold] = 0.0
+        postured_delta = self._scale_by_max_abs(
+            prioritized_delta + posture_delta,
+            self.cfg.max_joint_step,
+        )
         self.assist_posture_error[assist_ids] = torch.norm(posture_error, dim=1)
 
-        combined_delta = self._scale_by_max_abs(
-            primary_delta + posture_delta, self.cfg.max_joint_step
+        prioritized_delta = self._scale_to_joint_limits(
+            self._assist_joint_target[assist_ids], prioritized_delta, joint_limits
         )
-        fallback_delta = self._scale_by_max_abs(primary_delta, self.cfg.max_joint_step)
-        predicted_combined = (position_jacobian @ combined_delta.unsqueeze(-1)).squeeze(-1)
-        combined_safe = self._cartesian_direction_safe(predicted_combined, object_error)
-        delta_joint = torch.where(combined_safe[:, None], combined_delta, fallback_delta)
-        predicted_step = (position_jacobian @ delta_joint.unsqueeze(-1)).squeeze(-1)
-        direction_safe = self._cartesian_direction_safe(predicted_step, object_error)
-        delta_joint = torch.where(direction_safe[:, None], delta_joint, 0.0)
-        predicted_step = (position_jacobian @ delta_joint.unsqueeze(-1)).squeeze(-1)
+        active_only_delta = self._scale_to_joint_limits(
+            self._assist_joint_target[assist_ids], active_only_delta, joint_limits
+        )
+        postured_delta = self._scale_to_joint_limits(
+            self._assist_joint_target[assist_ids], postured_delta, joint_limits
+        )
 
-        requested_z = torch.abs(delta_position[:, 2])
-        predicted_xy = torch.norm(predicted_step[:, :2], dim=1)
-        predicted_z = torch.abs(predicted_step[:, 2])
-        allowed_xy = torch.where(
-            requested_xy_norm > 0.0,
+        def evaluate_delta(
+            candidate_delta: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            candidate_prediction = (
+                task_jacobian @ candidate_delta.unsqueeze(-1)
+            ).squeeze(-1)
+            candidate_xy_safe, candidate_z_safe = self._cartesian_axis_safe(
+                candidate_prediction[:, :3],
+                object_error,
+                requested_xy_norm,
+                requested_z,
+                requested_z,
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            candidate_valid = (
+                candidate_xy_safe
+                & candidate_z_safe
+                & torch.all(torch.isfinite(candidate_delta), dim=1)
+            )
+            candidate_ratio = active_translation_progress_ratio(
+                candidate_prediction[:, :3],
+                delta_position,
+                requested_xy_active,
+                requested_z_active,
+            )
+            return candidate_prediction, candidate_valid, candidate_ratio
+
+        prioritized_prediction, prioritized_valid, prioritized_ratio = evaluate_delta(
+            prioritized_delta
+        )
+        active_prediction, active_valid, active_ratio = evaluate_delta(
+            active_only_delta
+        )
+        use_active_only = active_valid & (
+            ~prioritized_valid | (active_ratio > prioritized_ratio)
+        )
+        selected_delta = torch.where(
+            use_active_only[:, None], active_only_delta, prioritized_delta
+        )
+        selected_prediction = torch.where(
+            use_active_only[:, None], active_prediction, prioritized_prediction
+        )
+        selected_valid = torch.where(
+            use_active_only, active_valid, prioritized_valid
+        )
+        selected_ratio = torch.where(
+            use_active_only, active_ratio, prioritized_ratio
+        )
+
+        postured_prediction, postured_valid, postured_ratio = evaluate_delta(
+            postured_delta
+        )
+        use_posture = (
+            requested_motion
+            & postured_valid
+            & (
+                ~selected_valid
+                | (postured_ratio >= 0.95 * selected_ratio)
+            )
+        )
+        selected_delta = torch.where(
+            use_posture[:, None], postured_delta, selected_delta
+        )
+        selected_prediction = torch.where(
+            use_posture[:, None], postured_prediction, selected_prediction
+        )
+        selected_valid = torch.where(use_posture, postured_valid, selected_valid)
+        selected_ratio = torch.where(use_posture, postured_ratio, selected_ratio)
+
+        delta_joint = torch.where(
+            selected_valid[:, None], selected_delta, torch.zeros_like(selected_delta)
+        )
+        predicted_increment_twist = (
+            task_jacobian @ delta_joint.unsqueeze(-1)
+        ).squeeze(-1)
+        increment_xy_hard_safe, increment_z_hard_safe = self._cartesian_axis_safe(
+            predicted_increment_twist[:, :3],
+            object_error,
             requested_xy_norm,
-            self.cfg.cartesian_leak_tolerance,
-        )
-        allowed_z = torch.where(
-            requested_z > 0.0,
             requested_z,
-            self.cfg.cartesian_leak_tolerance,
+            requested_z,
+            self.cfg.cartesian_hard_leak_tolerance,
         )
-        cartesian_scale = torch.minimum(
-            allowed_xy / torch.clamp(predicted_xy, min=1.0e-9),
-            allowed_z / torch.clamp(predicted_z, min=1.0e-9),
+        increment_valid = (
+            increment_xy_hard_safe
+            & increment_z_hard_safe
+            & torch.all(torch.isfinite(delta_joint), dim=1)
         )
-        delta_joint *= torch.clamp(cartesian_scale, max=1.0).unsqueeze(1)
+        delta_joint = torch.where(
+            increment_valid[:, None], delta_joint, torch.zeros_like(delta_joint)
+        )
+        predicted_increment_twist = (
+            task_jacobian @ delta_joint.unsqueeze(-1)
+        ).squeeze(-1)
+        progress_ratio = active_translation_progress_ratio(
+            predicted_increment_twist[:, :3],
+            delta_position,
+            requested_xy_active,
+            requested_z_active,
+        )
+        self.assist_active_progress_ratio[assist_ids] = torch.where(
+            requested_motion,
+            torch.clamp(progress_ratio, min=0.0, max=2.0),
+            0.0,
+        )
+        self.assist_low_progress[assist_ids] = (
+            requested_motion
+            & increment_valid
+            & (progress_ratio < self.cfg.minimum_active_progress_ratio)
+        ).float()
+        self.assist_incremental_safety_stop[assist_ids] = (
+            requested_motion & ~increment_valid
+        ).float()
+        self.assist_incremental_vertical_step[assist_ids] = (
+            predicted_increment_twist[:, 2]
+        )
 
-        joint_limits = self._asset.data.soft_joint_pos_limits[assist_ids][:, self._joint_ids]
-        delta_joint = self._scale_to_joint_limits(
-            self._assist_joint_target[assist_ids], delta_joint, joint_limits
-        )
-        predicted_increment = (position_jacobian @ delta_joint.unsqueeze(-1)).squeeze(-1)
-        self.assist_incremental_vertical_step[assist_ids] = predicted_increment[:, 2]
-        proposed_target = self._assist_joint_target[assist_ids] + delta_joint
-        target_lead = self._scale_by_max_abs(
-            proposed_target - current_joint_pos[assist_ids], self.cfg.max_target_lead
-        )
-        predicted_lead_twist = (task_jacobian @ target_lead.unsqueeze(-1)).squeeze(-1)
-        predicted_lead = predicted_lead_twist[:, :3]
+        previous_target = self._assist_joint_target[assist_ids].clone()
+        proposed_target = previous_target + delta_joint
         lead_xy_error = torch.norm(object_error[:, :2], dim=1)
         lead_z_error = torch.abs(object_error[:, 2])
-        allowed_lead_xy = torch.where(
-            lead_xy_error > self.cfg.position_deadband,
-            torch.clamp(lead_xy_error, max=self.cfg.max_horizontal_target_lead),
-            self.cfg.cartesian_leak_tolerance,
+        allowed_lead_xy = torch.clamp(
+            lead_xy_error - self.cfg.position_deadband,
+            min=0.0,
+            max=self.cfg.max_horizontal_target_lead,
         )
         vertical_target_lead = torch.where(
             object_error[:, 2] >= 0.0,
             self.cfg.max_upward_target_lead,
             self.cfg.max_downward_target_lead,
         )
-        allowed_lead_z = torch.where(
-            lead_z_error > self.cfg.position_deadband,
-            torch.minimum(lead_z_error, vertical_target_lead),
-            self.cfg.cartesian_leak_tolerance,
+        allowed_lead_z = torch.minimum(
+            torch.clamp(
+                lead_z_error - self.cfg.position_deadband,
+                min=0.0,
+            ),
+            vertical_target_lead,
         )
-        position_lead_scale = torch.minimum(
-            allowed_lead_xy
-            / torch.clamp(torch.norm(predicted_lead[:, :2], dim=1), min=1.0e-9),
-            allowed_lead_z / torch.clamp(torch.abs(predicted_lead[:, 2]), min=1.0e-9),
+
+        def repair_lead(
+            raw_lead: torch.Tensor,
+            eligible: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            repaired_all = torch.zeros_like(raw_lead)
+            valid_all = torch.zeros_like(eligible)
+            candidate_ids = torch.nonzero(eligible, as_tuple=False).squeeze(-1)
+            if candidate_ids.numel() == 0:
+                return repaired_all, valid_all
+
+            current = current_joint_pos[assist_ids][candidate_ids]
+            previous = previous_target[candidate_ids]
+            limits = joint_limits[candidate_ids]
+            candidate = constrain_target_lead(
+                raw_lead[candidate_ids],
+                current,
+                previous,
+                limits,
+                self.cfg.max_target_lead,
+                self.cfg.max_joint_step,
+            )
+            candidate_twist = (
+                task_jacobian[candidate_ids] @ candidate.unsqueeze(-1)
+            ).squeeze(-1)
+            candidate_xy_safe, candidate_z_safe = self._cartesian_axis_safe(
+                candidate_twist[:, :3],
+                object_error[candidate_ids],
+                allowed_lead_xy[candidate_ids],
+                allowed_lead_z[candidate_ids],
+                allowed_lead_z[candidate_ids],
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            candidate_valid = (
+                candidate_xy_safe
+                & candidate_z_safe
+                & (
+                    torch.norm(candidate_twist[:, 3:], dim=1)
+                    <= self.cfg.max_angular_target_lead + 1.0e-6
+                )
+                & target_lead_constraints_valid(
+                    candidate,
+                    current,
+                    previous,
+                    limits,
+                    self.cfg.max_target_lead,
+                    self.cfg.max_joint_step,
+                )
+            )
+            repaired_all[candidate_ids] = candidate
+            valid_all[candidate_ids] = candidate_valid
+
+            invalid_local_ids = torch.nonzero(
+                ~candidate_valid, as_tuple=False
+            ).squeeze(-1)
+            if invalid_local_ids.numel() == 0:
+                return repaired_all, valid_all
+
+            repair_ids = candidate_ids[invalid_local_ids]
+            invalid_candidate = candidate[invalid_local_ids]
+            invalid_twist = candidate_twist[invalid_local_ids]
+            safe_twist = invalid_twist.clone()
+            safe_twist[:, :3] = preserve_safe_goal_directed_step(
+                invalid_twist[:, :3],
+                object_error[repair_ids],
+                allowed_lead_xy[repair_ids],
+                allowed_lead_z[repair_ids],
+                allowed_lead_z[repair_ids],
+                self.cfg.position_deadband,
+            )
+            safe_twist[:, 3:] = limit_vector_norm(
+                invalid_twist[:, 3:], self.cfg.max_angular_target_lead
+            )
+            repair_solver = tuple(component[repair_ids] for component in solver)
+            correction = solve_prioritized_dls_delta(
+                safe_twist - invalid_twist,
+                task_jacobian[repair_ids],
+                primary_row_mask[repair_ids],
+                repair_solver,
+                self.cfg.max_target_lead,
+            )
+            repaired_current = current_joint_pos[assist_ids][repair_ids]
+            repaired_previous = previous_target[repair_ids]
+            repaired_limits = joint_limits[repair_ids]
+            repaired = constrain_target_lead(
+                invalid_candidate + correction,
+                repaired_current,
+                repaired_previous,
+                repaired_limits,
+                self.cfg.max_target_lead,
+                self.cfg.max_joint_step,
+            )
+            predicted = (
+                task_jacobian[repair_ids] @ repaired.unsqueeze(-1)
+            ).squeeze(-1)
+            repaired_xy_safe, repaired_z_safe = self._cartesian_axis_safe(
+                predicted[:, :3],
+                object_error[repair_ids],
+                allowed_lead_xy[repair_ids],
+                allowed_lead_z[repair_ids],
+                allowed_lead_z[repair_ids],
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            repaired_valid = (
+                repaired_xy_safe
+                & repaired_z_safe
+                & (
+                    torch.norm(predicted[:, 3:], dim=1)
+                    <= self.cfg.max_angular_target_lead + 1.0e-6
+                )
+                & target_lead_constraints_valid(
+                    repaired,
+                    repaired_current,
+                    repaired_previous,
+                    repaired_limits,
+                    self.cfg.max_target_lead,
+                    self.cfg.max_joint_step,
+                )
+            )
+            repaired_all[repair_ids] = repaired
+            valid_all[repair_ids] = repaired_valid
+            return repaired_all, valid_all
+
+        all_assist = torch.ones_like(requested_motion)
+        new_lead, new_lead_valid = repair_lead(
+            proposed_target - current_joint_pos[assist_ids],
+            all_assist,
         )
-        angular_lead_scale = self.cfg.max_angular_target_lead / torch.clamp(
-            torch.norm(predicted_lead_twist[:, 3:], dim=1), min=1.0e-9
+        previous_lead, previous_lead_valid = repair_lead(
+            previous_target - current_joint_pos[assist_ids],
+            ~new_lead_valid,
         )
-        lead_scale = torch.minimum(position_lead_scale, angular_lead_scale)
-        target_lead *= torch.clamp(lead_scale, max=1.0).unsqueeze(1)
-        target_lead = self._scale_to_joint_limits(
-            current_joint_pos[assist_ids], target_lead, joint_limits
+        assist_current = current_joint_pos[assist_ids]
+        incremental_lead = constrain_target_lead(
+            delta_joint,
+            assist_current,
+            previous_target,
+            joint_limits,
+            self.cfg.max_target_lead,
+            self.cfg.max_joint_step,
         )
-        proposed_target = current_joint_pos[assist_ids] + target_lead
-        predicted_lead = (position_jacobian @ target_lead.unsqueeze(-1)).squeeze(-1)
-        lead_safe = self._cartesian_direction_safe(predicted_lead, object_error)
-        fallback_delta = self._scale_to_joint_limits(
-            current_joint_pos[assist_ids], delta_joint, joint_limits
+        incremental_lead_twist = (
+            task_jacobian @ incremental_lead.unsqueeze(-1)
+        ).squeeze(-1)
+        incremental_xy_safe, incremental_z_safe = self._cartesian_axis_safe(
+            incremental_lead_twist[:, :3],
+            object_error,
+            allowed_lead_xy,
+            allowed_lead_z,
+            allowed_lead_z,
+            self.cfg.cartesian_hard_leak_tolerance,
         )
-        assisted_target = torch.where(
-            lead_safe[:, None],
-            proposed_target,
-            current_joint_pos[assist_ids] + fallback_delta,
+        incremental_lead_valid = (
+            incremental_xy_safe
+            & incremental_z_safe
+            & (
+                torch.norm(incremental_lead_twist[:, 3:], dim=1)
+                <= self.cfg.max_angular_target_lead + 1.0e-6
+            )
+            & target_lead_constraints_valid(
+                incremental_lead,
+                assist_current,
+                previous_target,
+                joint_limits,
+                self.cfg.max_target_lead,
+                self.cfg.max_joint_step,
+            )
         )
+
+        selected_lead = torch.zeros_like(new_lead)
+        selected_lead = torch.where(
+            incremental_lead_valid[:, None], incremental_lead, selected_lead
+        )
+        selected_lead = torch.where(
+            previous_lead_valid[:, None], previous_lead, selected_lead
+        )
+        selected_lead = torch.where(
+            new_lead_valid[:, None], new_lead, selected_lead
+        )
+        used_previous = ~new_lead_valid & previous_lead_valid
+        used_incremental = (
+            ~new_lead_valid & ~previous_lead_valid & incremental_lead_valid
+        )
+        used_hold = (
+            ~new_lead_valid & ~previous_lead_valid & ~incremental_lead_valid
+        )
+        assisted_target = current_joint_pos[assist_ids] + selected_lead
+        final_twist = (task_jacobian @ selected_lead.unsqueeze(-1)).squeeze(-1)
+        final_xy_hard_safe, final_z_hard_safe = self._cartesian_axis_safe(
+            final_twist[:, :3],
+            object_error,
+            allowed_lead_xy,
+            allowed_lead_z,
+            allowed_lead_z,
+            self.cfg.cartesian_hard_leak_tolerance,
+        )
+        final_lead_safe = (
+            final_xy_hard_safe
+            & final_z_hard_safe
+            & (
+                torch.norm(final_twist[:, 3:], dim=1)
+                <= self.cfg.max_angular_target_lead + 1.0e-6
+            )
+            & target_lead_constraints_valid(
+                selected_lead,
+                assist_current,
+                previous_target,
+                joint_limits,
+                self.cfg.max_target_lead,
+                self.cfg.max_joint_step,
+            )
+        )
+        selected_lead = torch.where(
+            final_lead_safe[:, None], selected_lead, torch.zeros_like(selected_lead)
+        )
+        used_hold |= ~final_lead_safe
+        assisted_target = current_joint_pos[assist_ids] + selected_lead
+        self.assist_lead_fallback[assist_ids] = (~new_lead_valid).float()
+        self.assist_lead_previous_fallback[assist_ids] = used_previous.float()
+        self.assist_lead_incremental_fallback[assist_ids] = used_incremental.float()
+        self.assist_lead_safety_stop[assist_ids] = used_hold.float()
         self._assist_joint_target[assist_ids] = assisted_target
         applied_delta = assisted_target - current_joint_pos[assist_ids]
-        predicted_applied_step = (position_jacobian @ applied_delta.unsqueeze(-1)).squeeze(-1)
-        self.assist_vertical_step[assist_ids] = predicted_applied_step[:, 2]
+        predicted_applied_twist = (
+            task_jacobian @ applied_delta.unsqueeze(-1)
+        ).squeeze(-1)
+        final_xy_safe, final_z_safe = self._cartesian_axis_safe(
+            predicted_applied_twist[:, :3],
+            object_error,
+            allowed_lead_xy,
+            allowed_lead_z,
+            allowed_lead_z,
+        )
+        self.assist_xy_safe[assist_ids] = final_xy_safe.float()
+        self.assist_z_safe[assist_ids] = final_z_safe.float()
+        self.assist_vertical_step[assist_ids] = predicted_applied_twist[:, 2]
         self.assist_target_lead[assist_ids] = torch.amax(torch.abs(applied_delta), dim=1)
         self._processed_actions[assist_ids] = assisted_target
 
@@ -962,10 +1817,19 @@ class PlaceAssistJointPositionActionCfg(JointPositionActionCfg):
     max_nullspace_step: float = 0.003
     velocity_ema_decay: float = 0.80
     max_object_speed_for_control: float = 0.25
+    assist_entry_blend_steps: int = 12
+    assist_entry_target_lead_steps: int = 3
+    max_horizontal_acceleration: float = 0.60
+    max_vertical_acceleration: float = 0.45
+    max_horizontal_jerk: float = 6.0
+    max_vertical_jerk: float = 4.5
     position_deadband: float = 0.003
     cartesian_leak_tolerance: float = 0.0002
+    cartesian_hard_leak_tolerance: float = 0.0010
+    minimum_active_progress_ratio: float = 0.25
     slip_watchdog_threshold: float = 0.015
     slip_watchdog_steps: int = 3
+    slip_recovery_hold_steps: int = 3
     handoff_steps: int = 12
     damping: float = 0.08
     outer_xy_threshold: float = 0.24
@@ -1456,12 +2320,27 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_attempt_lost_streak = torch.zeros_like(self.grasp_streak)
         self.grasp_verification_streak = torch.zeros_like(self.grasp_streak)
         self.grasp_reopen_streak = torch.zeros_like(self.grasp_streak)
+        self.grasp_empty_close_streak = torch.zeros_like(self.grasp_streak)
         self.grasp_retry_cooldown = torch.zeros_like(self.grasp_streak)
         self.grasp_attempt_aborts = torch.zeros_like(self.grasp_streak)
         self.grasp_alignment_aborts = torch.zeros_like(self.grasp_streak)
         self.grasp_coupling_aborts = torch.zeros_like(self.grasp_streak)
         self.grasp_close_timeouts = torch.zeros_like(self.grasp_streak)
         self.grasp_verification_timeouts = torch.zeros_like(self.grasp_streak)
+        self.grasp_empty_close_aborts = torch.zeros_like(self.grasp_streak)
+        self.grasp_close_grace_entries = torch.zeros_like(self.grasp_streak)
+        self.grasp_close_timeout_near_contact = torch.zeros_like(self.grasp_streak)
+        for phase_name in (
+            "approach",
+            "close_verify",
+            "retry_reopen",
+            "actor_transport",
+            "assist_to_center",
+            "center_to_release",
+            "opening",
+            "settle",
+        ):
+            setattr(self, f"phase_{phase_name}_steps", torch.zeros_like(self.grasp_streak))
 
         self.grasp_ready = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self.grasp_candidate = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
@@ -1471,6 +2350,7 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_attempt_continuation = torch.zeros_like(self.grasp_candidate)
         self.grasp_lift_authorized = torch.zeros_like(self.grasp_candidate)
         self.grasp_verification_active = torch.zeros_like(self.grasp_candidate)
+        self.grasp_close_grace_active = torch.zeros_like(self.grasp_candidate)
         self.grasp_attempt_started = torch.zeros_like(self.grasp_candidate)
         self.grasp_ready_reached = torch.zeros_like(self.grasp_candidate)
         self.grasp_candidate_reached = torch.zeros_like(self.grasp_candidate)
@@ -1481,6 +2361,8 @@ class TaskStateTracker(ManagerTermBase):
         self.assist_engaged = torch.zeros_like(self.grasp_candidate)
         self.assist_active = torch.zeros_like(self.grasp_candidate)
         self.assist_owns_arm = torch.zeros_like(self.grasp_candidate)
+        self.grasp_controller_owns_arm = torch.zeros_like(self.grasp_candidate)
+        self.grasp_retry_recovery_active = torch.zeros_like(self.grasp_candidate)
         self.basket_reached = torch.zeros_like(self.grasp_candidate)
         self.inside_basket_entry_xy = torch.zeros_like(self.grasp_candidate)
         self.inside_release_xy = torch.zeros_like(self.grasp_candidate)
@@ -1493,6 +2375,23 @@ class TaskStateTracker(ManagerTermBase):
         self.released = torch.zeros_like(self.grasp_candidate)
         self.succeeded = torch.zeros_like(self.grasp_candidate)
         self.failed = torch.zeros_like(self.grasp_candidate)
+        self.grasp_first_attempt_success = torch.zeros_like(self.grasp_candidate)
+        self.grasp_retry_success = torch.zeros_like(self.grasp_candidate)
+        for phase_name in (
+            "approach",
+            "close_verify",
+            "retry_reopen",
+            "actor_transport",
+            "assist_to_center",
+            "center_to_release",
+            "opening",
+            "settle",
+        ):
+            setattr(
+                self,
+                f"timeout_phase_{phase_name}",
+                torch.zeros_like(self.grasp_candidate),
+            )
 
         self.just_grasp_ready = torch.zeros_like(self.grasp_candidate)
         self.just_grasp_candidate = torch.zeros_like(self.grasp_candidate)
@@ -1561,6 +2460,8 @@ class TaskStateTracker(ManagerTermBase):
         self._alignment_confirm_steps = int(params["alignment_confirm_steps"])
         self._contact_max_gripper_speed = float(params["contact_max_gripper_speed"])
         self._reopen_arm_hold_steps = int(params["reopen_arm_hold_steps"])
+        self._empty_close_confirm_steps = int(params["empty_close_confirm_steps"])
+        self._closing_contact_grace_steps = int(params["closing_contact_grace_steps"])
         self._alignment_target = torch.tensor(
             params["alignment_target"], device=env.device, dtype=torch.float32
         )
@@ -1591,12 +2492,19 @@ class TaskStateTracker(ManagerTermBase):
         self._closing_timeout_steps = int(params["closing_timeout_steps"])
         self._verification_timeout_steps = int(params["verification_timeout_steps"])
         self._retry_cooldown_steps = int(params["retry_cooldown_steps"])
+        if self._empty_close_confirm_steps < 1:
+            raise ValueError("empty close confirmation must be at least one control step")
+        if self._closing_contact_grace_steps < 0:
+            raise ValueError("closing contact grace must be non-negative")
+        minimum_close_budget = self._closing_min_steps + self._contact_confirm_steps - 1
+        if self._closing_timeout_steps < minimum_close_budget:
+            raise ValueError("closing timeout is too short for the contact confirmation contract")
         self._open_joint_pos = float(params["open_joint_pos"])
         self._grasp_body_cfg = params["grasp_body_cfg"]
         self._tcp_body_cfg = params["tcp_body_cfg"]
         self._gripper_cfg = params["gripper_cfg"]
-        levels = cfg.params.get("release_height_levels", (0.73, 0.670))
-        probabilities = cfg.params.get("release_height_probabilities", (0.40, 0.60))
+        levels = cfg.params.get("release_height_levels", (0.670,))
+        probabilities = cfg.params.get("release_height_probabilities", (1.0,))
         if len(levels) == 0 or len(levels) != len(probabilities):
             raise ValueError("release height levels and probabilities must have the same non-zero length")
         if any(probability < 0.0 for probability in probabilities) or sum(probabilities) <= 0.0:
@@ -1813,6 +2721,8 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_contact_streak[new_attempt] = 0
         self.grasp_attempt_lost_streak[new_attempt] = 0
         self.grasp_verification_streak[new_attempt] = 0
+        self.grasp_empty_close_streak[new_attempt] = 0
+        self.grasp_close_grace_active[new_attempt] = False
         return new_attempt
 
     def reset(self, env_ids: torch.Tensor | None = None):
@@ -1828,6 +2738,48 @@ class TaskStateTracker(ManagerTermBase):
         self.gripper_target_open[resolved_env_ids] = True
         self._sample_release_targets(resolved_env_ids)
         self.descent_target_height[resolved_env_ids] = self._centering_height
+
+    def _current_phase_masks(self) -> dict[str, torch.Tensor]:
+        """Snapshot the controller ownership used for the current physics step."""
+
+        remaining = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
+        phase_masks: dict[str, torch.Tensor] = {}
+
+        phase_masks["settle"] = remaining & self.released
+        remaining &= ~phase_masks["settle"]
+        phase_masks["opening"] = remaining & self.release_commanded
+        remaining &= ~phase_masks["opening"]
+        phase_masks["center_to_release"] = (
+            remaining & self.assist_engaged & self.place_centered
+        )
+        remaining &= ~phase_masks["center_to_release"]
+        phase_masks["assist_to_center"] = remaining & self.assist_engaged
+        remaining &= ~phase_masks["assist_to_center"]
+        phase_masks["actor_transport"] = remaining & self.grasp_acquired
+        remaining &= ~phase_masks["actor_transport"]
+        phase_masks["retry_reopen"] = remaining & self.grasp_retry_recovery_active
+        remaining &= ~phase_masks["retry_reopen"]
+        phase_masks["close_verify"] = remaining & self.grasp_attempt_active
+        remaining &= ~phase_masks["close_verify"]
+        phase_masks["approach"] = remaining
+        return phase_masks
+
+    def _update_phase_timing(
+        self,
+        env: ManagerBasedRLEnv,
+        phase_masks: dict[str, torch.Tensor],
+        command_name: str,
+    ):
+        """Accumulate one phase, latch timeout ownership, and flush terminal metrics."""
+
+        timed_out = env.episode_length_buf >= env.max_episode_length
+        for phase_name, phase_mask in phase_masks.items():
+            getattr(self, f"phase_{phase_name}_steps").add_(phase_mask.long())
+            timeout_latch = getattr(self, f"timeout_phase_{phase_name}")
+            timeout_latch |= timed_out & phase_mask
+        command_term = env.command_manager.get_term(command_name)
+        if hasattr(command_term, "sync_task_latched_metrics"):
+            command_term.sync_task_latched_metrics(self)
 
     def __call__(
         self,
@@ -1883,6 +2835,8 @@ class TaskStateTracker(ManagerTermBase):
         contact_confirm_steps: int,
         attempt_lost_confirm_steps: int,
         closing_timeout_steps: int,
+        empty_close_confirm_steps: int,
+        closing_contact_grace_steps: int,
         verification_timeout_steps: int,
         reopen_arm_hold_steps: int,
         retry_cooldown_steps: int,
@@ -1911,6 +2865,7 @@ class TaskStateTracker(ManagerTermBase):
         tcp_body_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["openarm_right_ee_tcp"]),
         gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["openarm_right_finger_joint.*"]),
     ) -> torch.Tensor:
+        phase_masks = self._current_phase_masks()
         robot: Articulation = env.scene[robot_cfg.name]
         obj: RigidObject = env.scene[object_cfg.name]
         self.update_grasp_geometry(env)
@@ -1942,21 +2897,38 @@ class TaskStateTracker(ManagerTermBase):
         )
 
         closing = attempt_active & ~self.grasp_lift_authorized & ~self.gripper_target_open
+        closing_hard_limit = closing_timeout_steps + closing_contact_grace_steps
         self.grasp_closing_streak[:] = torch.where(
             closing,
-            torch.clamp(self.grasp_closing_streak + 1, max=closing_timeout_steps),
+            torch.clamp(self.grasp_closing_streak + 1, max=closing_hard_limit),
             torch.where(self.grasp_lift_authorized, self.grasp_closing_streak, 0),
         )
-        contact_geometry = (
+        near_contact_geometry = (
             closing
             & self.grasp_attempt_continuation
             & (self.bilateral_finger_proximity >= candidate_proximity_threshold)
             & (self.bilateral_closed_fraction >= candidate_closed_threshold)
             & (self.bilateral_open_fraction >= candidate_min_open_fraction)
-            & (self.gripper_joint_speed <= contact_max_gripper_speed)
             & (self.gripper_aperture_asymmetry <= contact_max_aperture_asymmetry)
             & (self.grasp_relative_speed <= candidate_max_relative_speed)
             & (self.grasp_closing_streak >= closing_min_steps)
+        )
+        contact_geometry = near_contact_geometry & (
+            self.gripper_joint_speed <= contact_max_gripper_speed
+        )
+        empty_close_candidate = (
+            closing
+            & (self.grasp_closing_streak >= closing_min_steps)
+            & (self.gripper_joint_speed <= contact_max_gripper_speed)
+            & (self.bilateral_open_fraction < candidate_min_open_fraction)
+        )
+        self.grasp_empty_close_streak[:] = torch.where(
+            empty_close_candidate,
+            torch.clamp(
+                self.grasp_empty_close_streak + 1,
+                max=empty_close_confirm_steps,
+            ),
+            0,
         )
         self.grasp_contact_streak[:] = torch.where(
             contact_geometry,
@@ -2017,10 +2989,28 @@ class TaskStateTracker(ManagerTermBase):
             ),
             0,
         )
+        entered_contact_grace = (
+            closing
+            & ~newly_authorized
+            & near_contact_geometry
+            & (self.grasp_closing_streak == closing_timeout_steps)
+        )
+        self.grasp_close_grace_active |= entered_contact_grace
+        empty_close_aborted = (
+            closing
+            & (self.grasp_empty_close_streak >= empty_close_confirm_steps)
+        )
         close_timed_out = (
             closing
             & ~newly_authorized
-            & (self.grasp_closing_streak >= closing_timeout_steps)
+            & (
+                (
+                    (self.grasp_closing_streak >= closing_timeout_steps)
+                    & ~self.grasp_close_grace_active
+                )
+                | (self.grasp_closing_streak >= closing_hard_limit)
+            )
+            & ~empty_close_aborted
         )
         verification_timed_out = verifying & (
             self.grasp_verification_streak > verification_timeout_steps
@@ -2030,13 +3020,23 @@ class TaskStateTracker(ManagerTermBase):
         )
         coupling_aborted = alignment_aborted & unstable_candidate
         geometry_aborted = alignment_aborted & ~unstable_candidate
-        attempt_aborted = alignment_aborted | close_timed_out | verification_timed_out
+        attempt_aborted = (
+            alignment_aborted
+            | empty_close_aborted
+            | close_timed_out
+            | verification_timed_out
+        )
         self.just_grasp_retry[:] = attempt_aborted
         self.grasp_attempt_aborts += attempt_aborted.long()
         self.grasp_alignment_aborts += geometry_aborted.long()
         self.grasp_coupling_aborts += coupling_aborted.long()
         self.grasp_close_timeouts += close_timed_out.long()
         self.grasp_verification_timeouts += verification_timed_out.long()
+        self.grasp_empty_close_aborts += empty_close_aborted.long()
+        self.grasp_close_grace_entries += entered_contact_grace.long()
+        self.grasp_close_timeout_near_contact += (
+            close_timed_out & near_contact_geometry
+        ).long()
         self.grasp_attempt_active[attempt_aborted] = False
         self.grasp_lift_authorized[attempt_aborted] = False
         self.grasp_verification_active[attempt_aborted] = False
@@ -2047,6 +3047,8 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_attempt_lost_streak[attempt_aborted] = 0
         self.grasp_verification_streak[attempt_aborted] = 0
         self.grasp_reopen_streak[attempt_aborted] = 0
+        self.grasp_empty_close_streak[attempt_aborted] = 0
+        self.grasp_close_grace_active[attempt_aborted | newly_authorized] = False
 
         self.grasp_candidate[:] = (
             self.grasp_attempt_active
@@ -2107,6 +3109,12 @@ class TaskStateTracker(ManagerTermBase):
         previous_grasp = self.grasp_acquired.clone()
         self.grasp_acquired |= self.grasp_streak >= grasp_confirm_steps
         self.just_grasped[:] = self.grasp_acquired & ~previous_grasp
+        self.grasp_first_attempt_success |= self.just_grasped & (
+            self.grasp_attempt_aborts == 0
+        )
+        self.grasp_retry_success |= self.just_grasped & (
+            self.grasp_attempt_aborts > 0
+        )
         self.grasp_tcp_offset[self.just_grasped] = self.object_offset_tcp[self.just_grasped]
         self.grasp_object_origin[self.just_grasped] = obj.data.root_pos_w[self.just_grasped]
         self.grasp_attempt_active[self.grasp_acquired] = False
@@ -2352,6 +3360,7 @@ class TaskStateTracker(ManagerTermBase):
             0,
         )
         self.succeeded[:] = (self.settle_streak >= settle_confirm_steps) & ~self.failed
+        self._update_phase_timing(env, phase_masks, command_name)
         return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
 
@@ -2519,11 +3528,20 @@ def task_preassist_delay_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     ).float()
 
 
-def task_pregrasp_delay_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Keep delayed pre-grasp failure cost equivalent under PPO discounting."""
+def task_pregrasp_delay_penalty(
+    env: ManagerBasedRLEnv,
+    retry_event_scale: float = 0.0,
+) -> torch.Tensor:
+    """Penalize actor-owned pre-grasp delay and charge a small failed-attempt event."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
-    return (~state.grasp_acquired & ~state.failed).float()
+    actor_waiting = (
+        ~state.grasp_acquired
+        & ~state.failed
+        & ~state.grasp_controller_owns_arm
+    )
+    retry_event = retry_event_scale * state.just_grasp_retry.float() / env.step_dt
+    return actor_waiting.float() + retry_event
 
 
 def task_pregrasp_centering_reward(
@@ -2534,7 +3552,7 @@ def task_pregrasp_centering_reward(
     """Reward geometry inside the same narrow basin that authorizes grasp closure."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
-    actor_controlled = ~state.assist_owns_arm
+    actor_controlled = ~state.grasp_controller_owns_arm
     active = (
         ~state.grasp_acquired
         & ~state.grasp_attempt_active

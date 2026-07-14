@@ -56,6 +56,7 @@ STAGE_CARRY_MIN_HEIGHT_W = 0.73
 STAGE_CARRY_TARGET_HEIGHT_W = 0.75
 STAGE_CARRY_TARGET_HEIGHT_B = STAGE_CARRY_TARGET_HEIGHT_W - ROBOT_ROOT_POS[2]
 STAGE_CARRY_MAX_HEIGHT_W = 0.79
+STAGE_RELEASE_TARGET_HEIGHT_W = 0.670
 STAGE_ASSIST_ENTRY_XY_THRESHOLD = 0.14
 STAGE_ASSIST_OUTER_XY_THRESHOLD = 0.24
 HAND_LIFT_START_HEIGHT_W = OBJECT_START_POS_W[2] - 0.12
@@ -1084,7 +1085,11 @@ class RewardsCfgV18:
         weight=-50.0,
     )
     elapsed_time = RewTerm(func=mdp.constant_penalty, weight=-0.5)
-    pregrasp_delay = RewTerm(func=mdp.task_pregrasp_delay_penalty, weight=-7.5)
+    pregrasp_delay = RewTerm(
+        func=mdp.task_pregrasp_delay_penalty,
+        params={"retry_event_scale": 0.20},
+        weight=-7.5,
+    )
     preassist_delay = RewTerm(func=mdp.task_preassist_delay_penalty, weight=-15.0)
     gripper_action_phase_error = RewTerm(func=mdp.task_gripper_action_phase_error, weight=-1.0)
     carry_height_band = RewTerm(
@@ -1119,14 +1124,14 @@ class TerminationsCfgV18:
         params={
             "object_start_height": OBJECT_START_POS_W[2],
             "carry_height": STAGE_CARRY_MIN_HEIGHT_W,
-            "release_height_levels": (0.73, 0.670),
-            "release_height_probabilities": (0.40, 0.60),
+            "release_height_levels": (STAGE_RELEASE_TARGET_HEIGHT_W,),
+            "release_height_probabilities": (1.0,),
             "release_height_normalization_bounds": (0.670, 0.75),
             "settle_height": 0.65,
             "centering_height": STAGE_CARRY_TARGET_HEIGHT_W,
             "descent_start_xy_threshold": 0.12,
             "descent_transition_xy_threshold": 0.04,
-            "descent_end_xy_threshold": 0.002,
+            "descent_end_xy_threshold": 0.005,
             "preplace_height_above_release": 0.020,
             "assist_entry_xy_threshold": STAGE_ASSIST_ENTRY_XY_THRESHOLD,
             "basket_entry_xy_threshold": 0.10,
@@ -1168,6 +1173,8 @@ class TerminationsCfgV18:
             "contact_confirm_steps": 3,
             "attempt_lost_confirm_steps": 6,
             "closing_timeout_steps": 30,
+            "empty_close_confirm_steps": 3,
+            "closing_contact_grace_steps": 12,
             "verification_timeout_steps": 90,
             "reopen_arm_hold_steps": 12,
             "retry_cooldown_steps": 6,
@@ -1306,10 +1313,19 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             max_nullspace_step=0.003,
             velocity_ema_decay=0.80,
             max_object_speed_for_control=0.25,
+            assist_entry_blend_steps=12,
+            assist_entry_target_lead_steps=3,
+            max_horizontal_acceleration=0.60,
+            max_vertical_acceleration=0.45,
+            max_horizontal_jerk=6.0,
+            max_vertical_jerk=4.5,
             position_deadband=0.002,
             cartesian_leak_tolerance=0.0002,
+            cartesian_hard_leak_tolerance=0.0010,
+            minimum_active_progress_ratio=0.25,
             slip_watchdog_threshold=0.015,
             slip_watchdog_steps=3,
+            slip_recovery_hold_steps=3,
             handoff_steps=12,
             damping=0.08,
             outer_xy_threshold=STAGE_ASSIST_OUTER_XY_THRESHOLD,
@@ -1334,8 +1350,6 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE_PLAY(OpenArmTestUsdPickPlaceEnvCfg_STA
         self.scene.num_envs = 1
         self.observations.policy.enable_corruption = False
         self.commands.object_pose.debug_vis = True
-        self.terminations.task_state.params["release_height_levels"] = (0.670,)
-        self.terminations.task_state.params["release_height_probabilities"] = (1.0,)
         self.commands.object_pose.ranges.pos_x = (BASKET_GOAL_POS_B[0], BASKET_GOAL_POS_B[0])
         self.commands.object_pose.ranges.pos_y = (BASKET_GOAL_POS_B[1], BASKET_GOAL_POS_B[1])
         self.commands.object_pose.ranges.pos_z = (BASKET_GOAL_POS_B[2], BASKET_GOAL_POS_B[2])

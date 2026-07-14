@@ -14,8 +14,8 @@ Train: Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0
 GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 ```
 
-Current code target is fresh v32. No train/play process was present at the latest process check. File
-edits made after a process starts do not affect that loaded process.
+Current code target is v33. The fresh v33 run completed all 5000 iterations; its selected checkpoint
+is `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt`.
 
 ## V19 Result And Exact Cause
 
@@ -388,3 +388,53 @@ python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v
 Do not resume or bootstrap. Check verified grasp at model 500, lift/transport at model 1000, then compare
 center/release authorization/success/timeout every 500 models from 1500. Use actor-mean and GUI for the
 final decision; sampled TensorBoard success is diagnostic only.
+
+## Current V33 Policy (Supersedes V32)
+
+V32 `2026-07-13_12-22-03/model_2875.pt` preserved grasp and transport but used about 248 assist
+controls (`8.27s`) per episode. V33 keeps the `75/8/20` policy contract, 16-second episode, PPO,
+strict grasp/coupling/release/success gates, and all existing speed/joint/lead limits.
+
+V33 changes only the verified bottlenecks:
+
+- A physically empty, stopped close is confirmed for 3 controls and retried early; valid near-contact
+  at the original 30-control deadline receives a latched 12-control grace period. Strict contact and
+  coupled object/TCP lift requirements are unchanged.
+- Only automatic closing/reopening pose holds are excluded from actor pregrasp delay and centering
+  shaping. Verification and bounded handoff remain actor-owned and therefore keep their time incentive.
+- Assist carries measured goal-directed object velocity into a 12-control quintic handoff. A
+  jerk-aware stopping envelope brakes to the 2mm deadband without an end-point projection jump.
+- Active requested XY/Z rows are solved first. Inactive translation and orientation are corrected in
+  the active-task nullspace. Joint-limited hard-safe candidates are compared by actual progress; a
+  posture candidate is used only when it preserves at least 95% of the fastest candidate.
+- Target lead uses a fully checked chain: new bounded lead, previous bounded lead, one-step lead, then
+  current-pose hold. Entry seeding and every moving fallback apply lead/soft-limit bounds first and the
+  previous-target `.03rad/control` bound last, then revalidate translation, angular lead and finiteness
+  without rescaling away continuity. A kinematically incompatible 1mm inactive-leak case may still hold
+  for safety and is counted explicitly rather than silently throttling another axis.
+- Train and play now share the physical world release target `.670m`; exact descent begins by XY 5mm,
+  while release XY 4cm, success XY 5cm, height `+2/-3mm`, and speed `.06m/s` remain strict.
+
+Run fresh as exactly one shell line from `/home/mh/.codex_tmp_openarm_remote`:
+
+```bash
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_continuous_assist_v33
+```
+
+Do not resume/bootstrap. Watch empty-close/grace counters, phase timeout one-hot metrics, assist active
+progress ratio, low-progress controls, incremental safety stops, and each lead fallback level. Static
+tests cannot replace actor-mean and GUI validation against the actual PhysX Jacobian.
+
+### V33 Completed Result
+
+The fresh run `2026-07-13_20-04-29_fresh_continuous_assist_v33` completed all 5000 iterations and
+saved `model_4999.pt`. Its final rolling-50 sampled metrics were grasp `97.30%`, validated transport
+`97.24%`, center `82.91%`, release authorization `69.22%`, success `68.98%`, timeout `31.04%`, and
+failure `0.0074%`.
+
+The user reviewed `model_4999.pt` in the GUI and judged the overall result good enough to preserve.
+It is a strong v33 candidate, not a formal acceptance pass: `90.2%` of its remaining timeouts occur
+in assist-to-center or center-to-release, and the GUI exposed intermittent basket-rim interference
+near the final target. Preserve its grasp, transport, strict outcome gates, and continuous handoff as
+the v34 baseline; fix final basket-relative clearance and assist convergence without weakening the
+success definition.
