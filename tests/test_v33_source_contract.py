@@ -126,6 +126,23 @@ def test_global_cross_axis_throttle_paths_were_removed():
     assert "target_lead_constraints_valid" in MDP_SOURCE
 
 
+def test_v35_repairs_invalid_dls_before_holding_the_arm():
+    assert "scale_delta_to_cartesian_bounds" in MDP_SOURCE
+    assert "use_scaled = requested_motion & ~candidate_valid & scaled_valid" in MDP_SOURCE
+    assert "def solve_single_axis_candidate" in MDP_SOURCE
+    assert "select_phase_axis_fallback" in MDP_SOURCE
+    assert "state.inside_release_xy[assist_ids]" in MDP_SOURCE
+    assert "selected_valid |= use_xy_fallback | use_z_fallback" in MDP_SOURCE
+    for metric in (
+        "task_assist_incremental_scaled_repairs",
+        "task_assist_incremental_xy_fallbacks",
+        "task_assist_incremental_z_fallbacks",
+        "task_assist_incremental_xy_rejects",
+        "task_assist_incremental_z_rejects",
+    ):
+        assert metric in MDP_SOURCE
+
+
 def test_pregrasp_reward_excludes_only_automatic_pose_holds():
     assert "state.grasp_controller_owns_arm[:] = grasp_control" in MDP_SOURCE
     assert 'phase_masks["close_verify"] = remaining & self.grasp_attempt_active' in MDP_SOURCE

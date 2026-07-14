@@ -14,8 +14,9 @@ Train: Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0
 GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 ```
 
-Current code target is untrained v34. The preserved v33 baseline completed all 5000 iterations; its
-selected checkpoint is `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt`.
+Current code target is untrained v35. The GUI-approved v34 baseline is
+`2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt`; it is archived under
+`artifacts/checkpoints/openarm_pick_place/v34/` with its resolved agent and environment settings.
 
 ## V19 Result And Exact Cause
 
@@ -439,9 +440,9 @@ near the final target. Preserve its grasp, transport, strict outcome gates, and 
 the v34 baseline; fix final basket-relative clearance and assist convergence without weakening the
 success definition.
 
-## Current V34 Policy (Untrained)
+## V34 Policy Design
 
-V33 already reaches rolling-50 grasp/transport `97.30/97.24%`; changing the grasp rewards, policy
+Before v34 training, v33 already reached rolling-50 grasp/transport `97.30/97.24%`; changing the grasp rewards, policy
 observations, goal, or success gates would confound the remaining final-assist problem. V34 therefore
 keeps `75 observations / 8 actions / 20 rewards`, PPO, the 16-second episode, the `.670m` release
 target, and every strict grasp/release/success condition.
@@ -484,3 +485,53 @@ Do not add resume, load-run, checkpoint, or bootstrap arguments. Compare model 5
 and timeout. Stop and redesign if model 1000 has grasp/lift below 80% or zero center/release events.
 Final acceptance still requires actor-mean multi-seed evaluation and ten GUI episodes; sampled
 TensorBoard success alone is not acceptance.
+
+### V34 Completed Result
+
+The fresh v34 run completed all 5000 iterations. `model_4575.pt` is the selected checkpoint: its
+rolling-50 success window peaks next to iteration 4576 at `64.97%`, and the user judged its
+actor-mean GUI pick-and-place behavior very good. The final `model_4999.pt` is not preferred because
+grasp fell from `97.10%` to `92.09%` and success fell from `64.97%` to `63.02%` after the selected
+window.
+
+At `model_4575`, grasp/transport/center/release/success are
+`97.10/96.73/91.32/65.26/64.97%`. The controller improved assist-to-center, but center-to-release
+accounts for `26.05%` of all episodes and `74.34%` of timeouts. Of about 237 assist controls per
+episode, `79.25%` reject the incremental candidate and `56.44%` end in a no-motion lead hold. The
+controls that do pass have good progress, while lead-constraint rebases and final unsafe commands are
+zero. This identifies all-or-nothing candidate rejection, not insufficient gain, reward, or training
+time, as the remaining nominal bottleneck.
+
+## Current V35 Policy (Untrained)
+
+V35 keeps v34's observations, actions, 20 rewards, PPO, `.670m` goal, 16-second episode, grasp
+contract, release XY `40mm`, success XY `50mm`, height `+2/-3mm`, release speed `.06m/s`, and
+current-relative three-control lead. It makes only the verified final-controller correction:
+
+- A directionally valid DLS delta that exceeds a Cartesian cap is uniformly shrunk. The exact scale
+  preserves joint-space direction and convex joint-limit feasibility while enforcing forward
+  progress, non-increasing target error, requested-axis caps, and the `1mm` inactive-axis leak bound.
+- Every repaired result is passed through the existing full Cartesian safety check. A regressive,
+  non-finite, or zero candidate is never revived.
+- If coupled motion still cannot pass, a reduced XY or Z DLS solve is attempted. XY is preferred
+  before center confirmation and Z after it; the other axis is tried only when the preferred safe
+  solve is unavailable. Both are joint-limited, uniformly repaired, and fully revalidated.
+- V34's horizontal `5mm` and vertical `2mm` deadbands remain unchanged. The fallback fixes the
+  inactive-axis conflict directly without imposing a tighter final XY target or changing descent,
+  release, or success thresholds.
+- TensorBoard now separates scaled repairs, XY/Z fallbacks, XY/Z raw rejects, and final full holds.
+
+Static validation: `35 passed`, Python compilation and `git diff --check` passed, and a 100,000-row
+randomized Cartesian-bound check found zero safety violations. No Isaac simulation was used to claim
+v35 performance; it must be trained fresh.
+
+Run from `/home/mh/.codex_tmp_openarm_remote` as one shell line:
+
+```bash
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_safe_axis_fallback_v35
+```
+
+Do not resume or bootstrap. At rolling-50, require grasp `>=96.5%`, transport `>=96.2%`, center
+`>=91%`, release authorization and success `>=67.5/67%`, total timeout `<=33%`, center-to-release
+timeout `<=22%`, incremental full stops `<=50%`, and no-motion lead holds `<=30%`. Do not add domain
+randomization until the deterministic center-to-release bottleneck passes this gate and GUI review.

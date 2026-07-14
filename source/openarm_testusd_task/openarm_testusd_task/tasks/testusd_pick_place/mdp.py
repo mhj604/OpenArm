@@ -28,12 +28,15 @@ from .controller_math import (
     apply_stopping_speed_envelope,
     build_prioritized_dls_solver,
     constrain_target_lead,
+    damped_pseudoinverse,
     jerk_limited_cartesian_velocity,
     limit_vector_norm,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
     scale_delta_to_joint_limits,
+    scale_delta_to_cartesian_bounds,
+    select_phase_axis_fallback,
     solve_primary_dls_delta,
     solve_prioritized_dls_delta,
     target_lead_constraint_intersection,
@@ -160,6 +163,11 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_xy_low_progress_steps",
             "task_assist_z_low_progress_steps",
             "task_assist_incremental_safety_stops",
+            "task_assist_incremental_scaled_repairs",
+            "task_assist_incremental_xy_fallbacks",
+            "task_assist_incremental_z_fallbacks",
+            "task_assist_incremental_xy_rejects",
+            "task_assist_incremental_z_rejects",
             "task_assist_lead_fallbacks",
             "task_assist_lead_previous_fallbacks",
             "task_assist_lead_incremental_fallbacks",
@@ -429,6 +437,21 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 )
                 self.metrics["task_assist_incremental_safety_stops"].add_(
                     arm_action.assist_incremental_safety_stop
+                )
+                self.metrics["task_assist_incremental_scaled_repairs"].add_(
+                    arm_action.assist_incremental_scaled_repair
+                )
+                self.metrics["task_assist_incremental_xy_fallbacks"].add_(
+                    arm_action.assist_incremental_xy_fallback
+                )
+                self.metrics["task_assist_incremental_z_fallbacks"].add_(
+                    arm_action.assist_incremental_z_fallback
+                )
+                self.metrics["task_assist_incremental_xy_rejects"].add_(
+                    arm_action.assist_incremental_xy_reject
+                )
+                self.metrics["task_assist_incremental_z_rejects"].add_(
+                    arm_action.assist_incremental_z_reject
                 )
                 self.metrics["task_assist_lead_fallbacks"].add_(
                     arm_action.assist_lead_fallback
@@ -769,6 +792,21 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_incremental_safety_stop = torch.zeros(
             self._env.num_envs, device=self.device
         )
+        self.assist_incremental_scaled_repair = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_incremental_xy_fallback = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_incremental_z_fallback = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_incremental_xy_reject = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_incremental_z_reject = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
         self.assist_lead_fallback = torch.zeros(self._env.num_envs, device=self.device)
         self.assist_lead_previous_fallback = torch.zeros(
             self._env.num_envs, device=self.device
@@ -852,6 +890,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_xy_low_progress[resolved_env_ids] = 0.0
         self.assist_z_low_progress[resolved_env_ids] = 0.0
         self.assist_incremental_safety_stop[resolved_env_ids] = 0.0
+        self.assist_incremental_scaled_repair[resolved_env_ids] = 0.0
+        self.assist_incremental_xy_fallback[resolved_env_ids] = 0.0
+        self.assist_incremental_z_fallback[resolved_env_ids] = 0.0
+        self.assist_incremental_xy_reject[resolved_env_ids] = 0.0
+        self.assist_incremental_z_reject[resolved_env_ids] = 0.0
         self.assist_lead_fallback[resolved_env_ids] = 0.0
         self.assist_lead_previous_fallback[resolved_env_ids] = 0.0
         self.assist_lead_incremental_fallback[resolved_env_ids] = 0.0
@@ -1018,6 +1061,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_xy_low_progress[:] = 0.0
         self.assist_z_low_progress[:] = 0.0
         self.assist_incremental_safety_stop[:] = 0.0
+        self.assist_incremental_scaled_repair[:] = 0.0
+        self.assist_incremental_xy_fallback[:] = 0.0
+        self.assist_incremental_z_fallback[:] = 0.0
+        self.assist_incremental_xy_reject[:] = 0.0
+        self.assist_incremental_z_reject[:] = 0.0
         self.assist_lead_fallback[:] = 0.0
         self.assist_lead_previous_fallback[:] = 0.0
         self.assist_lead_incremental_fallback[:] = 0.0
@@ -1619,11 +1667,71 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             )
             return candidate_prediction, candidate_valid, candidate_ratio
 
-        prioritized_prediction, prioritized_valid, prioritized_ratio = evaluate_delta(
-            prioritized_delta
+        def repair_delta(
+            candidate_delta: torch.Tensor,
+            candidate_prediction: torch.Tensor,
+            candidate_valid: torch.Tensor,
+            candidate_ratio: torch.Tensor,
+        ) -> tuple[
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+        ]:
+            scaled_delta, _, scaled_feasible = scale_delta_to_cartesian_bounds(
+                candidate_delta,
+                candidate_prediction[:, :3],
+                object_error,
+                requested_xy_norm,
+                requested_z,
+                requested_z,
+                self.cfg.horizontal_position_deadband,
+                self.cfg.vertical_position_deadband,
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            scaled_prediction, scaled_valid, scaled_ratio = evaluate_delta(scaled_delta)
+            scaled_valid &= scaled_feasible
+            use_scaled = requested_motion & ~candidate_valid & scaled_valid
+            return (
+                torch.where(use_scaled[:, None], scaled_delta, candidate_delta),
+                torch.where(
+                    use_scaled[:, None], scaled_prediction, candidate_prediction
+                ),
+                candidate_valid | use_scaled,
+                torch.where(use_scaled, scaled_ratio, candidate_ratio),
+                use_scaled,
+            )
+
+        (
+            prioritized_raw_prediction,
+            prioritized_valid,
+            prioritized_ratio,
+        ) = evaluate_delta(prioritized_delta)
+        (
+            prioritized_delta,
+            prioritized_prediction,
+            prioritized_valid,
+            prioritized_ratio,
+            prioritized_scaled,
+        ) = repair_delta(
+            prioritized_delta,
+            prioritized_raw_prediction,
+            prioritized_valid,
+            prioritized_ratio,
         )
-        active_prediction, active_valid, active_ratio = evaluate_delta(
-            active_only_delta
+        active_raw_prediction, active_valid, active_ratio = evaluate_delta(active_only_delta)
+        (
+            active_only_delta,
+            active_prediction,
+            active_valid,
+            active_ratio,
+            active_scaled,
+        ) = repair_delta(
+            active_only_delta,
+            active_raw_prediction,
+            active_valid,
+            active_ratio,
         )
         use_active_only = active_valid & (
             ~prioritized_valid | (active_ratio > prioritized_ratio)
@@ -1640,9 +1748,29 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         selected_ratio = torch.where(
             use_active_only, active_ratio, prioritized_ratio
         )
+        selected_raw_prediction = torch.where(
+            use_active_only[:, None],
+            active_raw_prediction,
+            prioritized_raw_prediction,
+        )
+        selected_scaled_repair = torch.where(
+            use_active_only, active_scaled, prioritized_scaled
+        )
 
-        postured_prediction, postured_valid, postured_ratio = evaluate_delta(
+        postured_raw_prediction, postured_valid, postured_ratio = evaluate_delta(
             postured_delta
+        )
+        (
+            postured_delta,
+            postured_prediction,
+            postured_valid,
+            postured_ratio,
+            postured_scaled,
+        ) = repair_delta(
+            postured_delta,
+            postured_raw_prediction,
+            postured_valid,
+            postured_ratio,
         )
         use_posture = (
             requested_motion
@@ -1660,6 +1788,152 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
         selected_valid = torch.where(use_posture, postured_valid, selected_valid)
         selected_ratio = torch.where(use_posture, postured_ratio, selected_ratio)
+        selected_raw_prediction = torch.where(
+            use_posture[:, None], postured_raw_prediction, selected_raw_prediction
+        )
+        selected_scaled_repair = torch.where(
+            use_posture, postured_scaled, selected_scaled_repair
+        )
+
+        raw_xy_safe, raw_z_safe = self._cartesian_axis_safe(
+            selected_raw_prediction[:, :3],
+            object_error,
+            requested_xy_norm,
+            requested_z,
+            requested_z,
+            self.cfg.cartesian_hard_leak_tolerance,
+        )
+        self.assist_incremental_xy_reject[assist_ids] = (
+            requested_motion & ~raw_xy_safe
+        ).float()
+        self.assist_incremental_z_reject[assist_ids] = (
+            requested_motion & ~raw_z_safe
+        ).float()
+
+        use_scaled_repair = selected_scaled_repair
+        unresolved = requested_motion & ~selected_valid
+
+        def solve_single_axis_candidate(
+            candidate_mask: torch.Tensor,
+            use_xy_axis: bool,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            if use_xy_axis:
+                axis_jacobian = task_jacobian[:, :2, :]
+                axis_target = delta_position[:, :2]
+            else:
+                axis_jacobian = task_jacobian[:, 2:3, :]
+                axis_target = delta_position[:, 2:3]
+            axis_target = torch.where(
+                candidate_mask[:, None], axis_target, torch.zeros_like(axis_target)
+            )
+
+            axis_pinv = damped_pseudoinverse(axis_jacobian, self.cfg.damping)
+            local_delta = (axis_pinv @ axis_target.unsqueeze(-1)).squeeze(-1)
+            for _ in range(2):
+                residual = axis_target - (
+                    axis_jacobian @ local_delta.unsqueeze(-1)
+                ).squeeze(-1)
+                local_delta = local_delta + (
+                    axis_pinv @ residual.unsqueeze(-1)
+                ).squeeze(-1)
+            local_delta = self._scale_by_max_abs(
+                local_delta, self.cfg.max_joint_step
+            )
+            local_prediction = (
+                task_jacobian @ local_delta.unsqueeze(-1)
+            ).squeeze(-1)
+            maximum_increment_rotation = self.cfg.max_angular_target_lead / max(
+                self.cfg.assist_target_lead_steps, 1
+            )
+            angular_scale = torch.clamp(
+                maximum_increment_rotation
+                / torch.clamp(torch.norm(local_prediction[:, 3:], dim=1), min=1.0e-9),
+                max=1.0,
+            )
+            local_delta = local_delta * angular_scale[:, None]
+            local_delta = self._scale_to_joint_limits(
+                current_joint_pos[assist_ids],
+                local_delta,
+                joint_limits,
+            )
+            local_prediction = (
+                task_jacobian @ local_delta.unsqueeze(-1)
+            ).squeeze(-1)
+            local_delta, _, local_feasible = scale_delta_to_cartesian_bounds(
+                local_delta,
+                local_prediction[:, :3],
+                object_error,
+                requested_xy_norm,
+                requested_z,
+                requested_z,
+                self.cfg.horizontal_position_deadband,
+                self.cfg.vertical_position_deadband,
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            local_prediction = (
+                task_jacobian @ local_delta.unsqueeze(-1)
+            ).squeeze(-1)
+            local_xy_safe, local_z_safe = self._cartesian_axis_safe(
+                local_prediction[:, :3],
+                object_error,
+                requested_xy_norm,
+                requested_z,
+                requested_z,
+                self.cfg.cartesian_hard_leak_tolerance,
+            )
+            local_valid = (
+                candidate_mask
+                & local_feasible
+                & local_xy_safe
+                & local_z_safe
+                & torch.all(torch.isfinite(local_delta), dim=1)
+            )
+            local_ratio = active_translation_progress_ratio(
+                local_prediction[:, :3],
+                delta_position,
+                requested_xy_active,
+                requested_z_active,
+            )
+            return local_delta, local_valid, local_ratio
+
+        xy_fallback_delta, xy_fallback_valid, xy_fallback_ratio = (
+            solve_single_axis_candidate(unresolved & requested_xy_active, True)
+        )
+        z_fallback_delta, z_fallback_valid, z_fallback_ratio = (
+            solve_single_axis_candidate(unresolved & requested_z_active, False)
+        )
+        use_xy_fallback, use_z_fallback = select_phase_axis_fallback(
+            unresolved,
+            xy_fallback_valid,
+            z_fallback_valid,
+            state.place_centered[assist_ids],
+            state.inside_release_xy[assist_ids],
+        )
+        selected_delta = torch.where(
+            use_z_fallback[:, None], z_fallback_delta, selected_delta
+        )
+        selected_delta = torch.where(
+            use_xy_fallback[:, None], xy_fallback_delta, selected_delta
+        )
+        selected_prediction = (
+            task_jacobian @ selected_delta.unsqueeze(-1)
+        ).squeeze(-1)
+        selected_ratio = torch.where(
+            use_z_fallback, z_fallback_ratio, selected_ratio
+        )
+        selected_ratio = torch.where(
+            use_xy_fallback, xy_fallback_ratio, selected_ratio
+        )
+        selected_valid |= use_xy_fallback | use_z_fallback
+        self.assist_incremental_scaled_repair[assist_ids] = (
+            use_scaled_repair.float()
+        )
+        self.assist_incremental_xy_fallback[assist_ids] = (
+            use_xy_fallback.float()
+        )
+        self.assist_incremental_z_fallback[assist_ids] = (
+            use_z_fallback.float()
+        )
 
         delta_joint = torch.where(
             selected_valid[:, None], selected_delta, torch.zeros_like(selected_delta)

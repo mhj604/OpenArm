@@ -28,6 +28,8 @@ preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_s
 project_goal_directed_step = controller_math.project_goal_directed_step
 quintic_smoothstep = controller_math.quintic_smoothstep
 realized_translation_progress = controller_math.realized_translation_progress
+scale_delta_to_cartesian_bounds = controller_math.scale_delta_to_cartesian_bounds
+select_phase_axis_fallback = controller_math.select_phase_axis_fallback
 solve_prioritized_dls_delta = controller_math.solve_prioritized_dls_delta
 target_lead_constraints_valid = controller_math.target_lead_constraints_valid
 target_lead_constraint_intersection = (
@@ -114,6 +116,163 @@ def test_projection_stops_at_deadband_instead_of_crossing_it():
     )
 
     assert torch.allclose(projected, torch.tensor([[0.0005, 0.0, -0.0005]]))
+
+
+def test_cartesian_scaling_applies_request_cap_and_error_nonincrease_bound():
+    joint_delta = torch.tensor([[0.040, 0.0], [0.0, -0.030]])
+    predicted = torch.tensor([[0.004, 0.0, 0.0], [0.0, 0.0, -0.006]])
+    error = torch.tensor([[0.100, 0.0, 0.0], [0.0, 0.0, -0.002]])
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        error,
+        maximum_xy=torch.tensor([0.0025, 0.0100]),
+        maximum_up=torch.tensor([0.0025, 0.0100]),
+        maximum_down=torch.tensor([0.0030, 0.0100]),
+        horizontal_deadband=0.005,
+        vertical_deadband=0.001,
+        inactive_leak_tolerance=0.001,
+    )
+
+    assert torch.all(feasible)
+    assert torch.allclose(scale, torch.tensor([0.625, 2.0 / 3.0]))
+    assert torch.allclose(scaled, joint_delta * scale[:, None])
+    scaled_prediction = predicted * scale[:, None]
+    assert torch.allclose(torch.norm(scaled_prediction[:, :2], dim=1)[0], torch.tensor(0.0025))
+    assert torch.allclose(
+        torch.abs(error[1, 2] - scaled_prediction[1, 2]),
+        torch.abs(error[1, 2]),
+    )
+
+
+def test_cartesian_scaling_limits_inactive_axis_leak_with_margin():
+    joint_delta = torch.tensor([[0.020, 0.010], [-0.020, 0.010]])
+    predicted = torch.tensor(
+        [[0.002, 0.0, 0.004], [0.003, 0.004, -0.002]]
+    )
+    error = torch.tensor([[0.100, 0.0, 0.0], [0.0, 0.0, -0.100]])
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        error,
+        maximum_xy=0.010,
+        maximum_up=0.010,
+        maximum_down=0.010,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
+        inactive_leak_tolerance=torch.tensor([0.001, 0.001]),
+    )
+
+    expected = torch.tensor([0.999 * 0.001 / 0.004, 0.999 * 0.001 / 0.005])
+    assert torch.all(feasible)
+    assert torch.allclose(scale, expected)
+    assert torch.allclose(scaled, joint_delta * scale[:, None])
+    scaled_prediction = predicted * scale[:, None]
+    assert torch.abs(scaled_prediction[0, 2]).item() < 0.001
+    assert torch.norm(scaled_prediction[1, :2]).item() < 0.001
+
+
+def test_cartesian_scaling_rejects_regressive_active_axes():
+    joint_delta = torch.tensor([[0.020, 0.0], [0.0, 0.020]])
+    predicted = torch.tensor([[-0.002, 0.0, 0.0], [0.0, 0.0, 0.002]])
+    error = torch.tensor([[0.100, 0.0, 0.0], [0.0, 0.0, -0.100]])
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        error,
+        maximum_xy=0.0025,
+        maximum_up=0.0025,
+        maximum_down=0.0030,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
+        inactive_leak_tolerance=0.001,
+    )
+
+    assert not torch.any(feasible)
+    assert torch.equal(scale, torch.zeros(2))
+    assert torch.equal(scaled, torch.zeros_like(joint_delta))
+
+
+def test_phase_axis_fallback_requires_the_current_release_basin_for_z_priority():
+    unresolved = torch.ones(5, dtype=torch.bool)
+    xy_valid = torch.tensor([True, True, True, False, False])
+    z_valid = torch.tensor([True, True, True, True, False])
+    centered = torch.tensor([False, True, True, False, True])
+    inside_release = torch.tensor([False, True, False, False, True])
+
+    use_xy, use_z = select_phase_axis_fallback(
+        unresolved,
+        xy_valid,
+        z_valid,
+        centered,
+        inside_release,
+    )
+
+    assert torch.equal(use_xy, torch.tensor([True, False, True, False, False]))
+    assert torch.equal(use_z, torch.tensor([False, True, False, True, False]))
+
+
+def test_cartesian_scaling_allows_zero_prediction_on_the_other_active_axis():
+    joint_delta = torch.tensor([[0.020, 0.010], [-0.020, 0.010]])
+    predicted = torch.tensor([[0.002, 0.0, 0.0], [0.0, 0.0, -0.002]])
+    error = torch.tensor([[0.100, 0.0, -0.050], [0.100, 0.0, -0.050]])
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        error,
+        maximum_xy=0.0025,
+        maximum_up=0.0025,
+        maximum_down=0.0030,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
+        inactive_leak_tolerance=0.001,
+    )
+
+    assert torch.all(feasible)
+    assert torch.allclose(scale, torch.ones(2))
+    assert torch.equal(scaled, joint_delta)
+
+
+def test_cartesian_scaling_rejects_nonfinite_and_zero_candidates():
+    joint_delta = torch.tensor(
+        [[0.0, 0.0], [float("nan"), 0.010], [0.010, 0.0], [0.010, 0.0]]
+    )
+    predicted = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.002, 0.0, 0.0],
+            [float("inf"), 0.0, 0.0],
+            [0.002, 0.0, 0.0],
+        ]
+    )
+    error = torch.tensor(
+        [
+            [0.100, 0.0, 0.0],
+            [0.100, 0.0, 0.0],
+            [0.100, 0.0, 0.0],
+            [float("nan"), 0.0, 0.0],
+        ]
+    )
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        error,
+        maximum_xy=0.0025,
+        maximum_up=0.0025,
+        maximum_down=0.0030,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
+        inactive_leak_tolerance=0.001,
+    )
+
+    assert not torch.any(feasible)
+    assert torch.equal(scale, torch.zeros(4))
+    assert torch.equal(scaled, torch.zeros_like(joint_delta))
 
 
 def test_safe_tangential_entry_motion_is_preserved():

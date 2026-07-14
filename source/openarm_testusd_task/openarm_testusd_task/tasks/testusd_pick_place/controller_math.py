@@ -56,6 +56,157 @@ def scale_delta_to_joint_limits(
     return delta * torch.clamp(scale, min=0.0, max=1.0)
 
 
+def scale_delta_to_cartesian_bounds(
+    joint_delta: torch.Tensor,
+    predicted_translation: torch.Tensor,
+    position_error: torch.Tensor,
+    maximum_xy: float | torch.Tensor,
+    maximum_up: float | torch.Tensor,
+    maximum_down: float | torch.Tensor,
+    horizontal_deadband: float | torch.Tensor,
+    vertical_deadband: float | torch.Tensor,
+    inactive_leak_tolerance: float | torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Uniformly shrink a joint delta to satisfy Cartesian safety bounds.
+
+    ``predicted_translation`` is the Cartesian translation produced by
+    ``joint_delta`` under the local Jacobian. Scaling both by the same value
+    preserves the joint-space direction and any convex feasibility constraints
+    already satisfied by the input delta.
+    """
+
+    batch_size = joint_delta.shape[0]
+
+    def as_batch(value: float | torch.Tensor) -> torch.Tensor:
+        tensor = torch.as_tensor(
+            value, device=joint_delta.device, dtype=joint_delta.dtype
+        )
+        if tensor.ndim == 0:
+            tensor = tensor.expand(batch_size)
+        return tensor.reshape(batch_size)
+
+    xy_limit = as_batch(maximum_xy)
+    up_limit = as_batch(maximum_up)
+    down_limit = as_batch(maximum_down)
+    xy_deadband = as_batch(horizontal_deadband)
+    z_deadband = as_batch(vertical_deadband)
+    leak_tolerance = as_batch(inactive_leak_tolerance)
+
+    xy_error = position_error[:, :2]
+    xy_step = predicted_translation[:, :2]
+    xy_error_norm = torch.norm(xy_error, dim=1)
+    xy_step_norm = torch.norm(xy_step, dim=1)
+    xy_step_squared = torch.sum(xy_step**2, dim=1)
+    xy_progress = torch.sum(xy_error * xy_step, dim=1)
+    xy_active = xy_error_norm > xy_deadband
+
+    z_error = position_error[:, 2]
+    z_step = predicted_translation[:, 2]
+    z_error_abs = torch.abs(z_error)
+    z_step_abs = torch.abs(z_step)
+    z_progress = z_error * z_step
+    z_active = z_error_abs > z_deadband
+    z_limit = torch.where(z_error >= 0.0, up_limit, down_limit)
+
+    infinite = torch.full(
+        (batch_size,),
+        float("inf"),
+        device=joint_delta.device,
+        dtype=joint_delta.dtype,
+    )
+    xy_request_bound = torch.where(
+        xy_step_norm > 0.0, xy_limit / xy_step_norm, infinite
+    )
+    xy_overshoot_bound = torch.where(
+        xy_step_squared > 0.0,
+        2.0 * xy_progress / xy_step_squared,
+        infinite,
+    )
+    xy_leak_bound = torch.where(
+        xy_step_norm > 0.0,
+        0.999 * leak_tolerance / xy_step_norm,
+        infinite,
+    )
+    xy_bound = torch.where(
+        xy_active,
+        torch.minimum(xy_request_bound, xy_overshoot_bound),
+        xy_leak_bound,
+    )
+
+    z_request_bound = torch.where(z_step_abs > 0.0, z_limit / z_step_abs, infinite)
+    z_overshoot_bound = torch.where(
+        z_step_abs > 0.0,
+        2.0 * z_progress / (z_step**2),
+        infinite,
+    )
+    z_leak_bound = torch.where(
+        z_step_abs > 0.0,
+        0.999 * leak_tolerance / z_step_abs,
+        infinite,
+    )
+    z_bound = torch.where(
+        z_active,
+        torch.minimum(z_request_bound, z_overshoot_bound),
+        z_leak_bound,
+    )
+
+    scale = torch.clamp(torch.minimum(xy_bound, z_bound), min=0.0, max=1.0)
+    finite = (
+        torch.all(torch.isfinite(joint_delta), dim=1)
+        & torch.all(torch.isfinite(predicted_translation), dim=1)
+        & torch.all(torch.isfinite(position_error), dim=1)
+        & torch.isfinite(xy_limit)
+        & torch.isfinite(up_limit)
+        & torch.isfinite(down_limit)
+        & torch.isfinite(xy_deadband)
+        & torch.isfinite(z_deadband)
+        & torch.isfinite(leak_tolerance)
+    )
+    parameters_valid = (
+        (xy_limit >= 0.0)
+        & (up_limit >= 0.0)
+        & (down_limit >= 0.0)
+        & (xy_deadband >= 0.0)
+        & (z_deadband >= 0.0)
+        & (leak_tolerance >= 0.0)
+    )
+    forward = (~xy_active | (xy_step_norm == 0.0) | (xy_progress > 0.0)) & (
+        ~z_active | (z_step_abs == 0.0) | (z_progress > 0.0)
+    )
+    nonzero_delta = torch.amax(torch.abs(joint_delta), dim=1) > 0.0
+    nonzero_prediction = torch.amax(torch.abs(predicted_translation), dim=1) > 0.0
+    feasible = (
+        finite
+        & parameters_valid
+        & (xy_active | z_active)
+        & forward
+        & nonzero_delta
+        & nonzero_prediction
+        & torch.isfinite(scale)
+        & (scale > 0.0)
+    )
+    scale = torch.where(feasible, scale, torch.zeros_like(scale))
+    scaled_delta = torch.where(
+        feasible[:, None], joint_delta * scale[:, None], torch.zeros_like(joint_delta)
+    )
+    return scaled_delta, scale, feasible
+
+
+def select_phase_axis_fallback(
+    unresolved: torch.Tensor,
+    xy_valid: torch.Tensor,
+    z_valid: torch.Tensor,
+    place_centered: torch.Tensor,
+    inside_release_xy: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Select XY before centering and Z only inside the current release basin."""
+
+    prefer_z = place_centered & inside_release_xy
+    use_z = unresolved & z_valid & (prefer_z | ~xy_valid)
+    use_xy = unresolved & xy_valid & ~use_z
+    return use_xy, use_z
+
+
 def constrain_target_lead(
     raw_lead: torch.Tensor,
     current_position: torch.Tensor,
