@@ -1,8 +1,8 @@
-# OpenArm Pick-and-Place Handoff
+# OpenArm 집기·놓기 인계 문서
 
-Last updated: 2026-07-15 KST
+마지막 갱신: 2026-07-15 KST
 
-## Repository And Tasks
+## 저장소와 작업
 
 ```bash
 source /home/mh/isaac-stack-2.3.2/activate_isaaclab_2.3.2.sh
@@ -18,42 +18,48 @@ GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt`이며, 해석된 에이전트·환경
 설정과 함께 `artifacts/checkpoints/openarm_pick_place/v35/`에 보관되어 있다.
 
-## V19 Result And Exact Cause
+## V19 결과와 정확한 원인
 
-- valid run: `2026-07-10_17-55-28_reachable_place_v19`, inspected through `model_900.pt`.
-- grasp/lift stayed about 97-98%, but mean actual-goal XY stopped near `0.133m` and object height near
-  `0.98m`.
-- assist, center, release, and success remained 0; timeout stayed about 98-99%.
-- assist required `basket_reached <=0.10m` before its nominal outer radius mattered, so the controller
-  never ran. The visible upward motion was the inherited actor, not a reversed controller/Jacobian.
-- v18 actor weights were copied exactly, but v19 changed the old input distribution: goal X direction
-  reversed, Y error shrank, and two existing Z inputs shifted by about `+0.10m`.
-- v19 also copied an obsolete critic and used LR `2e-5`; without downstream events the actor drifted.
+- 유효한 실행: `2026-07-10_17-55-28_reachable_place_v19`, `model_900.pt`까지 확인했다.
+- 파지와 들기는 약 97-98%를 유지했지만 실제 목표까지의 평균 XY 거리는 `0.133m` 부근, 물체
+  높이는 `0.98m` 부근에서 멈췄다.
+- 보조 제어, 중앙 정렬, 놓기, 성공은 계속 0이었고 시간 초과는 약 98-99%였다.
+- 보조 제어가 작동하려면 명목상 바깥 반경보다 먼저 `basket_reached <=0.10m`를 만족해야 했다.
+  이 때문에 제어기는 한 번도 실행되지 않았다. 화면에 보인 상승 동작은 물려받은 정책망의
+  출력이다. 제어기나 야코비안의 방향이 뒤집힌 결과가 아니었다.
+- v18 정책망 가중치는 정확히 복사했지만 v19에서 기존 입력 분포가 달라졌다. 목표 X 방향이
+  반대로 바뀌고 Y 오차가 줄었으며 기존 Z 입력 두 개는 약 `+0.10m` 이동했다.
+- v19는 오래된 가치망까지 복사하고 학습률 `2e-5`를 사용했다. 이후 단계 사건이 발생하지 않아
+  정책망이 점차 벗어났다.
 
-## V20 Policy
+## V20 정책
 
-- actual reachable goal B: center `(0.37, 0.07, 0.33)`, train X `(0.36,0.38)`, Y `(0.06,0.08)`.
-- inherited actor sees virtual waypoint `(0.48,0.20,0.33)`, which restores the v18 input range.
-- the old path passes within `72.8mm` of the actual goal; all reset/goal corners pass within `86.8mm`.
-- actor reaches actual-goal XY `0.14m`, then `assist_engaged` latches.
-- strict basket state remains `0.10m`; center/release are `0.04m`; settle success is `0.05m`.
-- assist stays active through `0.24m`; exit is `0.20m` with 24-step recovery dwell.
-- before centering, vertical target is `min(current object z, 0.78m)`; after centering it is the lower
-  sampled release level `0.73/0.68m`. Controller never commands upward motion.
-- object-center Jacobian is `Jv - skew(p_object-p_tcp) @ Jw`, followed by 3D damped least squares.
+- 실제 도달 가능한 목표 B: 중심 `(0.37, 0.07, 0.33)`, 학습 X `(0.36,0.38)`, Y `(0.06,0.08)`.
+- 물려받은 정책망에는 가상 경유점 `(0.48,0.20,0.33)`을 보여 v18의 입력 범위를 복원한다.
+- 기존 경로는 실제 목표에서 `72.8mm` 안을 지나며 모든 초기화·목표 모서리 조합도 `86.8mm`
+  안을 지난다.
+- 정책망이 실제 목표 XY `0.14m`까지 도달하면 `assist_engaged`가 유지 상태로 전환된다.
+- 엄격한 바스켓 상태는 `0.10m`, 중앙 정렬과 놓기는 `0.04m`, 안착 성공은 `0.05m`를 유지한다.
+- 보조 제어는 `0.24m`까지 활성 상태를 유지한다. 종료 기준은 `0.20m`이며 복구 대기 시간은
+  24스텝이다.
+- 중앙 정렬 전 수직 목표는 `min(current object z, 0.78m)`이며 정렬 뒤에는 표본으로 뽑은 낮은
+  놓기 높이 `0.73/0.68m`를 사용한다. 제어기는 위쪽 움직임을 명령하지 않는다.
+- 물체 중심 야코비안은 `Jv - skew(p_object-p_tcp) @ Jw`이다. 그다음 3차원 감쇠 최소제곱법을
+  적용한다.
 
-## Basket Position
+## 바스켓 위치
 
-- physical prim: `/packing_table/container_h20`.
-- local translation X: `0.333333 -> 0.283333m`.
-- parent transform maps this to world Y `-0.03m`: basket center `(0.48,0.20) -> (0.48,0.17)`.
-- actual goal is unchanged, so reachability is unchanged and near-wall clearance grows by `30mm`.
-- worst randomized goal cube-edge clearance before release is X `76mm`, Y `68mm`.
-- with arbitrary planar cube yaw, release/success guards still keep the cube inside the basket.
+- 물리 프림: `/packing_table/container_h20`.
+- 로컬 이동 X: `0.333333 -> 0.283333m`.
+- 부모 변환을 거치면 월드 Y에서 `-0.03m` 이동한다. 바스켓 중심은
+  `(0.48,0.20) -> (0.48,0.17)`로 바뀐다.
+- 실제 목표는 그대로이므로 도달 가능성도 달라지지 않으며 벽 근처 여유 공간은 `30mm` 늘어난다.
+- 무작위 목표 중 놓기 전 큐브 모서리와 벽 사이의 최소 여유는 X `76mm`, Y `68mm`다.
+- 큐브의 평면 회전각이 어느 값이더라도 놓기·성공 조건을 만족하면 큐브는 바스켓 안에 남는다.
 
-## V20 Reward And PPO
+## V20 보상과 PPO
 
-Stage reward has 17 terms.
+Stage 보상은 17개 항목으로 구성된다.
 
 ```text
 approach/lift/transport progress       +5 / +150 / +150
@@ -65,18 +71,19 @@ carry band / clearance                 -10 / -2
 actor-only action rate / joint vel     -1e-4 / -1e-4
 ```
 
-The assist event is actor-controlled. Controller-generated basket entry has no actor reward. Signed
-height potential is positive only while approaching `0.78m`, negative while moving away, and zero when
-stationary. PPO is 3072 env, 48 steps, 24 mini-batches, 2 epochs, LR `5e-6`, entropy `1e-4`, gamma
-`0.995`.
+보조 제어 진입 사건은 정책망이 결정한다. 제어기가 만든 바스켓 진입에는 정책망 보상을 주지 않는다.
+부호 있는 높이 퍼텐셜은 `0.78m`에 가까워질 때만 양수, 멀어질 때는 음수, 정지할 때는 0이다. PPO는
+환경 3072개, 48스텝, 미니배치 24개, 2에포크, 학습률 `5e-6`, 엔트로피 `1e-4`, 감마 `0.995`를
+사용한다.
 
-## V21 Vertical Fix
+## V21 수직 제어 수정
 
-V20 solved transport entry but its no-rise clamp made Z control a downward-only ratchet. Object height
-fell from about `0.645m` to `0.632m`, hold/assist then degraded, and release/success stayed 0.
+V20에서 운반 진입 문제는 해결했지만 상승 방지 제한 때문에 Z축 제어가 아래쪽으로만 누적됐다. 물체
+높이는 약 `0.645m`에서 `0.632m`로 낮아졌고 이후 파지 유지와 보조 제어 성능도 떨어졌다. 놓기와
+성공은 계속 0이었다.
 
-V21 keeps all 69 observations, 8 actions, 17 rewards, goals, basket transforms, and state thresholds.
-Only assist Z control changes:
+V21은 관측값 69개, 동작 8개, 보상 17개, 목표, 바스켓 변환, 상태 기준을 모두 유지한다. 보조 제어의
+Z축 제어만 바꾼다.
 
 ```text
 dz = 0.10 * (target_z - object_z) - 1.5 * object_vz * step_dt
@@ -84,117 +91,121 @@ dz clamp = [-0.0015m, +0.00075m] per control step
 target_z = 0.78m before centered; sampled 0.73/0.68m after centered
 ```
 
-This permits a smaller upward recovery only below target while braking upward velocity and retaining
-twice the downward authority.
+이 방식은 목표보다 아래에 있을 때만 작은 상향 복구를 허용한다. 상승 속도를 제동하면서 하향 제어력은
+상향의 두 배로 유지한다.
 
-## Bootstrap
+## 초기 가중치 이식
 
-Source actor/noise:
+원본 정책망과 노이즈:
 
 ```text
 2026-07-10_16-30-21_hybrid_place_v18/model_1000.pt
 ```
 
-Target:
+대상:
 
 ```text
 2026-07-10_19-10-00_model1000_actor_v20_bootstrap/model_0.pt
 ```
 
-- actor first 66 columns and all later actor layers/log-std are exact copy.
-- new `place_centered`, center dwell, and `assist_engaged` columns are zero initialized.
-- actor/critic input shape `(256,69)`; critic is freshly initialized.
-- iteration 0; Adam moments are empty but a valid 17-parameter group at LR `5e-6` is present.
+- 정책망의 첫 66개 열과 이후 모든 정책망 계층·로그 표준편차를 정확히 복사했다.
+- 새 `place_centered`, 중앙 정렬 유지 시간, `assist_engaged` 열은 0으로 초기화했다.
+- 정책망·가치망 입력 형태는 `(256,69)`이며 가치망은 새로 초기화했다.
+- 반복 횟수는 0이다. Adam 모멘트는 비어 있지만 학습률 `5e-6`인 유효한 17개 매개변수 그룹이 있다.
 
-This bootstrap is historical only. V22 must not load it or any other checkpoint.
+이 초기 가중치 이식은 과거 기록으로만 남긴다. V22에서는 이 체크포인트를 포함해 어떤 체크포인트도
+불러오면 안 된다.
 
-## V22 Fresh Policy
+## V22 새 학습 정책
 
-V21 kept grasp/lift/assist near `98/98/97%` initially, but over about 160 new updates hold declined
-from about `80%` to `69%`, basket from `96%` to `33%`, center from `5.6%` to `0.1%`, and object Z
-stayed near `0.632-0.633m`. Release and success remained zero.
+V21은 처음에 파지·들기·보조 제어를 약 `98/98/97%`로 유지했다. 하지만 새 갱신을 약 160번
+진행하는 동안 파지 유지는 약 `80%`에서 `69%`, 바스켓 진입은 `96%`에서 `33%`, 중앙 정렬은
+`5.6%`에서 `0.1%`로 떨어졌다. 물체 Z는 `0.632-0.633m` 부근에 머물렀으며 놓기와 성공은 계속
+0이었다.
 
-- remove the inherited virtual waypoint; policy and controller now share actual goal XY `(0.37,0.07)`.
-- policy transport target Z is world `0.78m`, matching carry reward and controller.
-- observation is 74: previous 69 plus three continuous grasp-quality values and two milestone latches.
-- reward is 19: approach potential `30`, ready/candidate/acquired one-shot bonuses `5/10/20`, with the
-  remaining actor-owned terms retained.
-- failure starts at `-50` and ramps linearly to `-100` between common steps `4,800` and `14,400`
-  (iterations 100-300 at a 48-step rollout).
-- progress rewards pay only a new episode best while regressions stay negative, so discounted
-  back-and-forth cycles cannot repay earlier progress.
-- assist captures the object-TCP offset and controls the corresponding TCP target with linear `Jv`.
-  DLS remains `0.08`; entry posture is held softly in the nullspace (`gain=.04`, cap `.003rad`).
-- XY control is `kp=.12`, `kd=.25`, norm cap `.002m`; Z is `kp=.12`, `kd=.30`, down/up caps
-  `.003/.0025m`; object velocity EMA is `.75`.
-- every Cartesian command is target-directed and no larger than remaining error. Joint-limit scaling
-  preserves the whole DLS vector direction, followed by a predicted TCP-direction check.
-- the assist joint target persists to build enough PD effort but may lead current joints by at most
-  `.05rad` and cannot exceed remaining Cartesian error. The 12-step handoff holds the prior target
-  after hold flicker and current joint position after release.
-- centering requires carry-height error `<=.03m`, preventing descent from starting at the old low Z.
-- PPO is fresh-policy settings: 3072 env, 48 steps, 24 mini-batches, 2 epochs, noise `.30`, LR `5e-6`,
-  entropy `1e-4`, gamma `.98`, maximum 2000 iterations.
+- 물려받은 가상 경유점을 제거한다. 이제 정책과 제어기가 실제 목표 XY `(0.37,0.07)`를 함께 쓴다.
+- 정책의 운반 목표 Z는 월드 `0.78m`이며 운반 보상·제어기와 일치한다.
+- 관측값은 74개다. 기존 69개에 연속 파지 품질값 세 개와 단계 달성 유지값 두 개를 더했다.
+- 보상은 19개다. 접근 퍼텐셜 `30`, 준비·후보·파지 완료 일회성 보너스 `5/10/20`을 사용하고
+  정책망이 담당하던 나머지 항목은 유지한다.
+- 실패 보상은 `-50`에서 시작해 `-100`까지 선형 증가한다. 공통 스텝 `4,800`부터 `14,400`,
+  48스텝 롤아웃 기준 100-300번째 반복에 해당한다.
+- 진행 보상은 에피소드의 새 최고값을 달성할 때만 지급하고 후퇴에는 음수를 준다. 할인된 왕복 동작으로
+  앞선 진행 보상을 다시 받을 수 없다.
+- 보조 제어는 물체와 TCP의 간격을 저장한 뒤 선형 `Jv`로 해당 TCP 목표를 제어한다. DLS는 `0.08`을
+  유지하고 진입 자세는 영공간에서 부드럽게 유지한다(`gain=.04`, 상한 `.003rad`).
+- XY 제어는 `kp=.12`, `kd=.25`, 크기 상한 `.002m`다. Z 제어는 `kp=.12`, `kd=.30`, 하향·상향
+  상한 `.003/.0025m`이며 물체 속도 EMA는 `.75`다.
+- 모든 데카르트 명령은 목표 방향을 향하고 남은 오차보다 크지 않다. 관절 한계 배율은 DLS 벡터 전체의
+  방향을 보존하며 이후 예측 TCP 방향을 검사한다.
+- 보조 제어 관절 목표는 충분한 PD 힘을 만들도록 유지하되 현재 관절보다 최대 `.05rad`만 앞설 수 있고
+  남은 데카르트 오차도 넘지 못한다. 12스텝 인계 과정에서는 파지 유지 상태가 순간 끊기면 이전 목표를,
+  놓기 뒤에는 현재 관절 위치를 유지한다.
+- 중앙 정렬은 운반 높이 오차 `<=.03m`를 요구하므로 과거의 낮은 Z에서 하강이 시작되지 않는다.
+- PPO는 처음부터 학습하는 정책 설정을 사용한다. 환경 3072개, 48스텝, 미니배치 24개, 2에포크,
+  노이즈 `.30`, 학습률 `5e-6`, 엔트로피 `1e-4`, 감마 `.98`이며 최대 2000회 반복한다.
 
-## V23 Object Feedback Fix
+## V23 실제 물체 피드백 수정
 
-At v22 iteration 1304, grasp/lift/assist reached about `99/97/97%` and hold `91%`, but basket was about
-`19%`, center/release/success stayed zero, object Z was `.6356m`, and dXY was `.1197m`. Assist was active
-over 92%, while all requested/applied Z and target-lead diagnostics stayed exactly zero. The fixed
-entry object-TCP offset let TCP reach its nominal target while later cube slip disappeared from feedback.
+v22의 1304번째 반복에서 파지·들기·보조 제어는 약 `99/97/97%`, 파지 유지는 `91%`에 도달했다.
+그러나 바스켓 진입은 약 `19%`였고 중앙 정렬·놓기·성공은 계속 0이었다. 물체 Z는 `.6356m`, dXY는
+`.1197m`였다. 보조 제어는 92% 넘게 활성화됐지만 요청·적용 Z와 목표 선행 진단값은 모두 정확히
+0이었다. 진입 시 고정한 물체-TCP 간격 때문에 TCP는 명목상 목표에 도달해도 이후 큐브 미끄러짐이
+피드백에 반영되지 않았다.
 
-- control error is now `target_object_position - actual_object_position` every step.
-- damping uses clamped actual object velocity (`+/-0.25m/s`) with EMA `.80`.
-- XY is `.12/.25`, `2.5mm`; Z is `.12/.30`, up/down `2.5/3mm`; deadband is `3mm`.
-- predicted residual must shrink; persistent Cartesian lead is capped at XY/up/down `5/5/6mm`.
-- fixed offset is diagnostic-only. Slip over `50mm` for 6 steps resets lead, freezes one step, and
-  rebases the diagnostic offset.
-- controller episode metrics now accumulate control steps, requested/incremental/applied Z, max slip,
-  watchdog trips, posture error, and joint-target lead.
-- lift/carry band is `.73/.75/.79m`, center is `.75 +/- .025m`, release remains `.73/.68m`.
-- observation 74, reward 19, fresh shaping, failure ramp, and Stage PPO are unchanged.
+- 이제 모든 스텝에서 제어 오차를 `target_object_position - actual_object_position`으로 계산한다.
+- 감쇠에는 `+/-0.25m/s`로 제한한 실제 물체 속도와 EMA `.80`을 사용한다.
+- XY는 `.12/.25`, `2.5mm`, Z는 `.12/.30`, 상향·하향 `2.5/3mm`이며 무반응 구간은 `3mm`다.
+- 예측 잔차는 반드시 줄어야 한다. 누적 데카르트 선행 상한은 XY·상향·하향 `5/5/6mm`다.
+- 고정 간격은 진단에만 쓴다. 미끄러짐이 `50mm`를 넘은 상태가 6스텝 이어지면 선행값을 초기화하고
+  한 스텝 정지한 뒤 진단용 간격의 기준을 다시 잡는다.
+- 제어기 에피소드 지표에는 제어 스텝, 요청·증분·적용 Z, 최대 미끄러짐, 감시기 작동 횟수, 자세 오차,
+  관절 목표 선행값을 누적한다.
+- 들기·운반 높이 구간은 `.73/.75/.79m`, 중앙 정렬은 `.75 +/- .025m`이며 놓기는 `.73/.68m`를
+  유지한다.
+- 관측값 74개, 보상 19개, 새 학습용 보상 설계, 실패 보상 증가, Stage PPO는 바꾸지 않는다.
 
-## V24 Gravity, Torque Headroom, And Hold Recovery
+## V24 중력과 토크 여유, 파지 유지 복구
 
-V23 model 500 reached roughly `95/92/92%` grasp/lift/assist, but terminal object Z stayed near `.632m`
-and center/release/success stayed zero. Its roughly `.9m` accumulated applied-Z metric was repeated
-Jacobian prediction, not physical displacement.
+V23의 500번째 모델은 파지·들기·보조 제어 약 `95/92/92%`에 도달했다. 하지만 종료 시 물체 Z는 `.632m`
+부근에 머물렀고 중앙 정렬·놓기·성공은 계속 0이었다. 적용 Z 지표에 누적된 약 `.9m`는 실제 변위가
+아니라 반복해서 더한 야코비안 예측값이었다.
 
-- assist target lead was only about `.0208rad`, which at stiffness 400 requests about `8.3Nm` before
-  damping and actuator clipping; it could not reliably support the arm.
-- the source high-PD config requests disabled robot gravity, but `spawn=None` prevented that spawn
-  rigid property from reaching the referenced original USD robot.
-- `current_hold` also required object Z `>.630m`; at that boundary assist switched off and failure was
-  confirmed after only 3 control steps.
-- v24 authors `disableGravity=True` on every referenced robot rigid body while retaining cube gravity.
-- assist entry preserves a bounded actor target. Persistent lead is joint `.12rad`, XY `.012m`, up
-  `.025m`, down `.012m`, angular `.03rad`; per-step motion caps remain unchanged.
-- v18's full 6D spatial DLS is restored: translation is solved together with zero angular motion, so
-  the stronger lead cannot exploit the position-only nullspace to rotate the wrist out of the grasp.
-- hold is now proximity/closure only, retaining the validated `.25` threshold. During the 12-step loss
-  confirmation, object servo pauses at current q; reacquisition starts a fresh assist. Slip watchdog
-  is tightened from `50mm/6` to `15mm/3` control steps.
-- assist target ownership now includes handoff and hold-freeze, keeping actor-only rewards disabled
-  whenever the actor target is overridden.
-- actual object/TCP vertical displacement, command-aligned vertical progress, estimated effort-limit
-  ratio, and TCP orientation error are logged separately from predicted displacement.
-- reward 19, observation 74, PPO, goal geometry, carry `.73/.75/.79m`, center `.75 +/-.025m`, and
-  release `.73/.68m` are unchanged because v23's fresh grasp/lift learning was healthy.
+- 보조 제어 목표의 선행값은 약 `.0208rad`에 불과했다. 강성 400에서는 감쇠와 구동기 제한 전에 약
+  `8.3Nm`를 요구하는 수준이라 팔을 안정적으로 지탱하지 못했다.
+- 원본 고강성 PD 설정은 로봇 중력을 끄도록 되어 있지만 `spawn=None` 때문에 생성 설정의 강체 속성이
+  참조된 원본 USD 로봇에 전달되지 않았다.
+- `current_hold`도 물체 Z `>.630m`를 요구했다. 이 경계에서 보조 제어가 꺼지고 제어 3스텝 만에
+  실패가 확정됐다.
+- v24는 큐브 중력은 유지하면서 참조된 모든 로봇 강체에 `disableGravity=True`를 설정한다.
+- 보조 제어 진입 때 범위를 제한한 정책망 목표를 보존한다. 누적 선행 상한은 관절 `.12rad`, XY
+  `.012m`, 상향 `.025m`, 하향 `.012m`, 회전 `.03rad`이며 스텝별 이동 상한은 바꾸지 않는다.
+- v18의 전체 6차원 공간 DLS를 복원한다. 병진 이동과 회전량 0을 함께 풀기 때문에 커진 선행값이
+  위치 전용 영공간을 이용해 손목을 돌리고 파지를 벗어날 수 없다.
+- 이제 파지 유지는 근접도와 닫힘만으로 판단하며 검증된 `.25` 기준은 그대로 쓴다. 12스텝 손실 확인
+  중에는 물체 서보가 현재 q에서 멈추고 다시 파지하면 새 보조 제어를 시작한다. 미끄러짐 감시 기준은
+  제어 스텝 `50mm/6`에서 `15mm/3`으로 강화한다.
+- 보조 제어의 목표 소유 구간에 인계와 파지 유지 정지도 포함한다. 정책망 목표를 덮어쓰는 동안에는
+  정책망 전용 보상이 계속 꺼진다.
+- 실제 물체·TCP 수직 변위, 명령 방향 수직 진행량, 추정 구동 한계 비율, TCP 방향 오차를 예측 변위와
+  나눠 기록한다.
+- v23의 새 파지·들기 학습이 정상적이었으므로 보상 19개, 관측값 74개, PPO, 목표 기하, 운반 높이
+  `.73/.75/.79m`, 중앙 정렬 `.75 +/-.025m`, 놓기 `.73/.68m`는 유지한다.
 
-## Historical V24 Training Command (Superseded)
+## 과거 V24 학습 명령어(현재는 사용하지 않음)
 
 ```bash
 python scripts/rsl_rl/train.py --task Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --headless --num_envs 5120 --device cuda --max_iterations 2000 --run_name fresh_gravity_compensated_place_v24
 ```
 
-This creates actor, critic, optimizer, and iteration counter from scratch. Do not add `--resume`,
-`--load_run`, `--checkpoint`, actor transfer, or an iteration-zero bootstrap.
+이 명령은 정책망, 가치망, 최적화기, 반복 횟수 계수기를 처음부터 만든다. `--resume`, `--load_run`,
+`--checkpoint`, 정책망 이식, 0번째 반복의 초기 가중치 이식은 추가하지 않는다.
 
-## Future Training Rule
+## 이후 학습 원칙
 
-V21 was the final run allowed to resume an earlier checkpoint. V22 through V24 follow the fresh-training rule.
+V21은 이전 체크포인트에서 재개하도록 허용한 마지막 실행이다. V22부터 V24까지는 처음부터 학습한다.
 
-## Decision Points
+## 판단 시점
 
 ```text
 model 25: grasp-ready/candidate/acquired events must be nonzero
@@ -206,89 +217,91 @@ model 1000: success nonzero; otherwise stop and redesign
 early stop: at model 500 center/release=0 and command-aligned Z progress <=0, or object Z <.68m
 ```
 
-## Validation And Git
+## 검증과 Git
 
-- basket transform and actual-goal reachability remain unchanged from v20.
-- manager params have no missing/unknown required args; observation 74; reward 19.
-- 20k randomized 6D Jacobian tests passed joint-step, joint-target, XY/Z lead, angular lead, and joint
-  limit bounds; 19,979 nonzero cases remained target-directed.
-- `py_compile` and `git diff --check` passed.
-- command metrics can omit the terminal control step because IsaacLab resets the action manager before
-  the command manager; this is at most a one-step diagnostic error and does not affect control/reward.
-- the first v24 launch created only `model_0.pt`, hit a startup patch-buffer overflow, and then ended;
-  no usable v24 training checkpoint exists yet.
-- Historical v24 note: remote `main` was then at `deebda9`; the current repository state is listed below.
+- 바스켓 변환과 실제 목표의 도달 가능성은 v20 이후 그대로다.
+- 관리자 매개변수에 누락됐거나 알 수 없는 필수 인자가 없다. 관측값은 74개, 보상은 19개다.
+- 무작위 6차원 야코비안 시험 20k건에서 관절 스텝, 관절 목표, XY/Z 선행값, 회전 선행값, 관절 한계
+  범위를 모두 통과했다. 0이 아닌 사례 19,979건도 목표 방향을 유지했다.
+- `py_compile`과 `git diff --check`를 통과했다.
+- IsaacLab은 명령 관리자보다 동작 관리자를 먼저 초기화하므로 명령 지표에서 종료 제어 스텝이 빠질 수
+  있다. 최대 한 스텝의 진단 오차이며 제어와 보상에는 영향을 주지 않는다.
+- 첫 v24 실행에서는 `model_0.pt`만 만들어졌고 시작 중 패치 버퍼가 넘친 뒤 종료됐다. 아직 쓸 수 있는
+  v24 학습 체크포인트는 없다.
+- 과거 v24 기록: 당시 원격 `main`은 `b79476d`였으며 현재 저장소 상태는 아래에 적었다.
 
-## V24 PhysX Patch Buffer Follow-up
+## V24 PhysX 패치 버퍼 후속 조치
 
-The first 5120-env launch reported a required rigid patch capacity of `199728`, above the default
-`163840`. `gpu_max_rigid_patch_count` is now `10 * 2**15 = 327680`, matching IsaacLab's existing
-large-environment precedent. The affected launch must not be resumed because missing contact patches
-can corrupt grasp/contact transitions; restart the same v24 command from scratch.
+환경 5120개로 처음 실행했을 때 필요한 강체 패치 용량은 `199728`로, 기본값 `163840`보다 컸다.
+이제 `gpu_max_rigid_patch_count`는 IsaacLab의 기존 대규모 환경 설정과 같은
+`10 * 2**15 = 327680`이다. 접촉 패치가 빠지면 파지·접촉 전환이 손상될 수 있으므로 문제가 발생한
+실행은 재개하지 않는다. 같은 v24 명령으로 처음부터 다시 시작한다.
 
-## V26 Failure Result
+## V26 실패 결과
 
-V25 model1000 reported roughly 97% grasp and 83% success in asynchronous stochastic training logs,
-but deterministic first-complete-episode evaluation measured only 10.94% grasp and 5.47% success.
-The log counted fast successful resets repeatedly, while training sampled Gaussian actions with
-learned std about .148 and GUI play used the actor mean.
+V25의 1000번째 모델에 대한 비동기 확률적 학습 로그에는 파지 약 97%, 성공 약 83%가 기록됐다.
+하지만 결정론적 최초 완료 에피소드 평가에서는 파지 10.94%, 성공 5.47%에 그쳤다. 로그는 빠르게
+성공하고 초기화된 환경을 반복 집계했다. 학습에서는 표준편차 약 .148을 학습한 가우시안 동작을
+표본으로 뽑았지만 GUI
+재생에서는 정책망 평균 출력을 사용했다.
 
-Measured causes and v26 corrections:
+측정으로 확인한 원인과 v26 수정 사항:
 
-- the old .32 proximity gate could close with a finger body origin about 116 mm from the cube;
-- the actor moved the TCP about 60 mm during the roughly 9-step finger closure;
-- a missed close stayed latched and never reopened;
-- v26 closes only in measured TCP-local XYZ and finger-symmetry bounds, freezes the arm target during
-  closure, confirms contact for 3 steps, and verifies object/TCP coupling with a bounded 18 mm lift;
-- failed closure or verification reopens and retries, with at most 3 failed attempts per episode;
-- attempt keep proximity .38 is separate from the unchanged post-grasp transport hold .25;
-- approach reward and the 3 grasp observations now use centered TCP-local geometry;
-- Stage PPO initial noise is .05. Transport, PlaceAssist, basket, release, and success logic are kept.
+- 기존 근접 조건 .32에서는 손가락 강체 원점이 큐브에서 약 116 mm 떨어져도 닫을 수 있었다.
+- 정책망은 손가락이 닫히는 약 9스텝 동안 TCP를 약 60 mm 움직였다.
+- 파지하지 못한 채 닫혀도 그 상태가 유지돼 다시 열리지 않았다.
+- v26은 측정한 TCP 로컬 XYZ와 손가락 대칭 범위 안에서만 닫는다. 닫는 동안 팔 목표를 고정하고
+  접촉을 3스텝 확인한 뒤, 18 mm로 제한한 들기로 물체와 TCP의 결합을 검증한다.
+- 닫기나 검증에 실패하면 다시 열고 재시도한다. 에피소드마다 실패한 시도는 최대 3회다.
+- 시도 유지용 근접 기준 .38은 기존 파지 후 운반 유지 기준 .25와 별개다.
+- 접근 보상과 파지 관측값 3개는 이제 중앙 정렬된 TCP 로컬 기하를 사용한다.
+- Stage PPO 초기 노이즈는 .05다. 운반, PlaceAssist, 바스켓, 놓기, 성공 로직은 유지한다.
 
-Validation on the v25 model1000 with the new state machine, despite the changed meaning of three
-observations: 128 deterministic first-complete episodes reached 80.47% ready, 53.91% contact candidate,
-42.19% verified grasp, 39.84% lift, and 39.06% real transport. Failed termination was 2.34%. This is a
-state-machine regression check, not a v26 policy result; v26 must train fresh.
+관측값 세 개의 의미가 달라졌지만 새 상태 기계로 v25의 1000번째 모델을 검증했다. 결정론적 최초 완료
+에피소드 128개에서 준비 80.47%, 접촉 후보 53.91%, 검증된 파지 42.19%, 들기 39.84%, 실제 운반
+39.06%를 기록했다. 실패 종료는 2.34%였다. 이는 상태 기계 회귀 검사이지 v26 정책 결과가 아니다.
+v26은 처음부터 학습해야 한다.
 
-V26 completed 5000 iterations, but grasp peaked at 2.083% at iteration 114 and then collapsed to zero.
-The final policy avoided the grasp basin: timeout was 89.09% and the TCP-local offset moved about
-20 cm away from its target. No v26 checkpoint should be resumed.
+V26은 5000회 반복을 완료했지만 파지는 114번째 반복에서 최고 2.083%를 기록한 뒤 0으로
+무너졌다. 최종 정책은 파지 영역을 피했다. 시간 초과는 89.09%였고 TCP 로컬 간격은 목표에서 약
+20 cm 멀어졌다. v26 체크포인트는 재개하면 안 된다.
 
-## Current V28 Mean-Robustness Candidate
+## 현재 V28 정책 평균 출력 강건성 후보
 
-V27 TensorBoard was not a fake physical-success signal: its sampled actions really moved the cube.
-The acceptance interpretation was wrong. `model_3650.pt` learned Gaussian action std averaged `.1429`; sampled
-rollouts reached roughly `97%` grasp while a 128-env actor-mean first-complete evaluation measured
-ready/candidate/grasp/lift-transport/success `85.16/82.03/81.25/78.13/71.09%`. The main loss was before
-the centered ready gate, not in bilateral contact or coupling validation.
+V27 TensorBoard는 허위 물리 성공 신호가 아니었다. 표본으로 뽑은 동작이 실제로 큐브를 움직였다.
+잘못된 것은 승인 기준의 해석이었다. `model_3650.pt`가 학습한 가우시안 동작의 평균 표준편차는
+`.1429`였다. 표본 롤아웃의 파지는 약 `97%`였지만 환경 128개의 정책망 평균 출력 최초 완료 평가에서는
+준비·접촉 후보·파지·들기-운반·성공이 `85.16/82.03/81.25/78.13/71.09%`로 측정됐다. 주된 손실은
+양쪽 접촉이나 결합 검증이 아니라 중앙 정렬 준비 조건에 들어가기 전에 발생했다.
 
-- Cube nominal position is `(0.40,-0.15,0.625)`, 5 cm toward the right arm. Worst randomized cube-face
-  clearance from the basket wall grows from about `9.6mm` to `59.6mm`.
-- The right ready pose is IK-adjusted by the same world `-Y 50mm`; original TCP orientation and
-  TCP-local grasp offset are preserved. Moving the cube without this pose correction is invalid.
-- Best-only approach potential is replaced by current alignment quality `+5/s` and consecutive dwell
-  up to `+1/s`. Together with pregrasp `-7.5/s` and elapsed `-0.5/s`, hovering is still negative.
-- Raw `last_action` is removed because sampled train actions differ from actor-mean play and are also
-  overwritten during close/retry/assist. Joint state, object/TCP geometry, velocity, and FSM state remain.
-- Stage PPO starts with learnable noise std `.05` and entropy `0`; policy observation/action/reward is
-  `75/8/20`. The learned std must still be monitored because `.05` is not frozen.
-- V27 strict 3-step alignment, bilateral stopped-finger contact, actor-owned object/TCP coupling lift,
-  retry, transport, PlaceAssist, release, and physical success conditions remain unchanged.
-- The new observation and geometry contracts are incompatible with every older checkpoint. Train fresh.
-- These changes target mean robustness; no v28 checkpoint exists yet, so deterministic improvement is
-  unproven until the acceptance protocol below passes.
+- 큐브의 명목 위치는 `(0.40,-0.15,0.625)`로 오른팔 쪽에 5 cm 더 가깝다. 무작위 배치에서 바스켓
+  벽과 큐브 면 사이의 최소 여유는 약 `9.6mm`에서 `59.6mm`로 늘어난다.
+- 오른쪽 준비 자세도 같은 월드 `-Y 50mm`만큼 IK로 보정한다. 기존 TCP 방향과 TCP 로컬 파지 간격은
+  보존한다. 이 자세 보정 없이 큐브만 옮기면 안 된다.
+- 최고값에만 지급하던 접근 퍼텐셜을 현재 정렬 품질 `+5/s`와 최대 `+1/s`의 연속 유지 보상으로
+  바꾼다. 파지 전 `-7.5/s`, 경과 시간 `-0.5/s`까지 합치면 제자리에 머무를 때 보상은 여전히
+  음수다.
+- 표본 학습 동작은 정책망 평균 출력 재생과 다르고 닫기·재시도·보조 제어 중에도 덮어쓰이므로 원시
+  `last_action`을 제거한다. 관절 상태, 물체·TCP 기하, 속도, FSM 상태는 유지한다.
+- Stage PPO는 학습 가능한 노이즈 표준편차 `.05`, 엔트로피 `0`으로 시작한다. 정책의 관측·동작·보상
+  수는 `75/8/20`이다. `.05`는 고정값이 아니므로 학습된 표준편차를 계속 살펴야 한다.
+- V27의 엄격한 3스텝 정렬, 정지한 양쪽 손가락 접촉, 정책망이 담당하는 물체·TCP 결합 들기, 재시도,
+  운반, PlaceAssist, 놓기, 물리 성공 조건은 그대로다.
+- 새 관측·기하 계약은 이전의 모든 체크포인트와 호환되지 않는다. 처음부터 학습한다.
+- 이번 변경의 목적은 정책 평균 출력의 강건성을 높이는 데 있다. 아직 v28 체크포인트가 없으므로 아래 승인
+  절차를 통과하기 전까지 결정론적 성능 개선은 확인되지 않은 상태다.
 
-## Current Training Command
+## 현재 학습 명령어
 
-Run this as one line from `/home/mh/.codex_tmp_openarm_remote`:
+`/home/mh/.codex_tmp_openarm_remote`에서 다음 명령을 한 줄로 실행한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_clearance_mean_grasp_v28
 ```
 
-Do not add `--resume`, `--load_run`, `--checkpoint`, or bootstrap arguments.
+`--resume`, `--load_run`, `--checkpoint`, 초기 가중치 이식 인자는 추가하지 않는다.
 
-## V28 Decision And Acceptance Rules
+## V28 판단 및 승인 기준
 
 ```text
 protocol: actor-mean, corruption off, first complete episode per env
@@ -307,19 +320,20 @@ model 500: repeat actor-mean evaluation and GUI; do not infer GUI behavior from 
 early stop: model 100-250 has candidates but zero paired object/TCP lift, or mean alignment moves away
 ```
 
-## Current V31 Policy (Supersedes The V28 Current Sections Above)
+## 현재 V31 정책(V28의 기존 현재 정책 절을 대체함)
 
-User-approved references remain v18 `model_825.pt`, v28 `model_4999.pt`, and v29 `model_2100.pt`.
-V29 is the direct behavior baseline because its strict 3-control grasp, transport slew, assist handoff,
-descent, and release were all observed in the GUI. V18 uses weaker historical grasp validation and must
-not replace the current bilateral contact/coupling contract.
+사용자가 승인한 기준은 v18 `model_825.pt`, v28 `model_4999.pt`, v29 `model_2100.pt`다.
+v29에서는 엄격한 3제어 주기 파지, 운반 변화율 제한, 보조 제어 인계, 하강, 놓기를 모두
+GUI로 확인했으므로 동작을 직접 비교할 때는 v29를 기준으로 삼는다. v18은 과거의 약한
+파지 검증을 사용하므로 현재의 양쪽 접촉·결합 조건을 대신할 수 없다.
 
-V30 changed alignment confirmation from 3 to 4 controls and dwell shaping from 1 to 1.5. Its rolling-50
-best was grasp/success `74.13/49.51%` at iteration 1781, then every task milestone became zero and timeout
-became 100% from iteration 1950. PPO was identical to v29; the narrower 4-control gate and stronger dwell
-combination is the strongest isolated regression cause.
+v30은 정렬 확인을 3제어 주기에서 4제어 주기로 늘리고 체류 보상을 1에서 1.5로 높였다.
+최근 50회 이동 평균의 최고 파지·성공률은 1781번째 반복에서 `74.13/49.51%`였다. 이후 모든
+과업 이정표가 0이 됐고 1950번째 반복부터 시간 초과가 100%에 이르렀다. PPO는 v29와 같았다.
+더 좁아진 4제어 주기 조건과 강해진 체류 보상의 조합이 다른 변수와 떼어 확인할 수 있는 가장
+유력한 회귀 원인이다.
 
-V31 changes:
+v31의 변경 사항은 다음과 같다.
 
 ```text
 alignment confirmation             4 -> 3 controls
@@ -334,33 +348,35 @@ release maximum object speed       .12 -> .06m/s
 controller position deadband       3 -> 2mm
 ```
 
-Vertical gain/damping `.12/.30`, down cap `3mm/control`, joint slew, strict stopped bilateral contact,
-object/TCP `12/10mm` coupled lift, assist handoff, release hold, high target `.730m`, and settle `.650m`
-are unchanged. Release command and actual open height/error/speed are now latched as six metrics. Since
-non-release episodes retain zero, divide command metrics by `task_release_commanded` and actual-open
-metrics by `task_released` when reading conditional means.
+수직 이득·감쇠 `.12/.30`, 하강 상한 `3mm/control`, 관절 변화율 제한, 멈춘 상태에서의
+엄격한 양쪽 접촉, 물체와 TCP의 `12/10mm` 결합 상승, 보조 제어 인계, 놓기 유지, 상단 목표
+`.730m`, 안착 높이 `.650m`는 그대로다. 이제 놓기 명령과 실제로 손가락이 열린 순간의 높이·
+오차·속도를 여섯 개 지표로 고정해 기록한다. 놓지 않은 에피소드는 0을 유지하므로 조건부
+평균을 읽을 때 명령 지표는 `task_release_commanded`, 실제 열림 지표는 `task_released`로
+나눈다.
 
-Run fresh as one line from `/home/mh/.codex_tmp_openarm_remote`:
+`/home/mh/.codex_tmp_openarm_remote`에서 다음 명령을 한 줄로 실행해 처음부터 학습한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless
 ```
 
-The Stage config supplies CUDA and 5000 iterations. Do not add resume/load-run/checkpoint/bootstrap.
-With the halved learning rate, inspect grasp by model 500-1000, lift/transport near model 2500, and
-release/success mainly over model 3500-4500. Every 25 iterations is saved, so a later decline does not
-overwrite an earlier candidate. Final selection still requires actor-mean 4 seeds x 128 env plus GUI
-10 episodes; sampled TensorBoard values alone never establish a good checkpoint.
+Stage 설정에는 CUDA와 5000회 반복이 지정되어 있다. 재개, 실행 불러오기, 체크포인트,
+부트스트랩 옵션을 추가하지 않는다. 학습률을 절반으로 낮췄으므로 모델 500-1000에서 파지,
+모델 2500 부근에서 들어 올리기·운반, 모델 3500-4500에서 놓기·성공을 주로 확인한다.
+25회마다 모델을 저장하므로 후반 성능이 떨어져도 앞선 후보가 덮어써지지 않는다. 최종 선택은
+여전히 4개 시드와 시드당 128개 환경으로 행동자 평균을 평가하고 GUI에서 10개 에피소드를
+확인해야 한다. TensorBoard 표본 지표만으로 좋은 체크포인트를 정하지 않는다.
 
-## Current V32 Policy (Supersedes V31)
+## 현재 V32 정책(V31을 대체함)
 
-V31 run `2026-07-13_01-57-04`, actor-mean GUI `model_2500.pt` grasped, lifted, and transported well,
-but paused above the basket and took too long to descend and align. Rolling-50 showed
-grasp/transport `94.77/94.33%`, center `80.62%`, release authorization `54.78%`, success `52.46%`,
-and timeout `47.05%`. The direct cause was the binary `.750m carry -> .670m release` target switch
-only after XY/height/speed centering dwell.
+v31 실행 `2026-07-13_01-57-04`의 `model_2500.pt`를 행동자 평균으로 GUI에서 확인한 결과,
+파지·들기·운반은 좋았다. 그러나 바스켓 위에서 멈춘 뒤 하강하고 정렬하는 데 시간이 너무
+오래 걸렸다. 최근 50회 이동 평균은 파지·운반 `94.77/94.33%`, 중심 정렬 `80.62%`, 놓기 허가
+`54.78%`, 성공 `52.46%`, 시간 초과 `47.05%`였다. XY·높이·속도 중심 정렬을 일정 시간 확인한
+뒤에야 목표를 `.750m carry -> .670m release`로 한 번에 바꾼 것이 직접 원인이었다.
 
-V32 keeps all strict grasp/release checks and all motion caps. Its deterministic assist target is:
+v32는 엄격한 파지·놓기 검사와 모든 동작 상한을 유지한다. 결정론적 보조 제어 목표는 다음과 같다.
 
 ```text
 XY 120 -> 40mm: Z carry .750m -> min(carry, release + 20mm), cubic smoothstep
@@ -368,308 +384,306 @@ XY  40 ->  2mm: Z preplace    -> exact release, cubic smoothstep
 descent progress: monotonic latch; XY rebound cannot command an upward bounce
 ```
 
-At the low target, the 40mm transition leaves `16.46mm` cube-bottom clearance above the rim. Maximum
-target-Z advance for a capped 2.5mm XY control is `2.812mm`, inside the unchanged 3mm downward cap.
-Maximum Cartesian steps, damping, joint step, DLS, target leads, 2mm/3mm release height guard, and
-`.06m/s` speed guard are unchanged. XY/Z gains increase `.16/.12 -> .20/.16` only to shorten the
-small-error proportional tail. Center and release confirmation decrease `5 -> 3` controls. Center is
-planar-only; exact height and full speed are checked once by release-ready. New metrics are
-`task_descent_progress` and `task_descent_target_height`.
+하단 목표에서 40mm 전환 구간은 큐브 밑면과 바스켓 가장자리 사이에 `16.46mm`의 여유를 남긴다.
+XY 제어를 2.5mm로 제한했을 때 목표 Z의 최대 진행량은 `2.812mm`로, 기존 하강 상한 3mm 안에
+들어온다. 직교 좌표계 최대 이동량, 감쇠, 관절 이동량, DLS, 목표 선행량, 놓기 높이 2mm/3mm
+제한과 속도 제한 `.06m/s`는 바꾸지 않았다. XY/Z 이득은 작은 오차에서 비례 제어가 길게
+이어지는 구간만 줄이려고 `.16/.12 -> .20/.16`으로 높였다. 중심 정렬과 놓기 확인은
+`5 -> 3`제어 주기로 줄였다. 중심 정렬은 평면 위치만 확인하고 정확한 높이와 전체 속도는
+놓기 준비 단계에서 한 번 검사한다. 새 지표는 `task_descent_progress`와
+`task_descent_target_height`다.
 
-Terminal failure/timeout `2x` now applies only after verified grasp and before `assist_engaged`, while
-the learned actor still owns transport. Once deterministic assist owns final alignment, the cost is the
-normal `1x`; this removes the v31 incentive to avoid grasp after controller-side timeouts.
+종료 실패·시간 초과 비용 `2x`는 검증된 파지 이후부터 `assist_engaged` 이전까지, 즉 학습된
+행동자가 운반을 맡는 구간에만 적용한다. 결정론적 보조 제어가 최종 정렬을 맡은 뒤에는 정상
+비용 `1x`를 적용한다. 이로써 제어기 단계에서 시간 초과가 난 뒤 파지를 회피하도록 만들던
+v31의 유인을 없앴다.
 
-Run fresh as exactly one shell line:
+다음 명령을 셸에서 정확히 한 줄로 실행해 처음부터 학습한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --run_name=fresh_coupled_descent_v32
 ```
 
-Do not resume or bootstrap. Check verified grasp at model 500, lift/transport at model 1000, then compare
-center/release authorization/success/timeout every 500 models from 1500. Use actor-mean and GUI for the
-final decision; sampled TensorBoard success is diagnostic only.
+재개하거나 부트스트랩하지 않는다. 모델 500에서 검증된 파지, 모델 1000에서 들어 올리기·
+운반을 확인한다. 모델 1500부터는 500개 모델마다 중심 정렬, 놓기 허가, 성공, 시간 초과를
+비교한다. 최종 판단에는 행동자 평균과 GUI를 사용하며 TensorBoard 표본 성공률은 진단 자료로만
+본다.
 
-## Current V33 Policy (Supersedes V32)
+## 현재 V33 정책(V32를 대체함)
 
-V32 `2026-07-13_12-22-03/model_2875.pt` preserved grasp and transport but used about 248 assist
-controls (`8.27s`) per episode. V33 keeps the `75/8/20` policy contract, 16-second episode, PPO,
-strict grasp/coupling/release/success gates, and all existing speed/joint/lead limits.
+v32 `2026-07-13_12-22-03/model_2875.pt`는 파지와 운반을 유지했지만 에피소드마다 보조 제어를
+약 248제어 주기(`8.27s`) 사용했다. v33은 정책의 `75/8/20` 규격, 16초 에피소드, PPO, 엄격한
+파지·결합·놓기·성공 조건과 기존의 모든 속도·관절·선행량 제한을 유지한다.
 
-V33 changes only the verified bottlenecks:
+v33은 확인된 병목만 다음과 같이 수정한다.
 
-- A physically empty, stopped close is confirmed for 3 controls and retried early; valid near-contact
-  at the original 30-control deadline receives a latched 12-control grace period. Strict contact and
-  coupled object/TCP lift requirements are unchanged.
-- Only automatic closing/reopening pose holds are excluded from actor pregrasp delay and centering
-  shaping. Verification and bounded handoff remain actor-owned and therefore keep their time incentive.
-- Assist carries measured goal-directed object velocity into a 12-control quintic handoff. A
-  jerk-aware stopping envelope brakes to the 2mm deadband without an end-point projection jump.
-- Active requested XY/Z rows are solved first. Inactive translation and orientation are corrected in
-  the active-task nullspace. Joint-limited hard-safe candidates are compared by actual progress; a
-  posture candidate is used only when it preserves at least 95% of the fastest candidate.
-- Target lead uses a fully checked chain: new bounded lead, previous bounded lead, one-step lead, then
-  current-pose hold. Entry seeding and every moving fallback apply lead/soft-limit bounds first and the
-  previous-target `.03rad/control` bound last, then revalidate translation, angular lead and finiteness
-  without rescaling away continuity. A kinematically incompatible 1mm inactive-leak case may still hold
-  for safety and is counted explicitly rather than silently throttling another axis.
-- Train and play now share the physical world release target `.670m`; exact descent begins by XY 5mm,
-  while release XY 4cm, success XY 5cm, height `+2/-3mm`, and speed `.06m/s` remain strict.
+- 물체를 잡지 않은 채 멈춘 닫힘 상태를 3제어 주기 동안 확인하면 일찍 다시 시도한다. 기존
+  30제어 주기 제한에 도달했을 때 접촉에 가까운 유효 상태라면 한번 시작하면 유지되는 12제어
+  주기 유예를 준다.
+  엄격한 접촉 조건과 물체·TCP 결합 상승 조건은 그대로다.
+- 자동으로 손가락을 닫거나 다시 여는 동안 자세를 고정하는 구간만 행동자의 파지 전 지연 비용과
+  중심 정렬 보상에서 제외한다. 검증과 제한된 인계는 여전히 행동자가 맡으므로 시간 유인을 유지한다.
+- 보조 제어에 목표 방향으로 측정된 물체 속도를 넘겨 12제어 주기의 5차 인계를 수행한다.
+  저크를 고려한 정지 한계로 끝점 투영이 튀지 않게 2mm 무감응 구간까지 감속한다.
+- 요청된 활성 XY/Z 행을 먼저 푼다. 비활성 평행 이동과 회전은 활성 과업의 영공간에서 보정한다.
+  관절 제한을 지키는 강제 안전 후보는 실제 진행량으로 비교하며, 자세 후보는 가장 빠른 후보의
+  진행량을 적어도 95% 보존할 때만 사용한다.
+- 목표 선행량은 검증된 순서에 따라 새 제한 선행량, 이전 제한 선행량, 1단계 선행량, 현재 자세
+  유지 순으로 선택한다. 진입 초기값과 움직이는 모든 대체 경로에는 선행량·완화 관절 제한을 먼저
+  적용하고 이전 목표 대비 `.03rad/control` 제한을 마지막에 적용한다. 이후 연속성을 다시 축소하지
+  않고 평행 이동, 각도 선행량, 유한성을 재검증한다. 운동학적으로 양립할 수 없는 1mm 비활성 축
+  누설은 안전을 위해 멈출 수 있다. 이 경우 다른 축을 별도 기록 없이 감속하지 않고 명시적으로
+  집계한다.
+- 학습과 실행은 물리 세계의 놓기 목표 `.670m`를 함께 사용한다. XY 5mm에서 정밀 하강을 시작하며
+  놓기 XY 4cm, 성공 XY 5cm, 높이 `+2/-3mm`, 속도 `.06m/s`의 엄격한 조건은 유지한다.
 
-Run fresh as exactly one shell line from `/home/mh/.codex_tmp_openarm_remote`:
+`/home/mh/.codex_tmp_openarm_remote`에서 다음 명령을 셸의 한 줄로 정확히 실행해 처음부터 학습한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_continuous_assist_v33
 ```
 
-Do not resume/bootstrap. Watch empty-close/grace counters, phase timeout one-hot metrics, assist active
-progress ratio, low-progress controls, incremental safety stops, and each lead fallback level. Static
-tests cannot replace actor-mean and GUI validation against the actual PhysX Jacobian.
+재개하거나 부트스트랩하지 않는다. 빈손 닫힘·유예 횟수, 단계별 시간 초과 원-핫 지표, 보조 제어
+활성 구간의 진행 비율, 저진행 제어 주기, 점진적 안전 정지, 각 선행량 대체 단계 등을 살핀다.
+정적 테스트만으로는 실제 PhysX Jacobian을 사용한 행동자 평균과 GUI 검증을 대신할 수 없다.
 
-### V33 Completed Result
+### V33 완료 결과
 
-The fresh run `2026-07-13_20-04-29_fresh_continuous_assist_v33` completed all 5000 iterations and
-saved `model_4999.pt`. Its final rolling-50 sampled metrics were grasp `97.30%`, validated transport
-`97.24%`, center `82.91%`, release authorization `69.22%`, success `68.98%`, timeout `31.04%`, and
-failure `0.0074%`.
+새 실행 `2026-07-13_20-04-29_fresh_continuous_assist_v33`은 5000회 반복을 모두 마치고
+`model_4999.pt`를 저장했다. 마지막 최근 50회 표본 지표는 파지 `97.30%`, 검증된 운반
+`97.24%`, 중심 정렬 `82.91%`, 놓기 허가 `69.22%`, 성공 `68.98%`, 시간 초과 `31.04%`, 실패
+`0.0074%`였다.
 
-The user reviewed `model_4999.pt` in the GUI and judged the overall result good enough to preserve.
-It is a strong v33 candidate, not a formal acceptance pass: `90.2%` of its remaining timeouts occur
-in assist-to-center or center-to-release, and the GUI exposed intermittent basket-rim interference
-near the final target. Preserve its grasp, transport, strict outcome gates, and continuous handoff as
-the v34 baseline; fix final basket-relative clearance and assist convergence without weakening the
-success definition.
+사용자가 `model_4999.pt`를 GUI로 확인한 뒤 전체 결과를 보존할 만큼 좋다고 판단했다. 다만
+정식 승인 기준을 통과한 것은 아니며 강한 v33 후보로 분류한다. 남은 시간 초과의 `90.2%`가
+보조 제어에서 중심 정렬로 가는 구간이나 중심 정렬에서 놓기로 가는 구간에 발생했고, GUI에서는
+최종 목표 근처에서 바스켓 가장자리와 간헐적으로 간섭하는 현상도 확인됐다. v34에서는 v33의
+파지, 운반, 엄격한 결과 조건, 연속 인계를 기준으로 보존한다. 성공 정의를 완화하지 않은 채
+바스켓 기준 최종 여유와 보조 제어 수렴만 고친다.
 
-## V34 Policy Design
+## V34 정책 설계
 
-Before v34 training, v33 already reached rolling-50 grasp/transport `97.30/97.24%`; changing the grasp rewards, policy
-observations, goal, or success gates would confound the remaining final-assist problem. V34 therefore
-keeps `75 observations / 8 actions / 20 rewards`, PPO, the 16-second episode, the `.670m` release
-target, and every strict grasp/release/success condition.
+v34 학습 전 v33의 최근 50회 파지·운반 평균은 이미 `97.30/97.24%`에 도달했다. 이 상태에서
+파지 보상, 정책 관측, 목표, 성공 조건을 바꾸면 남은 최종 보조 제어 문제의 원인을 분리할 수
+없다. 이에 v34는 `75 observations / 8 actions / 20 rewards`, PPO, 16초 에피소드, 놓기 목표
+`.670m`, 엄격한 모든 파지·놓기·성공 조건을 유지한다.
 
-The verified controller faults and fixes are:
+확인된 제어기 결함과 수정 내용은 다음과 같다.
 
-- V33 constrained current lead and joint limits, then applied previous-target continuity last. The
-  final continuity correction could reopen the `.12rad` lead bound. V34 projects directly into the
-  component-wise intersection of soft joint limits, current `+/- .12rad`, and previous target
-  `+/- .03rad`.
-- The steady target no longer accumulates `previous_target + delta`. It is a current-relative
-  three-control lookahead, `current + 3 * safe_delta`, while output continuity remains `.03rad` per
-  control.
-- Joint-limit scaling is relative to measured current joints instead of a stale target. An empty
-  constraint intersection explicitly holds/rebases to current pose and clears Cartesian velocity and
-  acceleration before the next control.
-- Entry seeding is the final target for the first assist control. The steady lead path starts on the
-  next control, preventing the old possible `.03 + .03rad` same-control jump.
-- Invalid DLS candidates retain their invalid state; a zeroed candidate can no longer be revived as a
-  valid zero-motion lead. Preferred, previous, incremental, and hold fallbacks now share the same
-  repair and validation path.
-- XY and Z stop independently at `5mm` and `2mm`. The release gate remains XY `40mm`, success XY
-  `50mm`, height `+2/-3mm`, and speed `.06m/s`; no success condition was weakened.
+- v33은 현재 선행량과 관절을 제한한 뒤 이전 목표와의 연속성을 마지막에 적용했다. 이 마지막
+  연속성 보정이 선행량 제한 `.12rad`를 다시 벗어나게 할 수 있었다. v34는 완화 관절 제한,
+  현재값 기준 `+/- .12rad`, 이전 목표 기준 `+/- .03rad`의 성분별 교집합에 직접 투영한다.
+- 정상 상태 목표는 더 이상 `previous_target + delta`를 누적하지 않는다. 현재값 기준 3제어 주기
+  앞을 내다보는 `current + 3 * safe_delta`를 사용하며 출력 연속성은 제어 주기당 `.03rad`로 유지한다.
+- 관절 제한 배율은 오래된 목표가 아니라 측정한 현재 관절값을 기준으로 계산한다. 제약 교집합이
+  비면 현재 자세를 명시적으로 유지하거나 기준으로 다시 잡고, 다음 제어 전에 직교 좌표계 속도와
+  가속도를 지운다.
+- 첫 보조 제어에서는 진입 초기값을 최종 목표로 사용한다. 정상 선행 경로는 다음 제어 주기부터
+  시작해 한 제어 주기 안에서 `.03 + .03rad`가 뛸 수 있던 기존 문제를 막는다.
+- 유효하지 않은 DLS 후보는 그 상태를 유지한다. 0으로 만든 후보를 유효한 무동작 선행량으로
+  되살릴 수 없다. 우선 후보, 이전 후보, 점진 후보, 유지 후보는 이제 같은 복구·검증 경로를 쓴다.
+- XY와 Z는 각각 `5mm`, `2mm`에서 독립적으로 멈춘다. 놓기 조건 XY `40mm`, 성공 조건 XY
+  `50mm`, 높이 `+2/-3mm`, 속도 `.06m/s`는 그대로이며 성공 조건은 하나도 완화하지 않았다.
 
-Low-cost training telemetry now separates predicted XY/Z progress from actual next-control object
-tracking, records lead rebases/backlog and current/target joint-limit proximity, and labels the
-pre-clip implicit-actuator value as `effort_demand_ratio`. Direct basket ContactSensor processing is
-not enabled in the 5120-env training task because its FPS and PhysX-buffer cost has not been measured.
-Broad domain randomization is also deferred until this nominal controller passes actor-mean and GUI
-acceptance.
+학습 비용이 적은 진단 지표는 예측 XY/Z 진행량과 다음 제어 주기의 실제 물체 추종을 분리한다.
+선행량 기준 재설정·누적 지연량, 현재·목표 관절의 제한 근접도도 기록하고, 잘라내기 전 암시적
+구동기 값에는 `effort_demand_ratio`라는 이름을 붙였다. 5120개 환경에서 FPS와 PhysX 버퍼
+비용을 측정하지 않았으므로 학습 과업에서 바스켓 ContactSensor를 직접 처리하지 않는다.
+넓은 범위의 도메인 랜덤화도 명목 제어기가 행동자 평균과 GUI 승인을 통과할 때까지 미룬다.
 
-Run fresh as exactly one shell line from `/home/mh/.codex_tmp_openarm_remote`:
+`/home/mh/.codex_tmp_openarm_remote`에서 다음 명령을 셸의 한 줄로 정확히 실행해 처음부터 학습한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_current_relative_assist_v34
 ```
 
-Do not add resume, load-run, checkpoint, or bootstrap arguments. Compare model 500 for grasp, model
-1000 for lift/transport and first center/release events, then models 2000, 3500, and 4500 for success
-and timeout. Stop and redesign if model 1000 has grasp/lift below 80% or zero center/release events.
-Final acceptance still requires actor-mean multi-seed evaluation and ten GUI episodes; sampled
-TensorBoard success alone is not acceptance.
+재개, 실행 불러오기, 체크포인트, 부트스트랩 옵션을 추가하지 않는다. 모델 500에서는 파지,
+모델 1000에서는 들어 올리기·운반과 첫 중심 정렬·놓기 사건을 비교한다. 이어 모델 2000,
+3500, 4500에서 성공과 시간 초과를 확인한다. 모델 1000의 파지·들기가 80%보다 낮거나
+중심 정렬·놓기 사건이 0이면 중단하고 다시 설계한다. 최종 승인은 여전히 여러 시드의 행동자
+평균 평가와 GUI 에피소드 10회를 거쳐야 한다. TensorBoard 표본 성공률만으로 승인하지 않는다.
 
-### V34 Completed Result
+### V34 완료 결과
 
-The fresh v34 run completed all 5000 iterations. `model_4575.pt` is the selected checkpoint: its
-rolling-50 success window peaks next to iteration 4576 at `64.97%`, and the user judged its
-actor-mean GUI pick-and-place behavior very good. The final `model_4999.pt` is not preferred because
-grasp fell from `97.10%` to `92.09%` and success fell from `64.97%` to `63.02%` after the selected
-window.
+새 v34 실행은 5000회 반복을 모두 마쳤다. 선택한 체크포인트는 `model_4575.pt`다. 4576번째
+반복 부근의 최근 50회 성공률이 `64.97%`로 가장 높았고, 사용자는 행동자 평균을 적용한 GUI의
+집기·놓기 동작이 매우 좋다고 판단했다. 선택 구간 이후 파지율이 `97.10%`에서 `92.09%`로,
+성공률이 `64.97%`에서 `63.02%`로 떨어졌으므로 마지막 `model_4999.pt`는 우선 후보가 아니다.
 
-At `model_4575`, grasp/transport/center/release/success are
-`97.10/96.73/91.32/65.26/64.97%`. The controller improved assist-to-center, but center-to-release
-accounts for `26.05%` of all episodes and `74.34%` of timeouts. Of about 237 assist controls per
-episode, `79.25%` reject the incremental candidate and `56.44%` end in a no-motion lead hold. The
-controls that do pass have good progress, while lead-constraint rebases and final unsafe commands are
-zero. This identifies all-or-nothing candidate rejection, not insufficient gain, reward, or training
-time, as the remaining nominal bottleneck.
+`model_4575`의 파지·운반·중심 정렬·놓기·성공률은
+`97.10/96.73/91.32/65.26/64.97%`다. 제어기는 보조 제어에서 중심 정렬로 가는 구간을
+개선했지만, 중심 정렬에서 놓기로 가는 시간 초과가 전체 에피소드의 `26.05%`, 전체 시간
+초과의 `74.34%`를 차지한다. 에피소드마다 약 237번 수행되는 보조 제어 중 `79.25%`가 점진
+후보를 거부했고 `56.44%`가 움직임 없는 선행량 유지로 끝났다. 통과한 제어는 진행이 좋았고,
+선행량 제약의 기준 재설정과 최종 비안전 명령은 0이었다. 현재 명목 조건에서 남은 병목은
+부족한 이득·보상·학습 시간이 아니라 후보를 전부 받아들이거나 전부 거부하는 구조다.
 
-## V35 Policy and Completed Result
+## V35 정책과 완료 결과
 
-V35 keeps v34's observations, actions, 20 rewards, PPO, `.670m` goal, 16-second episode, grasp
-contract, release XY `40mm`, success XY `50mm`, height `+2/-3mm`, release speed `.06m/s`, and
-current-relative three-control lead. It makes only the verified final-controller correction:
+v35는 v34의 관측, 행동, 보상 20개, PPO, 목표 `.670m`, 16초 에피소드, 파지 조건, 놓기 XY
+`40mm`, 성공 XY `50mm`, 높이 `+2/-3mm`, 놓기 속도 `.06m/s`, 현재값 기준 3제어 주기
+선행량을 유지한다. 확인된 최종 제어기 문제만 다음과 같이 고친다.
 
-- A directionally valid DLS delta that exceeds a Cartesian cap is uniformly shrunk. The exact scale
-  preserves joint-space direction and convex joint-limit feasibility while enforcing forward
-  progress, non-increasing target error, requested-axis caps, and the `1mm` inactive-axis leak bound.
-- Every repaired result is passed through the existing full Cartesian safety check. A regressive,
-  non-finite, or zero candidate is never revived.
-- If coupled motion still cannot pass, a reduced XY or Z DLS solve is attempted. XY is preferred
-  before center confirmation and Z after it; the other axis is tried only when the preferred safe
-  solve is unavailable. Both are joint-limited, uniformly repaired, and fully revalidated.
-- V34's horizontal `5mm` and vertical `2mm` deadbands remain unchanged. The fallback fixes the
-  inactive-axis conflict directly without imposing a tighter final XY target or changing descent,
-  release, or success thresholds.
-- TensorBoard now separates scaled repairs, XY/Z fallbacks, XY/Z raw rejects, and final full holds.
+- 방향이 유효한 DLS 변화량이 직교 좌표계 상한을 넘으면 균일하게 줄인다. 정확한 배율로 관절
+  공간의 방향과 볼록한 관절 제한의 실현 가능성을 보존하면서 전진, 증가하지 않는 목표 오차,
+  요청 축 상한, `1mm` 비활성 축 누설 제한을 강제한다.
+- 복구한 모든 결과는 기존의 전체 직교 좌표계 안전 검사를 통과해야 한다. 후퇴하거나 유한하지
+  않거나 0인 후보는 되살리지 않는다.
+- 결합 동작이 여전히 통과하지 못하면 축소한 XY 또는 Z DLS 풀이를 시도한다. 중심 정렬 확인
+  전에는 XY, 확인 뒤에는 Z를 우선한다. 우선 축의 안전한 풀이가 없을 때만 다른 축을 시도한다.
+  두 풀이 모두 관절 제한을 지키고 균일하게 복구한 뒤 전체 검증을 다시 거친다.
+- v34의 수평 `5mm`, 수직 `2mm` 무감응 구간은 그대로다. 대체 경로는 최종 XY 목표를 더
+  엄격하게 하거나 하강·놓기·성공 임계값을 바꾸지 않고 비활성 축 충돌을 직접 해결한다.
+- TensorBoard는 이제 배율 복구, XY/Z 대체 경로, XY/Z 원시 후보 거부, 최종 전체 유지를 나눠
+  기록한다.
 
-Before training, static validation was `35 passed`; Python compilation, `git diff --check`, and a
-100,000-row randomized Cartesian-bound check also passed. Those checks established the safety
-contract but did not claim runtime performance.
+학습 전 정적 검증은 `35 passed`였으며 Python 컴파일, `git diff --check`, 100,000행 무작위
+직교 좌표계 경계 검사도 통과했다. 이 검사는 안전 조건을 확인했을 뿐 실행 성능을 보장하지 않는다.
 
-Run from `/home/mh/.codex_tmp_openarm_remote` as one shell line:
+`/home/mh/.codex_tmp_openarm_remote`에서 다음 명령을 셸의 한 줄로 실행한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --device=cuda --max_iterations=5000 --headless --run_name=fresh_safe_axis_fallback_v35
 ```
 
-Do not resume or bootstrap. At rolling-50, require grasp `>=96.5%`, transport `>=96.2%`, center
-`>=91%`, release authorization and success `>=67.5/67%`, total timeout `<=33%`, center-to-release
-timeout `<=22%`, incremental full stops `<=50%`, and no-motion lead holds `<=30%`. Do not add domain
-randomization until the deterministic center-to-release bottleneck passes this gate and GUI review.
+재개하거나 부트스트랩하지 않는다. 최근 50회 이동 평균에서 파지 `>=96.5%`, 운반 `>=96.2%`,
+중심 정렬 `>=91%`, 놓기 허가·성공 `>=67.5/67%`, 전체 시간 초과 `<=33%`, 중심 정렬에서
+놓기까지의 시간 초과 `<=22%`, 점진 후보의 전체 정지 `<=50%`, 무동작 선행량 유지 `<=30%`를
+요구한다. 결정론적인 중심 정렬·놓기 병목이 이 기준과 GUI 검토를 통과할 때까지 도메인 랜덤화를
+추가하지 않는다.
 
-The fresh v35 run `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35` completed all 5000 iterations.
-The selected GUI checkpoint is `model_3275.pt`: sampled rolling-50 grasp/success are
-`93.33/61.47%`. The user judged its overall actor-mean GUI behavior good, while observing an
-occasional grasp miss and a slight near-rim touch during the early carry. The checkpoint is archived
-under `artifacts/checkpoints/openarm_pick_place/v35/` with SHA-256
-`9063292df616bbd74ade6a42728c9774c6d1d5485c2eb4e42a8a9e40cbd29260`.
+새 v35 실행 `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35`는 5000회 반복을 모두 마쳤다.
+GUI용으로 선택한 체크포인트는 `model_3275.pt`이며 최근 50회 표본 파지·성공률은
+`93.33/61.47%`다. 사용자는 행동자 평균을 적용한 GUI의 전체 동작이 좋다고 평가했지만, 간헐적
+파지 실패와 운반 초반 바스켓 가장자리와의 가벼운 접촉도 확인했다. 체크포인트는 SHA-256
+`9063292df616bbd74ade6a42728c9774c6d1d5485c2eb4e42a8a9e40cbd29260`과 함께
+`artifacts/checkpoints/openarm_pick_place/v35/`에 보관했다.
 
-V35 did solve the controller bottleneck: incremental full stops fell from v34's `79.25%` to about
-`0.80%`, no-motion lead holds fell from `56.44%` to about `1.46%`, and center-to-release timeout fell
-from `26.05%` to `18.58%`. It did not pass the full nominal policy gate because shared-PPO drift
-reduced grasp and sampled success. At `model_3275`, `6.418pp` of the `6.667pp` grasp shortfall is
-approach timeout; close/verification contributes only `0.054pp`. The deterministic closing and
-coupling gates therefore must not be relaxed.
+v35는 제어기 병목을 해결했다. 점진 후보의 전체 정지는 v34의 `79.25%`에서 약 `0.80%`로,
+무동작 선행량 유지는 `56.44%`에서 약 `1.46%`로, 중심 정렬에서 놓기까지의 시간 초과는
+`26.05%`에서 `18.58%`로 줄었다. 다만 PPO를 함께 갱신하는 동안 정책이 변하면서 파지와 표본
+성공률이 낮아져 전체 명목 정책 기준을 통과하지 못했다. `model_3275`에서 파지율 부족분
+`6.667pp` 중 `6.418pp`는 접근 시간 초과이며 닫기·검증의 기여는 `0.054pp`뿐이다. 결정론적
+닫기와 결합 조건을 완화하면 안 된다.
 
-Post-run review found one correctness defect in the v35 repair path. A candidate could satisfy the
-non-regression test with zero progress on a requested axis, or be revived by motion on an inactive
-axis. This explains some residual low-progress acceptance, but it does not invalidate v35's final
-Cartesian safety gate. V36 requires at least `25%` progress on every axis owned by a coupled
-candidate and only on the selected axis for a phase fallback. Previous-target and current-pose holds
-remain allowed as explicit stabilization paths.
+실행 후 검토에서 v35 복구 경로의 정확성 결함 하나를 찾았다. 요청 축의 진행량이 0인 후보도
+비회귀 검사를 통과하거나 비활성 축의 움직임으로 되살아날 수 있었다. 이 결함은 남은 저진행
+후보 일부가 승인된 이유를 설명하지만 v35의 최종 직교 좌표계 안전 조건을 무효로 만들지는 않는다.
+v36은 결합 후보가 맡은 모든 축에서 적어도 `25%`, 단계별 대체 경로는 선택한 축에서만 같은
+진행률을 요구한다. 이전 목표 유지와 현재 자세 유지는 명시적인 안정화 경로로 계속 허용한다.
 
-## V36 Design And Failed Result
+## V36 설계와 실패 결과
 
-V36 was intended as the final nominal candidate before domain randomization. It preserved the `75` policy
-observations, `8` actions, `.73/.75/.79m` carry band, `.670m` release target, assist radii, PPO,
-16-second episode, and every strict physical grasp/release/success gate. It changes the reward count
-from `20` to `21` for one explicit low-clearance path cost.
+v36은 도메인 랜덤화 전 마지막 명목 후보로 설계했다. 정책 관측 `75`개, 행동 `8`개,
+운반 높이 범위 `.73/.75/.79m`, 놓기 목표 `.670m`, 보조 제어 반경, PPO, 16초 에피소드,
+엄격한 모든 물리 파지·놓기·성공 조건을 유지했다. 명시적인 저고도 경로 비용 하나를 더해
+보상 수만 `20`개에서 `21`개로 바꿨다.
 
-- The basket rim is about world Z `.6497m`; the verified `.73m` lift gate already provides enough
-  height. Geometry and policy/reward ordering indicate the most likely cause of the observed touch:
-  the actor saw basket XY and carry Z simultaneously while the `-15/s` pre-assist delay favored a
-  diagonal shortcut. V36 training and GUI review must verify this inference.
-- The implementation activated lift-first at `grasp_lift_authorized`, before the grasp was verified.
-  Basket-directed XY then unlocked continuously from
-  object Z `.710m` to `.730m` with a quintic blend. Below `.710m` the goal XY follows the cube, at
-  `.720m` it is halfway to the basket goal, and by `.730m` it is the unchanged final XY. Carry Z
-  remains `.750m`; if the cube sags below `.730m` before assist, XY immediately relocks by height.
-- Basket-directed progress below full clearance receives a stateful `-200/m` cost weighted by the
-  remaining locked fraction. A 5cm low shortcut costs at most `-10`; stationary motion, retreat,
-  first-active discontinuity, assist descent, and release receive zero cost. The inward half of a
-  back-and-forth jitter cycle is intentionally charged.
-- Grasp approach shaping reuses the established broad alignment quality, which already includes a
-  smooth relative-speed term, and applies only a bounded `0.75 -> 1.0` gripper-opening multiplier.
-  Quality/dwell scales change `5+1 -> 4+2`, keeping the maximum `6/s` shaping without creating a
-  zero-gradient speed plateau. Physical closing, contact, coupling, and retry gates are unchanged.
-- Coupled assist candidates require at least the configured `25%` progress ratio on both XY and Z
-  when both are requested. XY-only and Z-only fallbacks require the same floor only on their owned
-  axis while retaining full cross-axis leak, joint-limit, angular-lead, and continuity checks. Zero,
-  low-progress, and inactive-leak-only revival is blocked at raw, scaled, entry, preferred-lead, and
-  incremental-lead stages; explicit previous-target/current-pose stabilization remains available.
-- `task_low_clearance_basket_approach_steps` records pre-assist controls inside `.17m` of the goal while
-  object Z is below the full `.730m` clearance. ContactSensor remains disabled because its
-  5120-environment PhysX and filtered finger-contact cost is unmeasured and its post-contact signal
-  was not selected; reconsider direct contact sensing if v36 GUI review still shows contact.
+- 바스켓 가장자리의 세계 좌표 Z는 약 `.6497m`이며, 검증된 들어 올리기 조건 `.73m`만으로도
+  높이는 충분하다. 장면 형상과 정책·보상 적용 순서를 보면 관찰된 접촉의 가장 유력한 원인은
+  행동자가 바스켓 XY와 운반 Z를 동시에 보고, 보조 제어 전 지연 비용 `-15/s` 때문에 대각선
+  지름길을 택했을 가능성이 가장 크다. 이 추론은 v36 학습과 GUI 검토로 확인해야 한다.
+- 구현은 파지 검증 전 상태인 `grasp_lift_authorized`에서 들어 올리기 우선 단계를 활성화했다.
+  이후 바스켓 방향 XY는 물체 Z `.710m`부터 `.730m`까지 5차 보간으로 연속해서 열렸다.
+  `.710m` 아래에서는 목표 XY가 큐브를 따라가고, `.720m`에서는 바스켓 목표까지 절반을 이동하며,
+  `.730m`에서는 기존 최종 XY에 도달한다. 운반 Z는 `.750m`로 유지한다. 보조 제어 진입 전 큐브가
+  `.730m` 아래로 처지면 높이에 따라 XY를 즉시 다시 잠근다.
+- 충분한 높이에 도달하기 전에 바스켓 방향으로 진행하면 남은 잠금 비율을 반영한 상태 기반
+  비용 `-200/m`를 부과한다. 5cm 저고도 지름길의 최대 비용은 `-10`이다. 정지, 후퇴, 첫 활성
+  시점의 불연속, 보조 제어 하강, 놓기에는 비용을 주지 않는다. 앞뒤로 떨리는 주기에서는 안쪽으로
+  움직인 절반에 의도적으로 비용을 부과한다.
+- 파지 접근 보상은 이미 부드러운 상대 속도 항을 포함하는 기존의 넓은 정렬 품질을 다시 사용하고,
+  그리퍼 열림에 제한된 `0.75 -> 1.0` 배율만 적용한다. 품질·체류 배율은 `5+1 -> 4+2`로
+  바꿔 최대 보상 `6/s`를 유지하면서 기울기가 0인 속도 정체 구간을 만들지 않는다. 물리적인
+  닫기, 접촉, 결합, 재시도 조건은 그대로다.
+- 결합 보조 제어 후보는 XY와 Z가 모두 요청됐을 때 두 축에서 설정값 `25%` 이상의 진행률을
+  내야 한다. XY 전용과 Z 전용 대체 경로는 자신이 맡은 축에서만 같은 최저 진행률을 요구하며,
+  축간 전체 누설, 관절 제한, 각도 선행량, 연속성 검사는 유지한다. 원시 후보, 배율 조정, 진입,
+  우선 선행량, 점진 선행량 단계에서 0·저진행·비활성 축 누설만으로 후보를 되살리지 못한다.
+  이전 목표와 현재 자세를 유지하는 명시적 안정화 경로는 계속 허용한다.
+- 물체 Z가 충분한 여유 높이 `.730m`보다 낮은 상태에서 목표 `.17m` 안으로 들어온 보조 제어 전
+  제어 주기는 `task_low_clearance_basket_approach_steps`에 기록한다. 5120개 환경에서 PhysX와
+  필터링한 손가락 접촉의 처리 비용을 측정하지 않았고 접촉 후 신호를 선택하지도 않았으므로
+  ContactSensor는 비활성 상태로 둔다. v36 GUI에서도 접촉이 보이면 직접 접촉 감지를 다시 검토한다.
 
-Static validation was `46 passed`; Python compilation, `git diff --check`, archive JSON/hash checks,
-and an ad-hoc 100,000-row requested-axis progress audit pass. No Isaac simulation or training was
-launched for v36 during the edit.
+정적 검증은 `46 passed`였으며 Python 컴파일, `git diff --check`, 보관 JSON·해시 검사,
+임시로 만든 100,000행 요청 축 진행률 감사도 통과했다. v36을 수정하는 동안 Isaac 시뮬레이션이나
+학습은 실행하지 않았다.
 
-The historical launch command was:
+당시 실행 명령은 다음과 같다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_lift_first_grasp_progress_v36
 ```
 
-Do not resume or bootstrap. At rolling-50, require grasp `>=96.5%`, first-attempt grasp `>=78%`,
-ready/candidate `>=98/97.5%`, approach timeout `<=3%`, empty-close abort `0`, transport `>=96.2%`,
-center `>=91%`, success `>=67%`, total timeout `<=33%`, center-to-release timeout `<=22%`,
-low-clearance occupancy `<=0.1 controls/episode`, incremental full stops `<=5%`, and lead holds
-`<=10%`. Review models 500, 1000, 2000, 3500, and the best late checkpoint. Domain randomization
-stays off until those sampled gates pass and formal actor-mean evaluation reaches success `>=80%`,
-lift/transport `>=90%`, timeout `<=15%` across multiple seeds, plus 20 GUI episodes with zero
-near-rim contact.
+재개하거나 부트스트랩하지 않는다. 최근 50회 이동 평균에서 파지 `>=96.5%`, 첫 시도 파지
+`>=78%`, 준비·후보 `>=98/97.5%`, 접근 시간 초과 `<=3%`, 빈손 닫힘 중단 `0`, 운반
+`>=96.2%`, 중심 정렬 `>=91%`, 성공 `>=67%`, 전체 시간 초과 `<=33%`, 중심 정렬에서 놓기까지의
+시간 초과 `<=22%`, 저고도 점유 `<=0.1 controls/episode`, 점진 후보의 전체 정지 `<=5%`,
+선행량 유지 `<=10%`를 요구한다. 모델 500, 1000, 2000, 3500과 후기 최고 체크포인트를
+검토한다. 표본 기준을 통과하고 여러 시드의 정식 행동자 평균 평가에서 성공 `>=80%`, 들어 올리기·
+운반 `>=90%`, 시간 초과 `<=15%`를 달성한 뒤 GUI 에피소드 20회에서 바스켓 가장자리 접촉이
+한 번도 없어야 도메인 랜덤화를 켠다.
 
-The fresh run `2026-07-15_11-49-38_fresh_lift_first_grasp_progress_v36` was stopped at iteration
-`3194`; its latest saved checkpoint is `model_3175.pt`. Verified grasp, lift, transport, release, and
-success remained exactly zero, while timeout remained effectively `100%`. No v36 checkpoint should
-be resumed.
+새 실행 `2026-07-15_11-49-38_fresh_lift_first_grasp_progress_v36`은 `3194`번째 반복에서
+중단됐다. 마지막 저장 체크포인트는 `model_3175.pt`다. 검증된 파지, 들어 올리기, 운반, 놓기,
+성공은 모두 정확히 0이었고 시간 초과는 사실상 `100%`였다. v36 체크포인트는 재개하면 안 된다.
 
-Two isolated regressions caused the failure:
+서로 분리된 두 회귀가 실패를 일으켰다.
 
-- The broad pregrasp quality paid substantial reward outside the physical ready gate. V36 ready and
-  candidate initially reached the same basin as v35, then declined while the broad shaping reward
-  increased. V35 used the actual gate-normalized geometry and reached about `92%` grasp by model 500.
-- Lift-first observation and the low-clearance path cost started at `grasp_lift_authorized`. That is
-  only the contact candidate: the actor must still lift the cube/TCP `12/10mm` for five controls to
-  set `grasp_acquired`. V36 changed the observation and objective during this verification motion;
-  candidate object/TCP lift stayed near zero and verification timed out. PPO, seed, physics, episode
-  length, and all physical grasp thresholds matched v35, excluding them as causes.
+- 넓은 파지 전 품질 보상이 물리 준비 조건 밖에서도 큰 보상을 지급했다. v36의 준비·후보는
+  처음에 v35와 같은 영역에 도달했지만 넓은 보상이 늘어나는 동안 오히려 감소했다. 실제 조건으로
+  정규화한 형상을 사용한 v35는 모델 500에서 파지율 약 `92%`에 도달했다.
+- 들어 올리기 우선 관측과 저고도 경로 비용은 `grasp_lift_authorized`에서 시작했다. 이 상태는
+  접촉 후보일 뿐이다. `grasp_acquired`를 설정하려면 행동자가 큐브와 TCP를 `12/10mm`씩
+  5제어 주기 동안 더 들어 올려야 한다. v36은 이 검증 동작 중에 관측과 목적함수를 바꿨다.
+  그 결과 후보 물체·TCP 상승은 거의 0에 머물렀고 검증은 시간 초과로 끝났다. PPO, 시드, 물리,
+  에피소드 길이, 모든 물리 파지 임계값은 v35와 같았으므로 원인에서 제외한다.
 
 ## V37 실패 결과
 
-v37은 v35의 파지 전 보상을 복원해 파지를 회복했지만 파지 후 lift-first 관측은 유지했다.
-실행 `2026-07-15_16-54-04_fresh_verified_grasp_lift_first_v37`은 iteration `1036`에서
-종료됐고 마지막 체크포인트는 `model_1025.pt`다. iteration `900-999`에서 검증 파지는 약
-`96.1%`였지만 lift와 transport는 모두 `0%`, actor transport timeout은 약 `96.1%`였다.
-같은 구간의 v35는 파지 약 `93.3%`, lift 약 `92.4%`, transport 약 `92.4%`였다.
+v37은 v35의 파지 전 보상을 복원해 파지를 회복했지만 파지 뒤의 들어 올리기 우선 관측은
+유지했다. 실행 `2026-07-15_16-54-04_fresh_verified_grasp_lift_first_v37`은 `1036`번째
+반복에서 끝났고 마지막 체크포인트는 `model_1025.pt`다. `900-999`번째 반복에서 검증 파지는
+약 `96.1%`였지만 들어 올리기와 운반은 모두 `0%`, 행동자 운반 시간 초과는 약 `96.1%`였다.
+같은 구간의 v35는 파지 약 `93.3%`, 들어 올리기 약 `92.4%`, 운반 약 `92.4%`였다.
 
-남은 회귀는 검증된 파지 이후 실제 바스켓 XY 대신 큐브의 현재 XY를 `.710 -> .730m`
-clearance 전까지 관측시킨 것이다. 이 변경이 v35의 대각선 상승·운반 탐색 경로를 제거했고,
-전 구간에 적용된 저고도 안쪽 진행 비용이 같은 행동을 강화했다. v37 체크포인트는 재개하면
-안 된다.
+남은 회귀는 검증된 파지 이후 충분한 여유 높이 `.710 -> .730m`에 도달할 때까지 실제 바스켓
+XY 대신 큐브의 현재 XY를 관측시킨 것이다. 이 변경으로 v35의 대각선 상승·운반 탐색 경로가
+사라졌고, 전 구간에 적용한 저고도 안쪽 진행 비용이 같은 회귀를 더 강화했다. v37
+체크포인트는 재개하면 안 된다.
 
 ## 현재 V38 복구 정책
 
-v38은 v35 운반 관측을 복원하고 바스켓 가장자리 회피 비용만 국소화한 최소 수정이다.
+v38은 v35의 운반 관측을 복원하고 바스켓 가장자리 회피 비용만 국소화한 최소 수정이다.
 
-- actor의 두 운반 관측은 모든 단계에서 v35와 소스 수준으로 동일하다. actor는 항상 샘플된
-  바스켓 XY와 운반 Z `.750m`를 본다. lift-first waypoint, XY unlock, sag relock은 없다.
-- v35의 실제 ready gate 정규화 파지 전 보상과 `quality/dwell=5/1`을 그대로 유지한다.
-  정렬·접촉·결합 상승·확인·재시도·release·success 물리 기준은 변경하지 않았다.
-- 저고도 안쪽 진행 비용은 검증된 파지를 actor가 제어하는 동안 바스켓 목표 `.17m` 안에서
-  이동한 거리만 계산한다. `.710m` 이하에서는 전량 적용하고 `.730m`까지 quintic으로 0이
-  된다. 후퇴·정지·충분한 높이·자동 assist·release·failure에는 적용하지 않는다. `.17m`
-  바깥에서 진입할 때도 경계 안에서 이동한 거리만 계산하므로 보상 불연속이 없다. 가중치는
-  `-200/m`, control당 진행량 상한은 `30mm`다.
-- v36의 요청 축별 `25%` assist 진행 검증과 v35의 Cartesian·관절 제한·연속성·fallback·안전
-  조건은 모두 유지한다.
-- `.17m`와 `-200/m`는 장면 형상과 GUI에서 관찰한 가장자리 접촉을 바탕으로 한 보수적
-  후보이며 접촉 센서로 최적화한 값은 아니다. 5120개 환경에서 측정되지 않은 PhysX 비용을
-  피하려고 ContactSensor는 비활성 상태로 유지하며, v38 지표와 GUI로 최종 여유를 검증한다.
+- 행동자의 두 운반 관측은 모든 단계에서 v35와 소스 수준으로 같다. 행동자는 학습 때 표본으로
+  정한 바스켓 XY와 운반 Z `.750m`를 항상 본다. 들어 올리기 우선 경유점, XY 잠금 해제, 처짐에
+  따른 재잠금은 없다.
+- v35에서 실제 준비 조건으로 정규화한 파지 전 보상과 `quality/dwell=5/1`을 그대로 유지한다.
+  정렬·접촉·결합 상승·확인·재시도·놓기·성공의 물리 기준은 바꾸지 않았다.
+- 저고도 안쪽 진행 비용은 검증된 파지를 행동자가 제어하는 동안 바스켓 목표 `.17m` 안에서
+  움직인 거리만 계산한다. `.710m` 이하에서는 전량 적용하고 `.730m`까지 5차 보간으로 줄여 0이
+  되게 한다. 후퇴, 정지, 충분한 높이, 자동 보조 제어, 놓기, 실패에는 적용하지 않는다.
+  `.17m` 바깥에서 진입할 때도 경계 안에서 움직인 거리만 계산하므로 보상이 불연속적으로 바뀌지
+  않는다. 가중치는 `-200/m`, 제어 주기당 진행량 상한은 `30mm`다.
+- v36의 요청 축별 `25%` 보조 제어 진행 검증과 v35의 직교 좌표계·관절 제한·연속성·대체 경로·
+  안전 조건을 모두 유지한다.
+- `.17m`와 `-200/m`는 장면 형상과 GUI에서 관찰한 가장자리 접촉을 근거로 정한 보수적 후보다.
+  접촉 센서로 최적화한 값은 아니다. 5120개 환경에서 측정하지 않은 PhysX 비용을 피하려고
+  ContactSensor는 비활성 상태로 유지하며, v38 지표와 GUI로 최종 여유를 검증한다.
 
-정적 검증은 `45 passed`이며 Python 컴파일과 `git diff --check`를 통과했다. v38 수정 중
-Isaac 시뮬레이션과 학습은 실행하지 않았다. resume이나 bootstrap 없이 새로 학습하고,
-v35·v37과 직접 비교할 수 있도록 5120개 환경 rollout 구조를 유지한다.
+정적 검증은 `45 passed`이며 Python 컴파일과 `git diff --check`를 통과했다. v38 수정 중에는
+Isaac 시뮬레이션과 학습을 실행하지 않았다. 재개하거나 부트스트랩하지 않고 처음부터 학습하며,
+v35·v37과 직접 비교할 수 있도록 5120개 환경의 궤적 수집 구조를 유지한다.
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_restored_transport_local_clearance_v38
 ```
 
-첫 검증 파지는 iteration `300` 이전, 첫 lift와 transport는 `850` 이전에 나타나야 하며
-`1000`에서도 0이면 중단한다. model 1000 rolling-50에서 grasp·lift·transport가 각각
-`85%` 이상이고 actor transport timeout이 `10%` 이하여야 밤새 학습을 계속한다. 후기
-후보는 grasp `>=90%`, grasp 대비 transport 손실 `<=1pp`, 저고도 접근 점유
-`<=0.1 control/episode`, GUI 20회에서 가장자리 접촉 0회를 충족해야 한다. 명목 정책의
-다중 seed 평가를 통과한 뒤에만 6400/7040 처리량 탐색이나 도메인 랜덤화로 rollout 분포를
-변경한다.
+첫 검증 파지는 `300`번째 반복 이전, 첫 들어 올리기와 운반은 `850`번째 반복 이전에 나타나야
+한다. `1000`번째 반복에서도 0이면 중단한다. 모델 1000의 최근 50회 이동 평균에서 파지·
+들어 올리기·운반이 각각 `85%` 이상이고 행동자 운반 시간 초과가 `10%` 이하여야 밤새 학습을
+계속한다. 후기 후보는 파지 `>=90%`, 파지 대비 운반 손실 `<=1pp`, 저고도 접근 점유
+`<=0.1 control/episode`, GUI 20회에서 가장자리 접촉 0회를 충족해야 한다. 명목 정책이 여러
+시드의 평가를 통과한 뒤에만 6400/7040 처리량 탐색이나 도메인 랜덤화로 궤적 분포를 바꾼다.

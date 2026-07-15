@@ -1,22 +1,22 @@
 # OpenArm 검증 체크포인트 등록부
 
 이 문서는 TensorBoard 수치가 아니라 사용자가 GUI에서 직접 확인해 좋은 기준으로 지정한 정책만
-기록한다. 현재 확정된 good baseline은 **6개**다. 새 버전은 학습 중이거나 sampled 지표만 좋으면
-포함하지 않으며, 정확한 run과 checkpoint를 GUI로 확인한 뒤 추가한다.
+기록한다. 현재 확정된 우수 기준은 **6개**다. 새 버전은 학습 중이거나 표본 지표만 좋으면 포함하지
+않으며, 정확한 실행과 체크포인트를 GUI로 확인한 뒤 추가한다.
 
 ## 확정 목록
 
 | 버전 | 상태 | 원본 체크포인트 | 소스 기준 | 확인된 장점 | 남은 보완점 |
 | --- | --- | --- | --- | --- | --- |
-| v18 | `USER_APPROVED_REFERENCE` | `2026-07-10_16-30-21_hybrid_place_v18/model_825.pt` | standalone commit 없음; 변경은 `4455992`에 누적 반영 | 사용자가 다시 지정한 강한 파지·들기·초기 운반 기준 | 완전한 최종 place 검증 기록은 없음 |
-| v28 | `USER_APPROVED` | `2026-07-12_03-16-50/model_4999.pt` | `b4bedea` | 실제 grasp, lift, transport, place 성공 | 파지 확률, 운반 가속, 최종 높이의 자연스러움 보완 필요 |
-| v29 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-12_15-37-08/model_2100.pt` | `afe12f3` | 운반, 감속, 하강, release가 정상인 최적화 기준 | 파지 확률을 더 높이고 최종 목표를 조금 낮출 필요 |
-| v33 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt` | `7155085` | 파지·들기·운반이 강하고 전체 pick-and-place 동작이 보존할 가치가 있음 | final assist가 길고 바스켓 림 간섭 및 timeout이 남음 |
-| v34 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt` | `9f6ee38` | 사용자가 GUI에서 전체 pick-and-place 결과를 굉장히 잘된 것으로 확인함 | final assist의 safety hold를 더 줄일 여지가 있음 |
-| v35 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt` | `3045a86` | 사용자가 GUI에서 전체 동작에 큰 문제가 없고 전반적으로 좋은 결과라고 확인함 | 간헐적 파지 실패와 초기 저고도 운반 중 near-rim 접촉을 v36에서 보완 |
+| v18 | `USER_APPROVED_REFERENCE` | `2026-07-10_16-30-21_hybrid_place_v18/model_825.pt` | 독립 커밋 없음; 변경은 `cef14e8`에 누적 반영 | 사용자가 다시 지정한 강한 파지·들기·초기 운반 기준 | 완전한 최종 배치 검증 기록은 없음 |
+| v28 | `USER_APPROVED` | `2026-07-12_03-16-50/model_4999.pt` | `40289e9` | 실제 파지·들기·운반·배치 성공 | 파지 확률, 운반 가속, 최종 높이의 자연스러움 보완 필요 |
+| v29 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-12_15-37-08/model_2100.pt` | `433b706` | 운반·감속·하강·놓기가 정상인 최적화 기준 | 파지 확률을 더 높이고 최종 목표를 조금 낮출 필요 |
+| v33 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt` | `53e5b92` | 파지·들기·운반이 강하고 전체 집기·놓기 동작을 보존할 가치가 있음 | 최종 보조 제어가 길고 바스켓 테두리 간섭과 시간 초과가 남음 |
+| v34 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt` | `6caaae0` | 사용자가 GUI에서 전체 집기·놓기 결과를 매우 좋게 평가함 | 최종 보조 제어의 안전 정지를 더 줄일 여지가 있음 |
+| v35 | `USER_APPROVED_WITH_CAVEATS` | `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt` | `40fd63e` | 사용자가 GUI에서 전체 동작에 큰 문제가 없고 전반적으로 좋다고 평가함 | 간헐적 파지 실패와 초기 저고도 운반 중 바스켓 테두리 근접 접촉을 v36에서 보완 |
 
 여섯 모델은 모두 사용자 GUI 승인 기준이다. 아직 `4 seeds x 128 env`와 GUI 10회로 구성된 정식
-acceptance 전체를 통과한 것으로 기록하지 않으며, `formal_acceptance`는 별도 검증 전까지 pending이다.
+승인 절차를 모두 통과한 것으로 기록하지 않으며, `formal_acceptance`는 별도 검증 전까지 대기 상태로 둔다.
 
 저장소 보존 경로:
 
@@ -42,16 +42,16 @@ v35 9063292df616bbd74ade6a42728c9774c6d1d5485c2eb4e42a8a9e40cbd29260
 
 ## 평가 대기
 
-| 버전 | Run | 상태 |
+| 버전 | 실행 | 상태 |
 | --- | --- | --- |
-| v30 | `2026-07-12_22-06-37/model_1775.pt` | run 최고점 보존 및 GUI 검토 중; 이후 정책이 0%로 붕괴해 good baseline 6개에는 포함하지 않음 |
-| v31 | `2026-07-13_01-57-04/model_2500.pt` | 파지·들기·XY 운반은 좋았으나 final center/release가 느리고 timeout이 높아 good baseline에 포함하지 않음 |
-| v32 | `2026-07-13_12-22-03/model_2875.pt` | 파지·들기·운반·배치는 동작하지만 assist가 평균 약 8초로 길고 목표 근처 감속 및 timeout이 남아 진단 기준으로만 보존 |
+| v30 | `2026-07-12_22-06-37/model_1775.pt` | 실행 최고점을 보존하고 GUI 검토 중; 이후 정책이 0%로 붕괴해 우수 기준 6개에는 포함하지 않음 |
+| v31 | `2026-07-13_01-57-04/model_2500.pt` | 파지·들기·XY 운반은 좋았으나 최종 중앙 정렬과 놓기가 느리고 시간 초과가 많아 우수 기준에 포함하지 않음 |
+| v32 | `2026-07-13_12-22-03/model_2875.pt` | 파지·들기·운반·배치는 동작하지만 보조 제어가 평균 약 8초로 길고 목표 근처 감속과 시간 초과가 남아 진단 기준으로만 보존 |
 
 ## 등록 규칙
 
-1. sampled TensorBoard 성공률만으로 확정하지 않는다.
-2. actor-mean 첫 완전 episode와 1-env GUI 실제 동작을 확인한다.
+1. TensorBoard의 표본 성공률만으로 확정하지 않는다.
+2. 정책망 평균 동작으로 처음 완료한 에피소드와 환경 1개의 GUI 실제 동작을 확인한다.
 3. 사용자가 좋은 버전으로 명시한 정확한 `run/model_N.pt`만 등록한다.
 4. 파지·운반·놓기 중 어느 부분이 검증됐는지와 남은 보완점을 함께 적는다.
 5. 확정 체크포인트는 `agent.yaml`, `env.yaml`, SHA-256과 함께 저장소에 보존한다.

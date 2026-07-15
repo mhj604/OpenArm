@@ -5,55 +5,55 @@
   "play_task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0",
   "checkpoint_filename": "checkpoint.pt",
   "source_history": {
-    "v18_v24": "No exact standalone source commits exist; changes first appear cumulatively in 4455992afa7f72d129a71c4677ed1f6ad6a7d383.",
-    "v25": "4455992afa7f72d129a71c4677ed1f6ad6a7d383",
-    "v26": "3856bcacf22a7cb773ab7ddabf1d8bbc4e4f0506",
-    "v27": "816e94301c0edcfefc08355f170b77c4f921d8e7",
-    "v28": "b4bedeaab9f9b4b41bb7d887d10d03c91705481f",
-    "v29": "afe12f3a0c2f15174365fc3ff5a145bc7b8eba83",
-    "v30": "cbd5ac941c6c3bdb0f5859186f7de7da8d84e64f",
-    "v31": "4b0ea6082a89cb1f94009362282c2b18464c756f",
-    "v32": "aa9ddf88a0690fa9f282bb896083377a4243bbc5",
-    "v33": "7155085720262b22dddd888f101e96a5a7f6af0c",
-    "v34": "9f6ee3847d608450008b19e0fb1d4dbd574c3e2a",
-    "v35": "3045a86eefdc225f718888bdf95f257bcf912122"
+    "v18_v24": "정확한 독립 소스 커밋은 없으며, 관련 변경 사항은 cef14e845cd5545cd64181427daa7c774c161ca7에 처음 누적되어 나타납니다.",
+    "v25": "cef14e845cd5545cd64181427daa7c774c161ca7",
+    "v26": "908599ec2b34e046f2f277b9471037787dc3c1d4",
+    "v27": "f1c65a8e2884d975f616272e96b53b53d1f48a20",
+    "v28": "40289e99981f4ac1c74a68525b6cb6ff256ceb8b",
+    "v29": "433b706a0474b546985943b4e2ae0ef19e698985",
+    "v30": "f7f1651d4b73de47365db20c208384b281b2e8d5",
+    "v31": "5bebb41b9ae8695780dd18fbc1b72c15672b5cd5",
+    "v32": "080b56c84bed2eadadab9c8c5fb17ec95bb49f02",
+    "v33": "53e5b922a20385698e3f1f9b374421f5fc53c9fc",
+    "v34": "6caaae0fb31584963ea8e18bc5c488b93957b94f",
+    "v35": "40fd63e4ee4d148081ab35fd13a4ae2b59cb701a"
   },
   "validated_baselines": [
     {
       "version": "v18",
       "checkpoint": "v18/checkpoint.pt",
       "status": "USER_APPROVED_REFERENCE",
-      "scope": "Historical grasp, lift, and initial-transport reference; full placement and formal acceptance are not recorded."
+      "scope": "파지·들기·초기 운반을 확인하는 과거 기준입니다. 전체 배치와 정식 승인 기록은 없습니다."
     },
     {
       "version": "v28",
       "checkpoint": "v28/checkpoint.pt",
       "status": "USER_APPROVED",
-      "scope": "Actual GUI pick-and-place success; grasp consistency, motion smoothness, and final height remained refinement targets."
+      "scope": "GUI에서 실제 집기·놓기에 성공했습니다. 파지 일관성, 동작의 자연스러움, 최종 높이는 보완 과제로 남았습니다."
     },
     {
       "version": "v29",
       "checkpoint": "v29/checkpoint.pt",
       "status": "USER_APPROVED_WITH_CAVEATS",
-      "scope": "Transport, deceleration, descent, and release accepted in GUI; grasp probability and final height remained refinement targets."
+      "scope": "GUI에서 운반·감속·하강·놓기를 확인했습니다. 파지 확률과 최종 높이는 보완 과제로 남았습니다."
     },
     {
       "version": "v33",
       "checkpoint": "v33/checkpoint.pt",
       "status": "USER_APPROVED_WITH_CAVEATS",
-      "scope": "Strong GUI grasp, lift, transport, and overall pick-and-place behavior; final assist latency, basket-rim interference, and timeout remain refinement targets."
+      "scope": "GUI에서 파지·들기·운반과 전체 집기·놓기 동작이 안정적이었습니다. 최종 보조 제어 지연, 바스켓 테두리 간섭, 시간 초과는 보완 과제로 남았습니다."
     },
     {
       "version": "v34",
       "checkpoint": "v34/checkpoint.pt",
       "status": "USER_APPROVED_WITH_CAVEATS",
-      "scope": "User judged the overall actor-mean GUI pick-and-place result very good; final assist safety holds remain a refinement target."
+      "scope": "사용자가 전반적인 정책망 평균 GUI 집기·놓기 결과를 매우 좋게 평가했습니다. 최종 보조 제어의 안전 정지는 보완 과제로 남았습니다."
     },
     {
       "version": "v35",
       "checkpoint": "v35/checkpoint.pt",
       "status": "USER_APPROVED_WITH_CAVEATS",
-      "scope": "User judged the overall actor-mean GUI behavior good; occasional grasp failure and low-clearance near-rim carry contact remain refinement targets."
+      "scope": "사용자가 전반적인 정책망 평균 GUI 동작을 좋게 평가했습니다. 간헐적 파지 실패와 낮은 운반 중 바스켓 테두리 근접 접촉은 보완 과제로 남았습니다."
     }
   ],
   "checkpoints": [
@@ -63,7 +63,7 @@
       "source_checkpoint": "model_825.pt",
       "size_bytes": 1427051,
       "sha256": "fa0fce2fb50b6871ad04620037f8db8e24493cdbb728e1023e45dadaa85e6d8e",
-      "selection": "User-requested historical grasp and transport reference."
+      "selection": "사용자가 요청한 과거 파지·운반 기준입니다."
     },
     {
       "version": "v19",
@@ -71,7 +71,7 @@
       "source_checkpoint": "model_900.pt",
       "size_bytes": 1439339,
       "sha256": "ef7bf7727bb1431f30f1202714be14f5d3d54bc037d95288966740bcb95b581d",
-      "selection": "Diagnosed stable grasp and lift with incomplete basket travel."
+      "selection": "파지와 들기는 안정적이었으나 바스켓까지 운반하지 못한 진단 기준입니다."
     },
     {
       "version": "v20",
@@ -79,7 +79,7 @@
       "source_checkpoint": "model_225.pt",
       "size_bytes": 1445483,
       "sha256": "802caaeb1fd86f9d9986a97641eed5d2d8a260ec3fac620d753640b98fef080b",
-      "selection": "Strongest documented stable v20 checkpoint."
+      "selection": "기록으로 확인되는 가장 안정적인 v20 체크포인트입니다."
     },
     {
       "version": "v21",
@@ -87,7 +87,7 @@
       "source_checkpoint": "model_400.pt",
       "size_bytes": 1445483,
       "sha256": "44e62b93cd4fc69a438b14e5711101d963099b2950b26db2f812000ddb07a4d4",
-      "selection": "Representative final vertical-place policy."
+      "selection": "최종 수직 배치 정책의 대표 체크포인트입니다."
     },
     {
       "version": "v22",
@@ -95,7 +95,7 @@
       "source_checkpoint": "model_1300.pt",
       "size_bytes": 1476277,
       "sha256": "d0b7a12863a8eebd369a0a5fd8461f3095da881a567c0cfd3431d18008206a27",
-      "selection": "Nearest saved model to the documented iteration-1304 diagnosis."
+      "selection": "문서에 기록된 1304번째 반복 진단과 가장 가까운 저장 모델입니다."
     },
     {
       "version": "v23",
@@ -103,7 +103,7 @@
       "source_checkpoint": "model_500.pt",
       "size_bytes": 1476203,
       "sha256": "1e5eb3a813ea3ffb7c4e1563a2f127b50fd9ce6cbf5a838bfaadb61bb6a09578",
-      "selection": "Documented grasp, lift, and assist learning checkpoint."
+      "selection": "파지·들기·보조 제어 학습이 기록된 체크포인트입니다."
     },
     {
       "version": "v24",
@@ -111,7 +111,7 @@
       "source_checkpoint": "model_1125.pt",
       "size_bytes": 1476277,
       "sha256": "40dc3b84be94aaaf17b2c52d9e02b091d12524fe4aa132b11c0a3c9119e251d1",
-      "selection": "GUI-reviewed checkpoint exposing the metric and behavior mismatch."
+      "selection": "지표와 실제 동작의 불일치를 GUI에서 확인한 체크포인트입니다."
     },
     {
       "version": "v25",
@@ -119,7 +119,7 @@
       "source_checkpoint": "model_1000.pt",
       "size_bytes": 1476277,
       "sha256": "ac23a9818567594a09c6368512ec4b43b27c48c4e0209dd2ad05b24c12defe7f",
-      "selection": "Sampled-policy peak used for deterministic validation work."
+      "selection": "결정론적 검증에 사용한 표본 정책 최고점입니다."
     },
     {
       "version": "v26",
@@ -127,7 +127,7 @@
       "source_checkpoint": "model_125.pt",
       "size_bytes": 1476203,
       "sha256": "213b365ecb8570ddb505c3da96bd5c0c542a799f3dd44425072155323a3a04e4",
-      "selection": "Nearest saved model to the documented iteration-114 peak."
+      "selection": "문서에 기록된 114번째 반복 최고점과 가장 가까운 저장 모델입니다."
     },
     {
       "version": "v27",
@@ -135,7 +135,7 @@
       "source_checkpoint": "model_3650.pt",
       "size_bytes": 1531573,
       "sha256": "47d8fd454857963a0b687d735ca76a4671deca991dc2ca8a0291968597c79600",
-      "selection": "Actor-mean checkpoint used to diagnose the physical-grasp failure."
+      "selection": "실제 파지 실패를 진단하는 데 사용한 정책망 평균 체크포인트입니다."
     },
     {
       "version": "v28",
@@ -143,7 +143,7 @@
       "source_checkpoint": "model_4999.pt",
       "size_bytes": 1482421,
       "sha256": "0b165eaf5e8e087b856fd53111981a0433e4ee248f6bf108363b3ca4609dbf84",
-      "selection": "User-validated successful grasp, transport, and placement."
+      "selection": "사용자가 파지·운반·배치 성공을 확인한 체크포인트입니다."
     },
     {
       "version": "v29",
@@ -151,7 +151,7 @@
       "source_checkpoint": "model_2100.pt",
       "size_bytes": 1482421,
       "sha256": "fec454a3aec1770408a7c8d553deba3d20fd7d890531affe17f6082f20121ea3",
-      "selection": "User-approved optimized baseline with only grasp-probability and final-height refinements remaining."
+      "selection": "사용자가 승인한 최적화 기준이며 파지 확률과 최종 높이만 보완 과제로 남았습니다."
     },
     {
       "version": "v30",
@@ -159,7 +159,7 @@
       "source_checkpoint": "model_1775.pt",
       "size_bytes": 1482421,
       "sha256": "069f83ee7820fd7b803eefc8b854fd0a2e55d1e0a9bcc18e4a9a6f01cfafc94a",
-      "selection": "Best rolling-50 sampled checkpoint in v30; the run later collapsed to zero grasp and this remains a diagnostic candidate, not a user-approved baseline."
+      "selection": "v30의 최근 50회 표본 구간에서 가장 좋은 체크포인트입니다. 이후 파지율이 0으로 붕괴했으므로 사용자 승인 기준이 아닌 진단 후보로만 남깁니다."
     },
     {
       "version": "v33",
@@ -167,7 +167,7 @@
       "source_checkpoint": "model_4999.pt",
       "size_bytes": 1482421,
       "sha256": "7deef10bbdd0462f55a157c607507c478ddf45287d6922d80d60b3cd53a43c28",
-      "selection": "User-approved strong v33 candidate with 97.30% rolling-50 grasp and 68.98% sampled success; final assist latency and basket-rim interference remain."
+      "selection": "사용자가 승인한 강한 v33 후보로, 최근 50회 파지율은 97.30%, 표본 성공률은 68.98%입니다. 최종 보조 제어 지연과 바스켓 테두리 간섭은 남아 있습니다."
     },
     {
       "version": "v34",
@@ -175,7 +175,7 @@
       "source_checkpoint": "model_4575.pt",
       "size_bytes": 1482421,
       "sha256": "cbda3a4bb0d6681b291d2f27d52efa809eefebf260633f8f338ea4c04c25a39e",
-      "selection": "User-approved v34 checkpoint judged very good in actor-mean GUI; final assist safety holds remain a refinement target."
+      "selection": "사용자가 정책망 평균 GUI 동작을 매우 좋게 평가한 v34 체크포인트입니다. 최종 보조 제어의 안전 정지는 보완 과제로 남았습니다."
     },
     {
       "version": "v35",
@@ -183,7 +183,7 @@
       "source_checkpoint": "model_3275.pt",
       "size_bytes": 1482421,
       "sha256": "9063292df616bbd74ade6a42728c9774c6d1d5485c2eb4e42a8a9e40cbd29260",
-      "selection": "User-approved good overall v35 actor-mean GUI result; selected for controller gains while preserving the observed grasp and near-rim caveats."
+      "selection": "사용자가 전반적인 정책망 평균 GUI 결과를 좋게 평가한 v35 체크포인트입니다. 확인된 파지 문제와 운반 중 테두리 근접 접촉은 그대로 기록하고 제어기 이득의 기준으로 선택했습니다."
     }
   ]
 }

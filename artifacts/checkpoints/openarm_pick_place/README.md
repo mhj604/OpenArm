@@ -1,75 +1,72 @@
-# OpenArm Pick-and-Place Checkpoint Archive
+# OpenArm 집기·놓기 체크포인트 보관소
 
-This archive preserves representative checkpoints and the resolved RSL-RL/Isaac Lab configuration
-for policy versions v18 through v30, plus the user-approved v33 through v35 candidates. Raw training
-directories remain ignored because they contain thousands of redundant checkpoints and several
-gigabytes of logs.
+이 보관소에는 정책 버전 v18-v30의 대표 체크포인트와 학습 당시 확정된 RSL-RL/Isaac Lab 설정,
+그리고 사용자가 승인한 v33-v35 후보를 보관합니다. 원본 학습 디렉터리에는 중복 체크포인트가
+수천 개 있고 로그 용량도 수 GB에 이르므로 계속 추적 대상에서 제외합니다.
 
-Each version directory contains:
+각 버전 디렉터리에는 다음 파일이 있습니다.
 
-- `checkpoint.pt`: the selected RSL-RL checkpoint.
-- `agent.yaml`: the resolved agent configuration saved by the run.
-- `env.yaml`: the resolved environment configuration saved by the run.
+- `checkpoint.pt`: 선별한 RSL-RL 체크포인트
+- `agent.yaml`: 실행 당시 저장된 확정 에이전트 설정
+- `env.yaml`: 실행 당시 저장된 확정 환경 설정
 
-The original run name, original checkpoint name, file size, SHA-256, and selection rationale are
-recorded in `manifest.json`. Verify the binaries from this directory with:
+원본 실행명, 원본 체크포인트명, 파일 크기, SHA-256, 선별 근거는 `manifest.json`에 기록돼 있습니다.
+이 디렉터리에서 다음 명령으로 바이너리를 검증할 수 있습니다.
 
 ```bash
 sha256sum --check SHA256SUMS
 ```
 
-## Selected Checkpoints
+## 선별한 체크포인트
 
-| Version | Original checkpoint | Selection basis |
+| 버전 | 원본 체크포인트 | 선별 근거 |
 | --- | --- | --- |
-| v18 | `hybrid_place_v18/model_825.pt` | User-requested historical grasp/transport reference |
-| v19 | `reachable_place_v19/model_900.pt` | Diagnosed stable grasp/lift with incomplete basket travel |
-| v20 | `legacy_transport_assisted_place_v20/model_225.pt` | Strongest documented stable v20 checkpoint |
-| v21 | `stabilized_vertical_place_v21/model_400.pt` | Representative final vertical-place policy |
-| v22 | `2026-07-10_21-32-18/model_1300.pt` | Nearest saved model to the documented iteration-1304 diagnosis |
-| v23 | `2026-07-10_23-12-11/model_500.pt` | Documented grasp/lift/assist learning checkpoint |
-| v24 | `2026-07-11_00-21-25/model_1125.pt` | GUI-reviewed checkpoint exposing metric/behavior mismatch |
-| v25 | `2026-07-11_02-45-03/model_1000.pt` | Sampled-policy peak used for deterministic validation work |
-| v26 | `2026-07-11_05-23-39/model_125.pt` | Nearest saved model to the documented iteration-114 peak |
-| v27 | `2026-07-11_19-14-07/model_3650.pt` | Actor-mean checkpoint used to diagnose grasp failure |
-| v28 | `2026-07-12_03-16-50/model_4999.pt` | User-validated successful grasp, transport, and placement |
-| v29 | `2026-07-12_15-37-08/model_2100.pt` | User-approved optimized baseline; minor grasp/height refinements remained |
-| v30 | `2026-07-12_22-06-37/model_1775.pt` | Best sampled window in a run that later collapsed; diagnostic candidate only |
-| v33 | `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt` | User-approved strong grasp/transport candidate; final rim interference remains |
-| v34 | `2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt` | User-approved very good GUI result; final assist safety holds remain a refinement target |
-| v35 | `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt` | User-approved good overall GUI behavior; occasional grasp and near-rim carry contact remain |
+| v18 | `hybrid_place_v18/model_825.pt` | 사용자가 요청한 과거 파지·운반 기준 |
+| v19 | `reachable_place_v19/model_900.pt` | 파지와 들기는 안정적이었으나 바스켓까지 운반하지 못한 진단 기준 |
+| v20 | `legacy_transport_assisted_place_v20/model_225.pt` | 기록으로 확인되는 가장 안정적인 v20 체크포인트 |
+| v21 | `stabilized_vertical_place_v21/model_400.pt` | 최종 수직 배치 정책의 대표 체크포인트 |
+| v22 | `2026-07-10_21-32-18/model_1300.pt` | 문서에 기록된 1304번째 반복 진단과 가장 가까운 저장 모델 |
+| v23 | `2026-07-10_23-12-11/model_500.pt` | 파지·들기·보조 제어 학습이 기록된 체크포인트 |
+| v24 | `2026-07-11_00-21-25/model_1125.pt` | 지표와 실제 동작의 불일치를 GUI에서 확인한 체크포인트 |
+| v25 | `2026-07-11_02-45-03/model_1000.pt` | 결정론적 검증에 사용한 표본 정책 최고점 |
+| v26 | `2026-07-11_05-23-39/model_125.pt` | 문서에 기록된 114번째 반복 최고점과 가장 가까운 저장 모델 |
+| v27 | `2026-07-11_19-14-07/model_3650.pt` | 실제 파지 실패를 진단하는 데 사용한 정책망 평균 체크포인트 |
+| v28 | `2026-07-12_03-16-50/model_4999.pt` | 사용자가 파지·운반·배치 성공을 확인한 체크포인트 |
+| v29 | `2026-07-12_15-37-08/model_2100.pt` | 사용자가 승인한 최적화 기준이며 파지 확률과 최종 높이를 조금 더 다듬어야 했음 |
+| v30 | `2026-07-12_22-06-37/model_1775.pt` | 이후 붕괴한 실행의 표본 구간 최고점으로, 진단 후보로만 보존 |
+| v33 | `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt` | 사용자가 승인한 강한 파지·운반 후보이며 최종 테두리 간섭이 남아 있음 |
+| v34 | `2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt` | 사용자가 GUI 결과를 매우 좋게 평가했으며 최종 보조 제어의 안전 정지를 더 다듬을 여지가 있음 |
+| v35 | `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt` | 사용자가 전반적인 GUI 동작을 좋게 평가했으며 간헐적 파지 실패와 낮은 운반 중 테두리 근접 접촉이 남아 있음 |
 
-## User-Approved Baselines
+## 사용자가 승인한 기준
 
-The six user-approved good references are v18 `model_825`, v28 `model_4999`, v29 `model_2100`,
-v33 `model_4999`, v34 `model_4575`, and v35 `model_3275`. Their validation scope and remaining caveats are recorded in
-`docs/validated_checkpoints.md` and the structured `validated_baselines` manifest field. User
-approval is intentionally distinct from the pending multi-seed formal acceptance protocol. v30 is
-not one of these six baselines; its best-of-run checkpoint is retained for diagnosis and GUI review.
+사용자가 우수 기준으로 승인한 모델은 v18 `model_825`, v28 `model_4999`, v29 `model_2100`,
+v33 `model_4999`, v34 `model_4575`, v35 `model_3275` 등 6개입니다. 검증 범위와 남은 보완점은
+`docs/validated_checkpoints.md`와 매니페스트의 `validated_baselines` 필드에 기록돼 있습니다.
+사용자 승인은 아직 끝나지 않은 다중 시드 정식 승인 절차와 구분합니다. v30은 이 6개 기준에
+포함되지 않으며, 해당 실행의 최고 체크포인트는 진단과 GUI 확인을 위해 보존합니다.
 
-## Source History Boundary
+## 소스 이력 경계
 
-Versions v18-v24 were developed before version-specific source commits were established. Their
-exact standalone source trees cannot be reconstructed from Git history; the corresponding changes
-first appear cumulatively in commit `4455992`. The archived YAML files preserve the resolved runtime
-configuration, but they are not substitutes for a full source snapshot.
+v18-v24는 버전별 소스 커밋을 만들기 전에 개발됐으므로 각 버전의 정확한 독립 소스 트리는
+Git 이력에서 복원할 수 없으며, 관련 변경 사항은 커밋 `cef14e8`에 처음 누적되어 나타납니다. 보관된
+YAML 파일에는 실행 당시 확정된 설정이 남아 있지만 전체 소스 스냅숏을 대신할 수는 없습니다.
 
-Version-specific source boundaries are available from v25 onward:
+v25부터는 버전별 소스 경계를 확인할 수 있습니다.
 
-| Version | Source commit |
+| 버전 | 소스 커밋 |
 | --- | --- |
-| v25 | `4455992afa7f72d129a71c4677ed1f6ad6a7d383` |
-| v26 | `3856bcacf22a7cb773ab7ddabf1d8bbc4e4f0506` |
-| v27 | `816e94301c0edcfefc08355f170b77c4f921d8e7` |
-| v28 | `b4bedeaab9f9b4b41bb7d887d10d03c91705481f` |
-| v29 | `afe12f3a0c2f15174365fc3ff5a145bc7b8eba83` |
-| v30 | `cbd5ac941c6c3bdb0f5859186f7de7da8d84e64f` |
-| v31 | `4b0ea6082a89cb1f94009362282c2b18464c756f` |
-| v32 | `aa9ddf88a0690fa9f282bb896083377a4243bbc5` |
-| v33 | `7155085720262b22dddd888f101e96a5a7f6af0c` |
-| v34 | `9f6ee3847d608450008b19e0fb1d4dbd574c3e2a` |
-| v35 | `3045a86eefdc225f718888bdf95f257bcf912122` |
+| v25 | `cef14e845cd5545cd64181427daa7c774c161ca7` |
+| v26 | `908599ec2b34e046f2f277b9471037787dc3c1d4` |
+| v27 | `f1c65a8e2884d975f616272e96b53b53d1f48a20` |
+| v28 | `40289e99981f4ac1c74a68525b6cb6ff256ceb8b` |
+| v29 | `433b706a0474b546985943b4e2ae0ef19e698985` |
+| v30 | `f7f1651d4b73de47365db20c208384b281b2e8d5` |
+| v31 | `5bebb41b9ae8695780dd18fbc1b72c15672b5cd5` |
+| v32 | `080b56c84bed2eadadab9c8c5fb17ec95bb49f02` |
+| v33 | `53e5b922a20385698e3f1f9b374421f5fc53c9fc` |
+| v34 | `6caaae0fb31584963ea8e18bc5c488b93957b94f` |
+| v35 | `40fd63e4ee4d148081ab35fd13a4ae2b59cb701a` |
 
-Do not compare TensorBoard sampled-action success directly with GUI actor-mean behavior. A
-checkpoint is accepted only after actor-mean, first-complete-episode physical grasp, lift, transport,
-and placement validation.
+TensorBoard의 표본 동작 성공률을 GUI의 정책망 평균 동작과 직접 비교해서는 안 됩니다. 체크포인트는
+정책망 평균 동작으로 처음 완료한 에피소드에서 실제 파지·들기·운반·배치를 모두 확인한 뒤에만 승인합니다.

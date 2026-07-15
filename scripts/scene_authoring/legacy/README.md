@@ -1,9 +1,9 @@
-# Legacy OpenArm Scene Authoring
+# 과거 OpenArm 장면 제작 기록
 
-These one-shot Isaac Sim scripts produced the historical table and basket layout in
-`/home/mh/Openarm/openarm_test_v2.usd`. They are preserved for scene provenance and are not imported
-or executed by the current Isaac Lab training and play entry points.
+이 일회성 Isaac Sim 스크립트로 `/home/mh/Openarm/openarm_test_v2.usd`의 과거 테이블과 바스켓
+배치를 만들었습니다. 장면의 제작 이력을 남기기 위해 보존하며, 현재 Isaac Lab 학습 및 실행
+진입점에서는 불러오거나 실행하지 않습니다.
 
-The current task loads the committed `assets/openarm_test.usd`. Do not run these scripts against that
-asset during training. Their absolute legacy USD path is intentionally unchanged so the earlier scene
-construction process remains reproducible.
+현재 작업은 저장소의 `assets/openarm_test.usd`를 불러옵니다. 학습 중에는 이 자산을 대상으로 해당
+스크립트를 실행하지 마십시오. 과거 장면 제작 과정을 다시 확인할 수 있도록 기존 USD 절대 경로는
+의도적으로 바꾸지 않았습니다.
