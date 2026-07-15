@@ -14,9 +14,9 @@ Train: Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0
 GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 ```
 
-Current code target is untrained v36. The latest GUI-approved v35 baseline is
-`2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt`; it is archived under
-`artifacts/checkpoints/openarm_pick_place/v35/` with its resolved agent and environment settings.
+현재 코드 대상은 학습 실패가 확인된 v37 보존본이다. 최근 GUI 검증 기준선은
+`2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt`이며, 해석된 에이전트·환경
+설정과 함께 `artifacts/checkpoints/openarm_pick_place/v35/`에 보관되어 있다.
 
 ## V19 Result And Exact Cause
 
@@ -608,3 +608,25 @@ low-clearance occupancy `<=0.1 controls/episode`, incremental full stops `<=5%`,
 stays off until those sampled gates pass and formal actor-mean evaluation reaches success `>=80%`,
 lift/transport `>=90%`, timeout `<=15%` across multiple seeds, plus 20 GUI episodes with zero
 near-rim contact.
+
+## V37 보존 정책 및 실패 결과
+
+v37은 v36의 파지 전 회귀를 분리하기 위한 최소 수정본이다.
+
+- 파지 전 보상을 v35의 실제 ready gate 정규화 식과 `quality/dwell=5/1`로 복원했다.
+- lift-first 관측과 저고도 접근 비용은 미검증 `grasp_lift_authorized`가 아니라 검증된
+  `grasp_acquired` 이후에만 시작한다.
+- v36의 파지 후 `.710 -> .730m` XY unlock과 요청 축별 `25%` assist 진행 검증은 유지한다.
+- 물리 파지·release·success 기준, PPO, 목표점, 16초 episode는 변경하지 않았다.
+
+실행 `2026-07-15_16-54-04_fresh_verified_grasp_lift_first_v37`은 iteration `1036`에서
+종료됐고 마지막 체크포인트는 `model_1025.pt`다. iteration `900-999`에서 검증 파지는 약
+`96.1%`였지만 lift와 transport는 모두 `0%`, actor transport timeout은 약 `96.1%`였다.
+따라서 v37은 파지 전 보상은 복구했지만, 파지 후 실제 바스켓 XY를 숨기는 lift-first
+관측 때문에 운반 탐색이 차단된 실패 정책이다. 이 체크포인트를 재개하면 안 된다.
+
+당시 실행 명령은 다음과 같다.
+
+```bash
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_verified_grasp_lift_first_v37
+```

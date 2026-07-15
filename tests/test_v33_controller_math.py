@@ -30,7 +30,6 @@ build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
 constrain_target_lead = controller_math.constrain_target_lead
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
 preclearance_inward_progress_cost = controller_math.preclearance_inward_progress_cost
-pregrasp_opening_quality_factor = controller_math.pregrasp_opening_quality_factor
 project_goal_directed_step = controller_math.project_goal_directed_step
 quintic_smoothstep = controller_math.quintic_smoothstep
 realized_translation_progress = controller_math.realized_translation_progress
@@ -96,7 +95,6 @@ def test_lift_first_transport_goal_blends_xy_without_changing_command_shape():
 
 def test_lift_first_phase_is_continuous_from_verification_until_assist():
     phase = lift_first_actor_phase(
-        grasp_lift_authorized=torch.tensor([False, True, False, False, False, False]),
         grasp_acquired=torch.tensor([False, False, True, True, True, True]),
         assist_engaged=torch.tensor([False, False, False, False, True, False]),
         released=torch.tensor([False, False, False, False, False, True]),
@@ -105,13 +103,12 @@ def test_lift_first_phase_is_continuous_from_verification_until_assist():
 
     assert torch.equal(
         phase,
-        torch.tensor([False, True, True, False, False, False]),
+        torch.tensor([False, False, True, False, False, False]),
     )
 
 
 def test_lift_first_reward_includes_the_actor_handoff_control():
     phase = lift_first_reward_phase(
-        grasp_lift_authorized=torch.tensor([True, False, False, False, False]),
         grasp_acquired=torch.tensor([False, True, True, True, True]),
         assist_engaged=torch.tensor([False, False, True, True, True]),
         assist_owns_arm=torch.tensor([True, False, False, True, False]),
@@ -119,7 +116,7 @@ def test_lift_first_reward_includes_the_actor_handoff_control():
         failed=torch.tensor([False, False, False, False, False]),
     )
 
-    assert torch.equal(phase, torch.tensor([True, True, True, False, False]))
+    assert torch.equal(phase, torch.tensor([False, True, True, False, False]))
 
 
 def test_lift_first_unlock_is_monotonic_and_preclearance_cost_is_selective():
@@ -151,16 +148,6 @@ def test_lift_first_unlock_is_monotonic_and_preclearance_cost_is_selective():
         cost,
         torch.tensor([0.0, 0.01, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0, 0.03]),
     )
-
-
-def test_pregrasp_opening_quality_matches_the_ready_gate_funnel():
-    open_quality = pregrasp_opening_quality_factor(
-        bilateral_open_fraction=torch.tensor([0.08, 0.465, 0.85, 1.0, float("nan")]),
-        candidate_min_open_fraction=0.08,
-        preclose_min_open_fraction=0.85,
-    )
-
-    assert torch.allclose(open_quality, torch.tensor([0.0, 0.5, 1.0, 1.0, 0.0]))
 
 
 def test_xy_motion_is_not_throttled_by_inactive_z():

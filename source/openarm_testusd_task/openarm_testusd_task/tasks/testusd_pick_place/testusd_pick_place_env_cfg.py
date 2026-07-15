@@ -1022,8 +1022,8 @@ class RewardsCfgV18:
     pregrasp_centering = RewTerm(
         func=mdp.task_pregrasp_centering_reward,
         params={
-            "quality_scale": 4.0,
-            "dwell_scale": 2.0,
+            "quality_scale": 5.0,
+            "dwell_scale": 1.0,
         },
         weight=1.0,
     )

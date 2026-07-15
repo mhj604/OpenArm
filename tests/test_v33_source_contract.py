@@ -147,7 +147,7 @@ def test_v35_repairs_invalid_dls_before_holding_the_arm():
         assert metric in MDP_SOURCE
 
 
-def test_v36_lift_first_grasp_and_progress_contracts_are_explicit():
+def test_v37_starts_lift_first_only_after_verified_grasp():
     assert "STAGE_CARRY_MIN_HEIGHT_W = 0.73" in ENV_SOURCE
     assert "STAGE_CARRY_TARGET_HEIGHT_W = 0.75" in ENV_SOURCE
     assert "STAGE_CARRY_MAX_HEIGHT_W = 0.79" in ENV_SOURCE
@@ -155,20 +155,43 @@ def test_v36_lift_first_grasp_and_progress_contracts_are_explicit():
     assert "TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W" in ENV_SOURCE
     assert "LOW_CLEARANCE_BASKET_APPROACH_XY = 0.17" in ENV_SOURCE
     assert "low_clearance_height=TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W" in ENV_SOURCE
-    assert '"quality_scale": 4.0' in ENV_SOURCE
-    assert '"dwell_scale": 2.0' in ENV_SOURCE
+    assert '"quality_scale": 5.0' in ENV_SOURCE
+    assert '"dwell_scale": 1.0' in ENV_SOURCE
     assert "weight=-200.0" in ENV_SOURCE
     assert "lift_first_transport_goal" in MDP_SOURCE
     assert "task_preclearance_inward_progress" in MDP_SOURCE
-    assert "pregrasp_opening_quality_factor" in MDP_SOURCE
+    assert "pregrasp_opening_quality_factor" not in MDP_SOURCE
     assert "task_low_clearance_basket_approach_steps" in MDP_SOURCE
     assert MDP_SOURCE.count("lift_first_actor_phase(") == 2
     assert MDP_SOURCE.count("lift_first_reward_phase(") == 2
-    assert "quality = state.grasp_alignment_quality * aperture_multiplier" in MDP_SOURCE
-    assert "aperture_multiplier = 0.75 + 0.25 * open_quality" in MDP_SOURCE
+    assert "normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)" in MDP_SOURCE
+    assert "quality = pose_quality * symmetry_quality * proximity_quality" in MDP_SOURCE
     assert MDP_SOURCE.count("self.cfg.minimum_active_progress_ratio") >= 8
     assert "ContactSensor" not in ENV_SOURCE
     assert "ContactSensor" not in MDP_SOURCE
+
+
+def test_lift_first_call_sites_begin_with_verified_grasp():
+    tree = ast.parse(MDP_SOURCE)
+    expected_counts = {
+        "lift_first_actor_phase": 2,
+        "lift_first_reward_phase": 2,
+    }
+    for function_name, expected_count in expected_counts.items():
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == function_name
+        ]
+        assert len(calls) == expected_count
+        for call in calls:
+            first_argument = call.args[0]
+            assert isinstance(first_argument, ast.Attribute)
+            assert isinstance(first_argument.value, ast.Name)
+            assert first_argument.value.id == "state"
+            assert first_argument.attr == "grasp_acquired"
 
 
 def test_pregrasp_reward_excludes_only_automatic_pose_holds():

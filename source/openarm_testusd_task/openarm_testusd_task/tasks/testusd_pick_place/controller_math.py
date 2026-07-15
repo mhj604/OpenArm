@@ -78,24 +78,19 @@ def lift_first_xy_unlock_fraction(
 
 
 def lift_first_actor_phase(
-    grasp_lift_authorized: torch.Tensor,
     grasp_acquired: torch.Tensor,
     assist_engaged: torch.Tensor,
     released: torch.Tensor,
     failed: torch.Tensor,
 ) -> torch.Tensor:
-    """Return the continuous verification-through-carry lift-first phase."""
+    """Return the verified-grasp carry lift-first phase."""
 
     return (
-        (grasp_lift_authorized | grasp_acquired)
-        & ~assist_engaged
-        & ~released
-        & ~failed
+        grasp_acquired & ~assist_engaged & ~released & ~failed
     )
 
 
 def lift_first_reward_phase(
-    grasp_lift_authorized: torch.Tensor,
     grasp_acquired: torch.Tensor,
     assist_engaged: torch.Tensor,
     assist_owns_arm: torch.Tensor,
@@ -104,7 +99,7 @@ def lift_first_reward_phase(
 ) -> torch.Tensor:
     """Include the handoff control until assist actually owns the arm."""
 
-    base_phase = (grasp_lift_authorized | grasp_acquired) & ~released & ~failed
+    base_phase = grasp_acquired & ~released & ~failed
     return base_phase & (~assist_engaged | ~assist_owns_arm)
 
 
@@ -158,30 +153,6 @@ def preclearance_inward_progress_cost(
         finite & active & was_active,
         clearance_weight * inward_progress,
         torch.zeros_like(distance_xy),
-    )
-
-
-def pregrasp_opening_quality_factor(
-    bilateral_open_fraction: torch.Tensor,
-    candidate_min_open_fraction: float,
-    preclose_min_open_fraction: float,
-) -> torch.Tensor:
-    """Return a dense factor aligned with the grasp-ready aperture gate."""
-
-    if preclose_min_open_fraction <= candidate_min_open_fraction:
-        raise ValueError(
-            "preclose_min_open_fraction must exceed candidate_min_open_fraction"
-        )
-    open_quality = torch.clamp(
-        (bilateral_open_fraction - candidate_min_open_fraction)
-        / (preclose_min_open_fraction - candidate_min_open_fraction),
-        min=0.0,
-        max=1.0,
-    )
-    return torch.where(
-        torch.isfinite(bilateral_open_fraction),
-        open_quality,
-        torch.zeros_like(open_quality),
     )
 
 

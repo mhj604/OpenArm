@@ -36,7 +36,6 @@ from .controller_math import (
     lift_first_xy_unlock_fraction,
     limit_vector_norm,
     preclearance_inward_progress_cost,
-    pregrasp_opening_quality_factor,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
@@ -298,7 +297,6 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
             low_clearance_approach = (
                 lift_first_reward_phase(
-                    state.grasp_lift_authorized,
                     state.grasp_acquired,
                     state.assist_engaged,
                     state.assist_owns_arm,
@@ -2772,7 +2770,6 @@ def transport_goal_command(
     state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
     lift_first_active = (
         lift_first_actor_phase(
-            state.grasp_lift_authorized,
             state.grasp_acquired,
             state.assist_engaged,
             state.released,
@@ -2815,7 +2812,6 @@ def object_to_transport_goal_position_in_robot_root_frame(
     state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
     lift_first_active = (
         lift_first_actor_phase(
-            state.grasp_lift_authorized,
             state.grasp_acquired,
             state.assist_engaged,
             state.released,
@@ -4244,7 +4240,7 @@ def task_pregrasp_centering_reward(
     quality_scale: float,
     dwell_scale: float,
 ) -> torch.Tensor:
-    """Reward broad grasp alignment plus confirmed ready-gate dwell."""
+    """Reward geometry inside the same narrow basin that authorizes grasp closure."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
     actor_controlled = ~state.grasp_controller_owns_arm
@@ -4255,13 +4251,25 @@ def task_pregrasp_centering_reward(
         & (state.grasp_retry_cooldown == 0)
         & actor_controlled
     )
-    open_quality = pregrasp_opening_quality_factor(
-        state.bilateral_open_fraction,
-        state._candidate_min_open_fraction,
-        state._preclose_min_open_fraction,
+    offset_error = state.object_offset_tcp - state._alignment_target
+    negative_span = state._alignment_target - state._alignment_lower_bounds
+    positive_span = state._alignment_upper_bounds - state._alignment_target
+    gate_span = torch.where(offset_error < 0.0, negative_span, positive_span)
+    normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)
+    pose_quality = torch.exp(-0.5 * torch.sum(torch.square(normalized_offset), dim=1))
+    symmetry_quality = torch.exp(
+        -0.5
+        * torch.square(
+            state.finger_distance_asymmetry
+            / max(state._alignment_max_finger_asymmetry, 1.0e-6)
+        )
     )
-    aperture_multiplier = 0.75 + 0.25 * open_quality
-    quality = state.grasp_alignment_quality * aperture_multiplier
+    proximity_quality = torch.clamp(
+        state.bilateral_finger_proximity / state._candidate_proximity_threshold,
+        min=0.0,
+        max=1.0,
+    )
+    quality = pose_quality * symmetry_quality * proximity_quality
     actor_dwell_steps = max(state._alignment_confirm_steps - 1, 1)
     dwell = torch.clamp(
         state.grasp_alignment_streak.float() / actor_dwell_steps,
@@ -4396,7 +4404,6 @@ class task_preclearance_inward_progress(ManagerTermBase):
         state: TaskStateTracker = env._openarm_pick_place_state
         obj: RigidObject = env.scene[object_cfg.name]
         active = lift_first_reward_phase(
-            state.grasp_lift_authorized,
             state.grasp_acquired,
             state.assist_engaged,
             state.assist_owns_arm,
