@@ -15,6 +15,7 @@ TASK_DIR = (
 )
 ENV_SOURCE = (TASK_DIR / "testusd_pick_place_env_cfg.py").read_text()
 MDP_SOURCE = (TASK_DIR / "mdp.py").read_text()
+CONTROLLER_SOURCE = (TASK_DIR / "controller_math.py").read_text()
 PPO_SOURCE = (TASK_DIR / "agents" / "rsl_rl_ppo_cfg.py").read_text()
 
 
@@ -147,23 +148,25 @@ def test_v35_repairs_invalid_dls_before_holding_the_arm():
         assert metric in MDP_SOURCE
 
 
-def test_v37_starts_lift_first_only_after_verified_grasp():
+def test_v38_restores_actor_transport_and_localizes_clearance_cost():
     assert "STAGE_CARRY_MIN_HEIGHT_W = 0.73" in ENV_SOURCE
     assert "STAGE_CARRY_TARGET_HEIGHT_W = 0.75" in ENV_SOURCE
     assert "STAGE_CARRY_MAX_HEIGHT_W = 0.79" in ENV_SOURCE
-    assert "TRANSPORT_XY_UNLOCK_START_HEIGHT_W = 0.710" in ENV_SOURCE
-    assert "TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W" in ENV_SOURCE
+    assert "LOW_CLEARANCE_PENALTY_START_HEIGHT_W = 0.710" in ENV_SOURCE
+    assert "LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W" in ENV_SOURCE
     assert "LOW_CLEARANCE_BASKET_APPROACH_XY = 0.17" in ENV_SOURCE
-    assert "low_clearance_height=TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W" in ENV_SOURCE
+    assert "low_clearance_height=LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W" in ENV_SOURCE
     assert '"quality_scale": 5.0' in ENV_SOURCE
     assert '"dwell_scale": 1.0' in ENV_SOURCE
     assert "weight=-200.0" in ENV_SOURCE
-    assert "lift_first_transport_goal" in MDP_SOURCE
+    assert "lift_first_transport_goal" not in MDP_SOURCE
+    assert "lift_first_actor_phase" not in MDP_SOURCE
     assert "task_preclearance_inward_progress" in MDP_SOURCE
     assert "pregrasp_opening_quality_factor" not in MDP_SOURCE
     assert "task_low_clearance_basket_approach_steps" in MDP_SOURCE
-    assert MDP_SOURCE.count("lift_first_actor_phase(") == 2
-    assert MDP_SOURCE.count("lift_first_reward_phase(") == 2
+    assert MDP_SOURCE.count("actor_owned_carry_phase(") == 2
+    assert '"near_basket_xy_threshold": LOW_CLEARANCE_BASKET_APPROACH_XY' in ENV_SOURCE
+    assert "previous_local_distance - local_distance" in CONTROLLER_SOURCE
     assert "normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)" in MDP_SOURCE
     assert "quality = pose_quality * symmetry_quality * proximity_quality" in MDP_SOURCE
     assert MDP_SOURCE.count("self.cfg.minimum_active_progress_ratio") >= 8
@@ -171,12 +174,9 @@ def test_v37_starts_lift_first_only_after_verified_grasp():
     assert "ContactSensor" not in MDP_SOURCE
 
 
-def test_lift_first_call_sites_begin_with_verified_grasp():
+def test_preassist_call_sites_start_only_after_verified_grasp():
     tree = ast.parse(MDP_SOURCE)
-    expected_counts = {
-        "lift_first_actor_phase": 2,
-        "lift_first_reward_phase": 2,
-    }
+    expected_counts = {"actor_owned_carry_phase": 2}
     for function_name, expected_count in expected_counts.items():
         calls = [
             node
@@ -192,6 +192,72 @@ def test_lift_first_call_sites_begin_with_verified_grasp():
             assert isinstance(first_argument.value, ast.Name)
             assert first_argument.value.id == "state"
             assert first_argument.attr == "grasp_acquired"
+
+
+def test_actor_transport_observations_keep_the_v35_goal_contract():
+    tree = ast.parse(MDP_SOURCE)
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name
+        in {
+            "transport_goal_command",
+            "object_to_transport_goal_position_in_robot_root_frame",
+        }
+    }
+    assert set(functions) == {
+        "transport_goal_command",
+        "object_to_transport_goal_position_in_robot_root_frame",
+    }
+    target_source = ast.unparse(functions["transport_goal_command"])
+    relative_source = ast.unparse(
+        functions["object_to_transport_goal_position_in_robot_root_frame"]
+    )
+    expected_target_source = ast.unparse(
+        ast.parse(
+            '''
+def transport_goal_command(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    carry_height_b: float,
+) -> torch.Tensor:
+    """Expose the actual goal XY at the carry height used before placement."""
+    command = env.command_manager.get_command(command_name).clone()
+    command[:, 2] = carry_height_b
+    return command
+'''
+        ).body[0]
+    )
+    expected_relative_source = ast.unparse(
+        ast.parse(
+            '''
+def object_to_transport_goal_position_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    carry_height_b: float,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Return object translation to the actual goal XY at the carry height."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    object_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, obj.data.root_pos_w)
+    goal_pos_b = command[:, :3].clone()
+    goal_pos_b[:, 2] = carry_height_b
+    return goal_pos_b - object_pos_b
+'''
+        ).body[0]
+    )
+    assert target_source == expected_target_source
+    assert relative_source == expected_relative_source
+    policy_source = ENV_SOURCE.split("class ObservationsCfgV18", maxsplit=1)[1].split(
+        "class RewardsCfgV18", maxsplit=1
+    )[0]
+    assert "unlock_start_height" not in policy_source
+    assert "unlock_full_height" not in policy_source
+    assert "lift_first" not in policy_source
 
 
 def test_pregrasp_reward_excludes_only_automatic_pose_holds():

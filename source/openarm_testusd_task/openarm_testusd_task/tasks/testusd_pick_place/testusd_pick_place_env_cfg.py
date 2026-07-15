@@ -56,8 +56,8 @@ STAGE_CARRY_MIN_HEIGHT_W = 0.73
 STAGE_CARRY_TARGET_HEIGHT_W = 0.75
 STAGE_CARRY_TARGET_HEIGHT_B = STAGE_CARRY_TARGET_HEIGHT_W - ROBOT_ROOT_POS[2]
 STAGE_CARRY_MAX_HEIGHT_W = 0.79
-TRANSPORT_XY_UNLOCK_START_HEIGHT_W = 0.710
-TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W
+LOW_CLEARANCE_PENALTY_START_HEIGHT_W = 0.710
+LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W
 LOW_CLEARANCE_BASKET_APPROACH_XY = 0.17
 STAGE_RELEASE_TARGET_HEIGHT_W = 0.670
 STAGE_ASSIST_ENTRY_XY_THRESHOLD = 0.14
@@ -185,7 +185,7 @@ class CommandsCfg:
         start_offset_from_object=(0.04, 0.12, 0.18),
         curriculum_num_steps=12_000,
         curriculum_power=0.8,
-        low_clearance_height=TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W,
+        low_clearance_height=LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W,
         near_basket_xy_threshold=LOW_CLEARANCE_BASKET_APPROACH_XY,
         debug_vis=True,
         ranges=mdp.StagedObjectPoseCommandCfg.Ranges(
@@ -993,8 +993,6 @@ class ObservationsCfgV18:
             params={
                 "command_name": "object_pose",
                 "carry_height_b": STAGE_CARRY_TARGET_HEIGHT_B,
-                "unlock_start_height_w": TRANSPORT_XY_UNLOCK_START_HEIGHT_W,
-                "unlock_full_height_w": TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W,
             },
         )
         object_to_goal_position = ObsTerm(
@@ -1002,8 +1000,6 @@ class ObservationsCfgV18:
             params={
                 "command_name": "object_pose",
                 "carry_height_b": STAGE_CARRY_TARGET_HEIGHT_B,
-                "unlock_start_height_w": TRANSPORT_XY_UNLOCK_START_HEIGHT_W,
-                "unlock_full_height_w": TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W,
             },
         )
         object_linear_velocity = ObsTerm(func=mdp.object_linear_velocity_in_robot_root_frame)
@@ -1103,8 +1099,9 @@ class RewardsCfgV18:
     preclearance_inward_progress = RewTerm(
         func=mdp.task_preclearance_inward_progress,
         params={
-            "unlock_start_height": TRANSPORT_XY_UNLOCK_START_HEIGHT_W,
-            "unlock_full_height": TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W,
+            "clearance_start_height": LOW_CLEARANCE_PENALTY_START_HEIGHT_W,
+            "clearance_full_height": LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W,
+            "near_basket_xy_threshold": LOW_CLEARANCE_BASKET_APPROACH_XY,
             "max_step_change": 0.03,
         },
         weight=-200.0,

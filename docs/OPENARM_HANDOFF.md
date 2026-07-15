@@ -14,7 +14,7 @@ Train: Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0
 GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 ```
 
-현재 코드 대상은 학습 실패가 확인된 v37 보존본이다. 최근 GUI 검증 기준선은
+현재 코드 대상은 아직 학습하지 않은 v38이다. 최근 GUI 검증 기준선은
 `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt`이며, 해석된 에이전트·환경
 설정과 함께 `artifacts/checkpoints/openarm_pick_place/v35/`에 보관되어 있다.
 
@@ -557,9 +557,9 @@ Cartesian safety gate. V36 requires at least `25%` progress on every axis owned 
 candidate and only on the selected axis for a phase fallback. Previous-target and current-pose holds
 remain allowed as explicit stabilization paths.
 
-## Current V36 Policy (Untrained)
+## V36 Design And Failed Result
 
-V36 is the intended final nominal candidate before domain randomization. It preserves the `75` policy
+V36 was intended as the final nominal candidate before domain randomization. It preserved the `75` policy
 observations, `8` actions, `.73/.75/.79m` carry band, `.670m` release target, assist radii, PPO,
 16-second episode, and every strict physical grasp/release/success gate. It changes the reward count
 from `20` to `21` for one explicit low-clearance path cost.
@@ -568,7 +568,8 @@ from `20` to `21` for one explicit low-clearance path cost.
   height. Geometry and policy/reward ordering indicate the most likely cause of the observed touch:
   the actor saw basket XY and carry Z simultaneously while the `-15/s` pre-assist delay favored a
   diagonal shortcut. V36 training and GUI review must verify this inference.
-- From verified-contact lift through actor-owned carry, basket-directed XY unlocks continuously from
+- The implementation activated lift-first at `grasp_lift_authorized`, before the grasp was verified.
+  Basket-directed XY then unlocked continuously from
   object Z `.710m` to `.730m` with a quintic blend. Below `.710m` the goal XY follows the cube, at
   `.720m` it is halfway to the basket goal, and by `.730m` it is the unchanged final XY. Carry Z
   remains `.750m`; if the cube sags below `.730m` before assist, XY immediately relocks by height.
@@ -590,11 +591,11 @@ from `20` to `21` for one explicit low-clearance path cost.
   5120-environment PhysX and filtered finger-contact cost is unmeasured and its post-contact signal
   was not selected; reconsider direct contact sensing if v36 GUI review still shows contact.
 
-Static validation is `46 passed`; Python compilation, `git diff --check`, archive JSON/hash checks,
+Static validation was `46 passed`; Python compilation, `git diff --check`, archive JSON/hash checks,
 and an ad-hoc 100,000-row requested-axis progress audit pass. No Isaac simulation or training was
 launched for v36 during the edit.
 
-Run fresh as one shell line from `/home/mh/.codex_tmp_openarm_remote`:
+The historical launch command was:
 
 ```bash
 python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_lift_first_grasp_progress_v36
@@ -609,24 +610,66 @@ stays off until those sampled gates pass and formal actor-mean evaluation reache
 lift/transport `>=90%`, timeout `<=15%` across multiple seeds, plus 20 GUI episodes with zero
 near-rim contact.
 
-## V37 보존 정책 및 실패 결과
+The fresh run `2026-07-15_11-49-38_fresh_lift_first_grasp_progress_v36` was stopped at iteration
+`3194`; its latest saved checkpoint is `model_3175.pt`. Verified grasp, lift, transport, release, and
+success remained exactly zero, while timeout remained effectively `100%`. No v36 checkpoint should
+be resumed.
 
-v37은 v36의 파지 전 회귀를 분리하기 위한 최소 수정본이다.
+Two isolated regressions caused the failure:
 
-- 파지 전 보상을 v35의 실제 ready gate 정규화 식과 `quality/dwell=5/1`로 복원했다.
-- lift-first 관측과 저고도 접근 비용은 미검증 `grasp_lift_authorized`가 아니라 검증된
-  `grasp_acquired` 이후에만 시작한다.
-- v36의 파지 후 `.710 -> .730m` XY unlock과 요청 축별 `25%` assist 진행 검증은 유지한다.
-- 물리 파지·release·success 기준, PPO, 목표점, 16초 episode는 변경하지 않았다.
+- The broad pregrasp quality paid substantial reward outside the physical ready gate. V36 ready and
+  candidate initially reached the same basin as v35, then declined while the broad shaping reward
+  increased. V35 used the actual gate-normalized geometry and reached about `92%` grasp by model 500.
+- Lift-first observation and the low-clearance path cost started at `grasp_lift_authorized`. That is
+  only the contact candidate: the actor must still lift the cube/TCP `12/10mm` for five controls to
+  set `grasp_acquired`. V36 changed the observation and objective during this verification motion;
+  candidate object/TCP lift stayed near zero and verification timed out. PPO, seed, physics, episode
+  length, and all physical grasp thresholds matched v35, excluding them as causes.
 
+## V37 실패 결과
+
+v37은 v35의 파지 전 보상을 복원해 파지를 회복했지만 파지 후 lift-first 관측은 유지했다.
 실행 `2026-07-15_16-54-04_fresh_verified_grasp_lift_first_v37`은 iteration `1036`에서
 종료됐고 마지막 체크포인트는 `model_1025.pt`다. iteration `900-999`에서 검증 파지는 약
 `96.1%`였지만 lift와 transport는 모두 `0%`, actor transport timeout은 약 `96.1%`였다.
-따라서 v37은 파지 전 보상은 복구했지만, 파지 후 실제 바스켓 XY를 숨기는 lift-first
-관측 때문에 운반 탐색이 차단된 실패 정책이다. 이 체크포인트를 재개하면 안 된다.
+같은 구간의 v35는 파지 약 `93.3%`, lift 약 `92.4%`, transport 약 `92.4%`였다.
 
-당시 실행 명령은 다음과 같다.
+남은 회귀는 검증된 파지 이후 실제 바스켓 XY 대신 큐브의 현재 XY를 `.710 -> .730m`
+clearance 전까지 관측시킨 것이다. 이 변경이 v35의 대각선 상승·운반 탐색 경로를 제거했고,
+전 구간에 적용된 저고도 안쪽 진행 비용이 같은 행동을 강화했다. v37 체크포인트는 재개하면
+안 된다.
+
+## 현재 V38 복구 정책
+
+v38은 v35 운반 관측을 복원하고 바스켓 가장자리 회피 비용만 국소화한 최소 수정이다.
+
+- actor의 두 운반 관측은 모든 단계에서 v35와 소스 수준으로 동일하다. actor는 항상 샘플된
+  바스켓 XY와 운반 Z `.750m`를 본다. lift-first waypoint, XY unlock, sag relock은 없다.
+- v35의 실제 ready gate 정규화 파지 전 보상과 `quality/dwell=5/1`을 그대로 유지한다.
+  정렬·접촉·결합 상승·확인·재시도·release·success 물리 기준은 변경하지 않았다.
+- 저고도 안쪽 진행 비용은 검증된 파지를 actor가 제어하는 동안 바스켓 목표 `.17m` 안에서
+  이동한 거리만 계산한다. `.710m` 이하에서는 전량 적용하고 `.730m`까지 quintic으로 0이
+  된다. 후퇴·정지·충분한 높이·자동 assist·release·failure에는 적용하지 않는다. `.17m`
+  바깥에서 진입할 때도 경계 안에서 이동한 거리만 계산하므로 보상 불연속이 없다. 가중치는
+  `-200/m`, control당 진행량 상한은 `30mm`다.
+- v36의 요청 축별 `25%` assist 진행 검증과 v35의 Cartesian·관절 제한·연속성·fallback·안전
+  조건은 모두 유지한다.
+- `.17m`와 `-200/m`는 장면 형상과 GUI에서 관찰한 가장자리 접촉을 바탕으로 한 보수적
+  후보이며 접촉 센서로 최적화한 값은 아니다. 5120개 환경에서 측정되지 않은 PhysX 비용을
+  피하려고 ContactSensor는 비활성 상태로 유지하며, v38 지표와 GUI로 최종 여유를 검증한다.
+
+정적 검증은 `45 passed`이며 Python 컴파일과 `git diff --check`를 통과했다. v38 수정 중
+Isaac 시뮬레이션과 학습은 실행하지 않았다. resume이나 bootstrap 없이 새로 학습하고,
+v35·v37과 직접 비교할 수 있도록 5120개 환경 rollout 구조를 유지한다.
 
 ```bash
-python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_verified_grasp_lift_first_v37
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_restored_transport_local_clearance_v38
 ```
+
+첫 검증 파지는 iteration `300` 이전, 첫 lift와 transport는 `850` 이전에 나타나야 하며
+`1000`에서도 0이면 중단한다. model 1000 rolling-50에서 grasp·lift·transport가 각각
+`85%` 이상이고 actor transport timeout이 `10%` 이하여야 밤새 학습을 계속한다. 후기
+후보는 grasp `>=90%`, grasp 대비 transport 손실 `<=1pp`, 저고도 접근 점유
+`<=0.1 control/episode`, GUI 20회에서 가장자리 접촉 0회를 충족해야 한다. 명목 정책의
+다중 seed 평가를 통과한 뒤에만 6400/7040 처리량 탐색이나 도메인 랜덤화로 rollout 분포를
+변경한다.

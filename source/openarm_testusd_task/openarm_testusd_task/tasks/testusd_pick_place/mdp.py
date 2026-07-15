@@ -25,17 +25,15 @@ from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, 
 
 from .controller_math import (
     active_translation_progress_ratio,
+    actor_owned_carry_phase,
     apply_stopping_speed_envelope,
     build_prioritized_dls_solver,
+    carry_clearance_fraction,
     constrain_target_lead,
     damped_pseudoinverse,
     jerk_limited_cartesian_velocity,
-    lift_first_actor_phase,
-    lift_first_reward_phase,
-    lift_first_transport_goal,
-    lift_first_xy_unlock_fraction,
     limit_vector_norm,
-    preclearance_inward_progress_cost,
+    low_clearance_inward_progress_cost,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
@@ -296,9 +294,8 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             )
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
             low_clearance_approach = (
-                lift_first_reward_phase(
+                actor_owned_carry_phase(
                     state.grasp_acquired,
-                    state.assist_engaged,
                     state.assist_owns_arm,
                     state.released,
                     state.failed,
@@ -2752,88 +2749,30 @@ def transport_goal_command(
     env: ManagerBasedRLEnv,
     command_name: str,
     carry_height_b: float,
-    unlock_start_height_w: float,
-    unlock_full_height_w: float,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
-    """Expose a smooth lift-first waypoint, then the actual carry-height goal."""
+    """Expose the actual goal XY at the carry height used before placement."""
 
-    robot: Articulation = env.scene[robot_cfg.name]
-    obj: RigidObject = env.scene[object_cfg.name]
-    command = env.command_manager.get_command(command_name)
-    object_pos_b, _ = subtract_frame_transforms(
-        robot.data.root_pos_w,
-        robot.data.root_quat_w,
-        obj.data.root_pos_w,
-    )
-    state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
-    lift_first_active = (
-        lift_first_actor_phase(
-            state.grasp_acquired,
-            state.assist_engaged,
-            state.released,
-            state.failed,
-        )
-        if state is not None
-        else torch.zeros(
-            env.num_envs,
-            dtype=torch.bool,
-            device=obj.data.root_pos_w.device,
-        )
-    )
-    goal, _ = lift_first_transport_goal(
-        object_pos_b,
-        obj.data.root_pos_w[:, 2],
-        command,
-        lift_first_active,
-        carry_height_b,
-        unlock_start_height_w,
-        unlock_full_height_w,
-    )
-    return goal
+    command = env.command_manager.get_command(command_name).clone()
+    command[:, 2] = carry_height_b
+    return command
 
 
 def object_to_transport_goal_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     command_name: str,
     carry_height_b: float,
-    unlock_start_height_w: float,
-    unlock_full_height_w: float,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
-    """Return object translation to the active lift-first carry waypoint."""
+    """Return object translation to the actual goal XY at the carry height."""
 
     robot: Articulation = env.scene[robot_cfg.name]
     obj: RigidObject = env.scene[object_cfg.name]
     command = env.command_manager.get_command(command_name)
     object_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, obj.data.root_pos_w)
-    state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
-    lift_first_active = (
-        lift_first_actor_phase(
-            state.grasp_acquired,
-            state.assist_engaged,
-            state.released,
-            state.failed,
-        )
-        if state is not None
-        else torch.zeros(
-            env.num_envs,
-            dtype=torch.bool,
-            device=obj.data.root_pos_w.device,
-        )
-    )
-    goal_command, _ = lift_first_transport_goal(
-        object_pos_b,
-        obj.data.root_pos_w[:, 2],
-        command,
-        lift_first_active,
-        carry_height_b,
-        unlock_start_height_w,
-        unlock_full_height_w,
-    )
-    return goal_command[:, :3] - object_pos_b
+    goal_pos_b = command[:, :3].clone()
+    goal_pos_b[:, 2] = carry_height_b
+    return goal_pos_b - object_pos_b
 
 
 def object_linear_velocity_in_robot_root_frame(
@@ -4378,7 +4317,7 @@ class task_potential_progress(ManagerTermBase):
 
 
 class task_preclearance_inward_progress(ManagerTermBase):
-    """Penalize only basket-directed XY shortcuts below the lift-first clearance."""
+    """Penalize basket-directed low-clearance motion only near the rim."""
 
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
@@ -4396,32 +4335,32 @@ class task_preclearance_inward_progress(ManagerTermBase):
     def __call__(
         self,
         env: ManagerBasedRLEnv,
-        unlock_start_height: float,
-        unlock_full_height: float,
+        clearance_start_height: float,
+        clearance_full_height: float,
+        near_basket_xy_threshold: float,
         max_step_change: float,
         object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ) -> torch.Tensor:
         state: TaskStateTracker = env._openarm_pick_place_state
         obj: RigidObject = env.scene[object_cfg.name]
-        active = lift_first_reward_phase(
+        actor_carry_active = actor_owned_carry_phase(
             state.grasp_acquired,
-            state.assist_engaged,
             state.assist_owns_arm,
             state.released,
             state.failed,
         )
-        unlock_fraction = lift_first_xy_unlock_fraction(
+        clearance_fraction = carry_clearance_fraction(
             obj.data.root_pos_w[:, 2],
-            active,
-            unlock_start_height,
-            unlock_full_height,
+            clearance_start_height,
+            clearance_full_height,
         )
-        cost = preclearance_inward_progress_cost(
+        cost = low_clearance_inward_progress_cost(
             self._previous_distance_xy,
             state.distance_xy,
-            unlock_fraction,
-            active,
+            clearance_fraction,
+            actor_carry_active,
             self._was_active,
+            near_basket_xy_threshold,
             max_step_change,
         )
         finite_distance = torch.isfinite(state.distance_xy)
@@ -4430,7 +4369,7 @@ class task_preclearance_inward_progress(ManagerTermBase):
             state.distance_xy,
             self._previous_distance_xy,
         )
-        self._was_active[:] = active & finite_distance
+        self._was_active[:] = actor_carry_active & finite_distance
         return cost / env.step_dt
 
 

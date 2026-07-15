@@ -56,101 +56,69 @@ def scale_delta_to_joint_limits(
     return delta * torch.clamp(scale, min=0.0, max=1.0)
 
 
-def lift_first_xy_unlock_fraction(
+def carry_clearance_fraction(
     object_height: torch.Tensor,
-    lift_first_active: torch.Tensor,
-    unlock_start_height: float,
-    unlock_full_height: float,
+    clearance_start_height: float,
+    clearance_full_height: float,
 ) -> torch.Tensor:
-    """Blend basket-directed XY only after the carried object clears the near rim."""
+    """Return a smooth low-to-full carry-clearance fraction."""
 
-    if unlock_full_height <= unlock_start_height:
-        raise ValueError("unlock_full_height must be greater than unlock_start_height")
-    normalized_height = (object_height - unlock_start_height) / (
-        unlock_full_height - unlock_start_height
+    if clearance_full_height <= clearance_start_height:
+        raise ValueError(
+            "clearance_full_height must be greater than clearance_start_height"
+        )
+    normalized_height = (object_height - clearance_start_height) / (
+        clearance_full_height - clearance_start_height
     )
-    lift_fraction = quintic_smoothstep(normalized_height)
-    return torch.where(
-        lift_first_active,
-        lift_fraction,
-        torch.ones_like(lift_fraction),
-    )
+    return quintic_smoothstep(normalized_height)
 
 
-def lift_first_actor_phase(
+def actor_owned_carry_phase(
     grasp_acquired: torch.Tensor,
-    assist_engaged: torch.Tensor,
-    released: torch.Tensor,
-    failed: torch.Tensor,
-) -> torch.Tensor:
-    """Return the verified-grasp carry lift-first phase."""
-
-    return (
-        grasp_acquired & ~assist_engaged & ~released & ~failed
-    )
-
-
-def lift_first_reward_phase(
-    grasp_acquired: torch.Tensor,
-    assist_engaged: torch.Tensor,
     assist_owns_arm: torch.Tensor,
     released: torch.Tensor,
     failed: torch.Tensor,
 ) -> torch.Tensor:
-    """Include the handoff control until assist actually owns the arm."""
+    """Return post-grasp motion still owned by the learned actor."""
 
-    base_phase = grasp_acquired & ~released & ~failed
-    return base_phase & (~assist_engaged | ~assist_owns_arm)
-
-
-def lift_first_transport_goal(
-    object_position_b: torch.Tensor,
-    object_height_w: torch.Tensor,
-    final_goal_command: torch.Tensor,
-    lift_first_active: torch.Tensor,
-    carry_height_b: float,
-    unlock_start_height_w: float,
-    unlock_full_height_w: float,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return a smooth lift-first waypoint while preserving command dimensions."""
-
-    unlock_fraction = lift_first_xy_unlock_fraction(
-        object_height_w,
-        lift_first_active,
-        unlock_start_height_w,
-        unlock_full_height_w,
-    )
-    goal = final_goal_command.clone()
-    goal[:, :2] = object_position_b[:, :2] + unlock_fraction[:, None] * (
-        final_goal_command[:, :2] - object_position_b[:, :2]
-    )
-    goal[:, 2] = carry_height_b
-    return goal, unlock_fraction
+    return grasp_acquired & ~assist_owns_arm & ~released & ~failed
 
 
-def preclearance_inward_progress_cost(
+def low_clearance_inward_progress_cost(
     previous_distance_xy: torch.Tensor,
     distance_xy: torch.Tensor,
-    unlock_fraction: torch.Tensor,
-    active: torch.Tensor,
-    was_active: torch.Tensor,
+    clearance_fraction: torch.Tensor,
+    preassist_active: torch.Tensor,
+    was_preassist_active: torch.Tensor,
+    near_basket_xy_threshold: float,
     max_step_change: float,
 ) -> torch.Tensor:
-    """Measure only basket-directed progress made before full XY clearance."""
+    """Measure low-clearance inward progress only near the basket."""
+
+    if near_basket_xy_threshold <= 0.0:
+        raise ValueError("near_basket_xy_threshold must be positive")
 
     finite = (
         torch.isfinite(previous_distance_xy)
         & torch.isfinite(distance_xy)
-        & torch.isfinite(unlock_fraction)
+        & torch.isfinite(clearance_fraction)
+    )
+    previous_local_distance = torch.minimum(
+        previous_distance_xy,
+        torch.full_like(previous_distance_xy, near_basket_xy_threshold),
+    )
+    local_distance = torch.minimum(
+        distance_xy,
+        torch.full_like(distance_xy, near_basket_xy_threshold),
     )
     inward_progress = torch.clamp(
-        previous_distance_xy - distance_xy,
+        previous_local_distance - local_distance,
         min=0.0,
         max=max_step_change,
     )
-    clearance_weight = 1.0 - torch.clamp(unlock_fraction, min=0.0, max=1.0)
+    clearance_weight = 1.0 - torch.clamp(clearance_fraction, min=0.0, max=1.0)
     return torch.where(
-        finite & active & was_active,
+        finite & preassist_active & was_preassist_active,
         clearance_weight * inward_progress,
         torch.zeros_like(distance_xy),
     )

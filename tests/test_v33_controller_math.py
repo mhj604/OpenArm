@@ -20,16 +20,14 @@ assert SPEC is not None and SPEC.loader is not None
 controller_math = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(controller_math)
 jerk_limited_cartesian_velocity = controller_math.jerk_limited_cartesian_velocity
-lift_first_actor_phase = controller_math.lift_first_actor_phase
-lift_first_reward_phase = controller_math.lift_first_reward_phase
-lift_first_transport_goal = controller_math.lift_first_transport_goal
-lift_first_xy_unlock_fraction = controller_math.lift_first_xy_unlock_fraction
 active_translation_progress_ratio = controller_math.active_translation_progress_ratio
+actor_owned_carry_phase = controller_math.actor_owned_carry_phase
 apply_stopping_speed_envelope = controller_math.apply_stopping_speed_envelope
 build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
+carry_clearance_fraction = controller_math.carry_clearance_fraction
 constrain_target_lead = controller_math.constrain_target_lead
+low_clearance_inward_progress_cost = controller_math.low_clearance_inward_progress_cost
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
-preclearance_inward_progress_cost = controller_math.preclearance_inward_progress_cost
 project_goal_directed_step = controller_math.project_goal_directed_step
 quintic_smoothstep = controller_math.quintic_smoothstep
 realized_translation_progress = controller_math.realized_translation_progress
@@ -53,100 +51,48 @@ def test_quintic_blend_has_exact_endpoints_and_is_monotonic():
     assert torch.all(blend[1:] >= blend[:-1])
 
 
-def test_lift_first_transport_goal_blends_xy_without_changing_command_shape():
-    object_position = torch.tensor(
-        [
-            [0.40, -0.15, 0.35],
-            [0.41, -0.14, 0.36],
-            [0.42, -0.13, 0.37],
-            [0.43, -0.12, 0.38],
-            [0.44, -0.11, 0.39],
-        ]
-    )
-    object_height = torch.tensor([0.625, 0.710, 0.720, 0.730, 0.700])
-    final_command = torch.tensor(
-        [[0.37, 0.07, 0.32, 1.0, 0.0, 0.0, 0.0]] * 5
-    )
-    lift_first_active = torch.tensor([False, True, True, True, False])
-
-    goal, unlock = lift_first_transport_goal(
-        object_position,
-        object_height,
-        final_command,
-        lift_first_active,
-        carry_height_b=0.40,
-        unlock_start_height_w=0.710,
-        unlock_full_height_w=0.730,
-    )
-
-    assert goal.shape == final_command.shape
-    assert torch.allclose(unlock, torch.tensor([1.0, 0.0, 0.5, 1.0, 1.0]))
-    assert torch.allclose(goal[0, :2], final_command[0, :2])
-    assert torch.allclose(goal[1, :2], object_position[1, :2])
-    assert torch.allclose(
-        goal[2, :2],
-        0.5 * (object_position[2, :2] + final_command[2, :2]),
-        atol=1.0e-6,
-    )
-    assert torch.allclose(goal[3:, :2], final_command[3:, :2])
-    assert torch.allclose(goal[:, 2], torch.full((5,), 0.40))
-    assert torch.equal(goal[:, 3:], final_command[:, 3:])
-
-
-def test_lift_first_phase_is_continuous_from_verification_until_assist():
-    phase = lift_first_actor_phase(
-        grasp_acquired=torch.tensor([False, False, True, True, True, True]),
-        assist_engaged=torch.tensor([False, False, False, False, True, False]),
-        released=torch.tensor([False, False, False, False, False, True]),
-        failed=torch.tensor([False, False, False, True, False, False]),
+def test_actor_owned_carry_phase_excludes_every_automatic_control_path():
+    phase = actor_owned_carry_phase(
+        grasp_acquired=torch.tensor([False, True, True, True, True, True]),
+        assist_owns_arm=torch.tensor([False, False, True, False, False, False]),
+        released=torch.tensor([False, False, False, True, False, False]),
+        failed=torch.tensor([False, False, False, False, True, False]),
     )
 
     assert torch.equal(
         phase,
-        torch.tensor([False, False, True, False, False, False]),
+        torch.tensor([False, True, False, False, False, True]),
     )
 
 
-def test_lift_first_reward_includes_the_actor_handoff_control():
-    phase = lift_first_reward_phase(
-        grasp_acquired=torch.tensor([False, True, True, True, True]),
-        assist_engaged=torch.tensor([False, False, True, True, True]),
-        assist_owns_arm=torch.tensor([True, False, False, True, False]),
-        released=torch.tensor([False, False, False, False, True]),
-        failed=torch.tensor([False, False, False, False, False]),
-    )
-
-    assert torch.equal(phase, torch.tensor([False, True, True, False, False]))
-
-
-def test_lift_first_unlock_is_monotonic_and_preclearance_cost_is_selective():
+def test_low_clearance_cost_is_monotonic_and_local_to_the_basket():
     height = torch.linspace(0.700, 0.740, 81)
-    active = torch.ones_like(height, dtype=torch.bool)
-    unlock = lift_first_xy_unlock_fraction(height, active, 0.710, 0.730)
+    clearance = carry_clearance_fraction(height, 0.710, 0.730)
 
-    assert unlock[0].item() == 0.0
-    assert unlock[-1].item() == 1.0
-    assert torch.all(unlock[1:] >= unlock[:-1])
+    assert clearance[0].item() == 0.0
+    assert clearance[-1].item() == 1.0
+    assert torch.all(clearance[1:] >= clearance[:-1])
 
-    previous = torch.tensor([0.20] * 9)
+    previous = torch.tensor([0.22, 0.20, 0.20, 0.20, 0.20, 0.20, 0.16, 0.14, 0.20, 0.20])
     current = torch.tensor(
-        [0.19, 0.19, 0.20, 0.21, 0.19, 0.19, 0.19, float("nan"), 0.10]
+        [0.19, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.15, float("nan"), 0.10]
     )
-    fraction = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
-    cost_active = torch.tensor([True, True, True, True, True, True, False, True, True])
-    was_active = torch.tensor([False, True, True, True, True, True, True, True, True])
-    cost = preclearance_inward_progress_cost(
+    fraction = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0])
+    active = torch.tensor([True, True, True, False, True, True, True, True, True, True])
+    was_active = torch.tensor([True, True, False, True, True, True, True, True, True, True])
+    cost = low_clearance_inward_progress_cost(
         previous,
         current,
         fraction,
-        cost_active,
+        active,
         was_active,
+        near_basket_xy_threshold=0.17,
         max_step_change=0.03,
     )
 
     assert torch.allclose(
         cost,
-        torch.tensor([0.0, 0.01, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0, 0.03]),
+        torch.tensor([0.0, 0.01, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0, 0.0, 0.03]),
     )
 
 
