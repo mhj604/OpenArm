@@ -20,14 +20,21 @@ assert SPEC is not None and SPEC.loader is not None
 controller_math = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(controller_math)
 jerk_limited_cartesian_velocity = controller_math.jerk_limited_cartesian_velocity
+lift_first_actor_phase = controller_math.lift_first_actor_phase
+lift_first_reward_phase = controller_math.lift_first_reward_phase
+lift_first_transport_goal = controller_math.lift_first_transport_goal
+lift_first_xy_unlock_fraction = controller_math.lift_first_xy_unlock_fraction
 active_translation_progress_ratio = controller_math.active_translation_progress_ratio
 apply_stopping_speed_envelope = controller_math.apply_stopping_speed_envelope
 build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
 constrain_target_lead = controller_math.constrain_target_lead
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
+preclearance_inward_progress_cost = controller_math.preclearance_inward_progress_cost
+pregrasp_opening_quality_factor = controller_math.pregrasp_opening_quality_factor
 project_goal_directed_step = controller_math.project_goal_directed_step
 quintic_smoothstep = controller_math.quintic_smoothstep
 realized_translation_progress = controller_math.realized_translation_progress
+required_axis_progress_valid = controller_math.required_axis_progress_valid
 scale_delta_to_cartesian_bounds = controller_math.scale_delta_to_cartesian_bounds
 select_phase_axis_fallback = controller_math.select_phase_axis_fallback
 solve_prioritized_dls_delta = controller_math.solve_prioritized_dls_delta
@@ -45,6 +52,115 @@ def test_quintic_blend_has_exact_endpoints_and_is_monotonic():
     assert blend[0].item() == 0.0
     assert blend[-1].item() == 1.0
     assert torch.all(blend[1:] >= blend[:-1])
+
+
+def test_lift_first_transport_goal_blends_xy_without_changing_command_shape():
+    object_position = torch.tensor(
+        [
+            [0.40, -0.15, 0.35],
+            [0.41, -0.14, 0.36],
+            [0.42, -0.13, 0.37],
+            [0.43, -0.12, 0.38],
+            [0.44, -0.11, 0.39],
+        ]
+    )
+    object_height = torch.tensor([0.625, 0.710, 0.720, 0.730, 0.700])
+    final_command = torch.tensor(
+        [[0.37, 0.07, 0.32, 1.0, 0.0, 0.0, 0.0]] * 5
+    )
+    lift_first_active = torch.tensor([False, True, True, True, False])
+
+    goal, unlock = lift_first_transport_goal(
+        object_position,
+        object_height,
+        final_command,
+        lift_first_active,
+        carry_height_b=0.40,
+        unlock_start_height_w=0.710,
+        unlock_full_height_w=0.730,
+    )
+
+    assert goal.shape == final_command.shape
+    assert torch.allclose(unlock, torch.tensor([1.0, 0.0, 0.5, 1.0, 1.0]))
+    assert torch.allclose(goal[0, :2], final_command[0, :2])
+    assert torch.allclose(goal[1, :2], object_position[1, :2])
+    assert torch.allclose(
+        goal[2, :2],
+        0.5 * (object_position[2, :2] + final_command[2, :2]),
+        atol=1.0e-6,
+    )
+    assert torch.allclose(goal[3:, :2], final_command[3:, :2])
+    assert torch.allclose(goal[:, 2], torch.full((5,), 0.40))
+    assert torch.equal(goal[:, 3:], final_command[:, 3:])
+
+
+def test_lift_first_phase_is_continuous_from_verification_until_assist():
+    phase = lift_first_actor_phase(
+        grasp_lift_authorized=torch.tensor([False, True, False, False, False, False]),
+        grasp_acquired=torch.tensor([False, False, True, True, True, True]),
+        assist_engaged=torch.tensor([False, False, False, False, True, False]),
+        released=torch.tensor([False, False, False, False, False, True]),
+        failed=torch.tensor([False, False, False, True, False, False]),
+    )
+
+    assert torch.equal(
+        phase,
+        torch.tensor([False, True, True, False, False, False]),
+    )
+
+
+def test_lift_first_reward_includes_the_actor_handoff_control():
+    phase = lift_first_reward_phase(
+        grasp_lift_authorized=torch.tensor([True, False, False, False, False]),
+        grasp_acquired=torch.tensor([False, True, True, True, True]),
+        assist_engaged=torch.tensor([False, False, True, True, True]),
+        assist_owns_arm=torch.tensor([True, False, False, True, False]),
+        released=torch.tensor([False, False, False, False, True]),
+        failed=torch.tensor([False, False, False, False, False]),
+    )
+
+    assert torch.equal(phase, torch.tensor([True, True, True, False, False]))
+
+
+def test_lift_first_unlock_is_monotonic_and_preclearance_cost_is_selective():
+    height = torch.linspace(0.700, 0.740, 81)
+    active = torch.ones_like(height, dtype=torch.bool)
+    unlock = lift_first_xy_unlock_fraction(height, active, 0.710, 0.730)
+
+    assert unlock[0].item() == 0.0
+    assert unlock[-1].item() == 1.0
+    assert torch.all(unlock[1:] >= unlock[:-1])
+
+    previous = torch.tensor([0.20] * 9)
+    current = torch.tensor(
+        [0.19, 0.19, 0.20, 0.21, 0.19, 0.19, 0.19, float("nan"), 0.10]
+    )
+    fraction = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
+    cost_active = torch.tensor([True, True, True, True, True, True, False, True, True])
+    was_active = torch.tensor([False, True, True, True, True, True, True, True, True])
+    cost = preclearance_inward_progress_cost(
+        previous,
+        current,
+        fraction,
+        cost_active,
+        was_active,
+        max_step_change=0.03,
+    )
+
+    assert torch.allclose(
+        cost,
+        torch.tensor([0.0, 0.01, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0, 0.03]),
+    )
+
+
+def test_pregrasp_opening_quality_matches_the_ready_gate_funnel():
+    open_quality = pregrasp_opening_quality_factor(
+        bilateral_open_fraction=torch.tensor([0.08, 0.465, 0.85, 1.0, float("nan")]),
+        candidate_min_open_fraction=0.08,
+        preclose_min_open_fraction=0.85,
+    )
+
+    assert torch.allclose(open_quality, torch.tensor([0.0, 0.5, 1.0, 1.0, 0.0]))
 
 
 def test_xy_motion_is_not_throttled_by_inactive_z():
@@ -127,6 +243,11 @@ def test_cartesian_scaling_applies_request_cap_and_error_nonincrease_bound():
         joint_delta,
         predicted,
         error,
+        requested_translation=torch.tensor(
+            [[0.0025, 0.0, 0.0], [0.0, 0.0, -0.006]]
+        ),
+        require_xy_progress=torch.tensor([True, False]),
+        require_z_progress=torch.tensor([False, True]),
         maximum_xy=torch.tensor([0.0025, 0.0100]),
         maximum_up=torch.tensor([0.0025, 0.0100]),
         maximum_down=torch.tensor([0.0030, 0.0100]),
@@ -157,6 +278,11 @@ def test_cartesian_scaling_limits_inactive_axis_leak_with_margin():
         joint_delta,
         predicted,
         error,
+        requested_translation=torch.tensor(
+            [[0.002, 0.0, 0.0], [0.0, 0.0, -0.002]]
+        ),
+        require_xy_progress=torch.tensor([True, False]),
+        require_z_progress=torch.tensor([False, True]),
         maximum_xy=0.010,
         maximum_up=0.010,
         maximum_down=0.010,
@@ -183,6 +309,11 @@ def test_cartesian_scaling_rejects_regressive_active_axes():
         joint_delta,
         predicted,
         error,
+        requested_translation=torch.tensor(
+            [[0.002, 0.0, 0.0], [0.0, 0.0, -0.002]]
+        ),
+        require_xy_progress=torch.tensor([True, False]),
+        require_z_progress=torch.tensor([False, True]),
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
@@ -194,6 +325,90 @@ def test_cartesian_scaling_rejects_regressive_active_axes():
     assert not torch.any(feasible)
     assert torch.equal(scale, torch.zeros(2))
     assert torch.equal(scaled, torch.zeros_like(joint_delta))
+
+
+def test_required_axis_progress_distinguishes_coupled_and_single_axis_ownership():
+    requested = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.002, 0.0, 0.0],
+            [0.002, 0.0, -0.002],
+            [0.002, 0.0, -0.002],
+            [0.002, 0.0, -0.002],
+            [0.002, 0.0, 0.0],
+        ]
+    )
+    predicted = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0001],
+            [0.001, 0.0, 0.0],
+            [0.001, 0.0, 0.0],
+            [0.0, 0.0, -0.001],
+            [-0.001, 0.0, 0.0],
+        ]
+    )
+    require_xy = torch.tensor([False, True, True, True, False, True])
+    require_z = torch.tensor([False, False, True, False, True, False])
+
+    valid, xy_ratio, z_ratio = required_axis_progress_valid(
+        predicted,
+        requested,
+        require_xy,
+        require_z,
+    )
+
+    assert torch.equal(
+        valid,
+        torch.tensor([True, False, False, True, True, False]),
+    )
+    assert xy_ratio[3] > 0.0
+    assert z_ratio[4] > 0.0
+
+
+def test_required_axis_progress_rejects_numerical_noops_and_nonfinite_values():
+    requested = torch.tensor([[0.002, 0.0, 0.0]] * 4)
+    predicted = torch.tensor(
+        [
+            [0.002 * 0.5e-6, 0.0, 0.0],
+            [0.002 * 2.0e-6, 0.0, 0.0],
+            [float("nan"), 0.0, 0.0],
+            [float("inf"), 0.0, 0.0],
+        ]
+    )
+    required = torch.ones(4, dtype=torch.bool)
+
+    valid, _, _ = required_axis_progress_valid(
+        predicted,
+        requested,
+        required,
+        torch.zeros_like(required),
+    )
+
+    assert torch.equal(valid, torch.tensor([False, True, False, False]))
+
+
+def test_required_axis_progress_applies_the_configured_candidate_floor_per_axis():
+    requested = torch.tensor([[0.002, 0.0, -0.002]] * 4)
+    predicted = torch.tensor(
+        [
+            [0.002 * 0.249, 0.0, -0.002 * 0.80],
+            [0.002 * 0.25, 0.0, -0.002 * 0.80],
+            [0.002 * 0.80, 0.0, -0.002 * 0.249],
+            [0.002 * 0.80, 0.0, -0.002 * 0.25],
+        ]
+    )
+    required = torch.ones(4, dtype=torch.bool)
+
+    valid, _, _ = required_axis_progress_valid(
+        predicted,
+        requested,
+        required,
+        required,
+        minimum_progress_ratio=0.25,
+    )
+
+    assert torch.equal(valid, torch.tensor([False, True, False, True]))
 
 
 def test_phase_axis_fallback_requires_the_current_release_basin_for_z_priority():
@@ -224,6 +439,11 @@ def test_cartesian_scaling_allows_zero_prediction_on_the_other_active_axis():
         joint_delta,
         predicted,
         error,
+        requested_translation=torch.tensor(
+            [[0.002, 0.0, -0.002], [0.002, 0.0, -0.002]]
+        ),
+        require_xy_progress=torch.tensor([True, False]),
+        require_z_progress=torch.tensor([False, True]),
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,
@@ -235,6 +455,59 @@ def test_cartesian_scaling_allows_zero_prediction_on_the_other_active_axis():
     assert torch.all(feasible)
     assert torch.allclose(scale, torch.ones(2))
     assert torch.equal(scaled, joint_delta)
+
+
+def test_cartesian_scaling_rejects_candidates_below_the_progress_floor():
+    joint_delta = torch.tensor([[0.020, 0.010], [0.020, 0.010]])
+    predicted = torch.tensor([[0.0004, 0.0, 0.0], [0.0006, 0.0, 0.0]])
+    requested = torch.tensor([[0.002, 0.0, 0.0]] * 2)
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        position_error=torch.tensor([[0.100, 0.0, 0.0]] * 2),
+        requested_translation=requested,
+        require_xy_progress=torch.ones(2, dtype=torch.bool),
+        require_z_progress=torch.zeros(2, dtype=torch.bool),
+        maximum_xy=0.0025,
+        maximum_up=0.0025,
+        maximum_down=0.0030,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
+        inactive_leak_tolerance=0.001,
+        minimum_progress_ratio=0.25,
+    )
+
+    assert torch.equal(feasible, torch.tensor([False, True]))
+    assert torch.equal(scale, torch.tensor([0.0, 1.0]))
+    assert torch.equal(scaled[0], torch.zeros_like(scaled[0]))
+    assert torch.equal(scaled[1], joint_delta[1])
+
+
+def test_cartesian_scaling_rejects_missing_required_axis_and_leak_only_motion():
+    joint_delta = torch.tensor([[0.020, 0.010], [0.010, 0.0]])
+    predicted = torch.tensor([[0.002, 0.0, 0.0], [0.0, 0.0, 0.0001]])
+    error = torch.tensor([[0.100, 0.0, -0.050], [0.100, 0.0, 0.0]])
+    requested = torch.tensor([[0.002, 0.0, -0.002], [0.002, 0.0, 0.0]])
+
+    scaled, scale, feasible = scale_delta_to_cartesian_bounds(
+        joint_delta,
+        predicted,
+        error,
+        requested_translation=requested,
+        require_xy_progress=torch.tensor([True, True]),
+        require_z_progress=torch.tensor([True, False]),
+        maximum_xy=0.0025,
+        maximum_up=0.0025,
+        maximum_down=0.0030,
+        horizontal_deadband=0.005,
+        vertical_deadband=0.002,
+        inactive_leak_tolerance=0.001,
+    )
+
+    assert not torch.any(feasible)
+    assert torch.equal(scale, torch.zeros(2))
+    assert torch.equal(scaled, torch.zeros_like(joint_delta))
 
 
 def test_cartesian_scaling_rejects_nonfinite_and_zero_candidates():
@@ -262,6 +535,11 @@ def test_cartesian_scaling_rejects_nonfinite_and_zero_candidates():
         joint_delta,
         predicted,
         error,
+        requested_translation=torch.tensor(
+            [[0.002, 0.0, 0.0]] * 4
+        ),
+        require_xy_progress=torch.ones(4, dtype=torch.bool),
+        require_z_progress=torch.zeros(4, dtype=torch.bool),
         maximum_xy=0.0025,
         maximum_up=0.0025,
         maximum_down=0.0030,

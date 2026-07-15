@@ -56,16 +56,197 @@ def scale_delta_to_joint_limits(
     return delta * torch.clamp(scale, min=0.0, max=1.0)
 
 
+def lift_first_xy_unlock_fraction(
+    object_height: torch.Tensor,
+    lift_first_active: torch.Tensor,
+    unlock_start_height: float,
+    unlock_full_height: float,
+) -> torch.Tensor:
+    """Blend basket-directed XY only after the carried object clears the near rim."""
+
+    if unlock_full_height <= unlock_start_height:
+        raise ValueError("unlock_full_height must be greater than unlock_start_height")
+    normalized_height = (object_height - unlock_start_height) / (
+        unlock_full_height - unlock_start_height
+    )
+    lift_fraction = quintic_smoothstep(normalized_height)
+    return torch.where(
+        lift_first_active,
+        lift_fraction,
+        torch.ones_like(lift_fraction),
+    )
+
+
+def lift_first_actor_phase(
+    grasp_lift_authorized: torch.Tensor,
+    grasp_acquired: torch.Tensor,
+    assist_engaged: torch.Tensor,
+    released: torch.Tensor,
+    failed: torch.Tensor,
+) -> torch.Tensor:
+    """Return the continuous verification-through-carry lift-first phase."""
+
+    return (
+        (grasp_lift_authorized | grasp_acquired)
+        & ~assist_engaged
+        & ~released
+        & ~failed
+    )
+
+
+def lift_first_reward_phase(
+    grasp_lift_authorized: torch.Tensor,
+    grasp_acquired: torch.Tensor,
+    assist_engaged: torch.Tensor,
+    assist_owns_arm: torch.Tensor,
+    released: torch.Tensor,
+    failed: torch.Tensor,
+) -> torch.Tensor:
+    """Include the handoff control until assist actually owns the arm."""
+
+    base_phase = (grasp_lift_authorized | grasp_acquired) & ~released & ~failed
+    return base_phase & (~assist_engaged | ~assist_owns_arm)
+
+
+def lift_first_transport_goal(
+    object_position_b: torch.Tensor,
+    object_height_w: torch.Tensor,
+    final_goal_command: torch.Tensor,
+    lift_first_active: torch.Tensor,
+    carry_height_b: float,
+    unlock_start_height_w: float,
+    unlock_full_height_w: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return a smooth lift-first waypoint while preserving command dimensions."""
+
+    unlock_fraction = lift_first_xy_unlock_fraction(
+        object_height_w,
+        lift_first_active,
+        unlock_start_height_w,
+        unlock_full_height_w,
+    )
+    goal = final_goal_command.clone()
+    goal[:, :2] = object_position_b[:, :2] + unlock_fraction[:, None] * (
+        final_goal_command[:, :2] - object_position_b[:, :2]
+    )
+    goal[:, 2] = carry_height_b
+    return goal, unlock_fraction
+
+
+def preclearance_inward_progress_cost(
+    previous_distance_xy: torch.Tensor,
+    distance_xy: torch.Tensor,
+    unlock_fraction: torch.Tensor,
+    active: torch.Tensor,
+    was_active: torch.Tensor,
+    max_step_change: float,
+) -> torch.Tensor:
+    """Measure only basket-directed progress made before full XY clearance."""
+
+    finite = (
+        torch.isfinite(previous_distance_xy)
+        & torch.isfinite(distance_xy)
+        & torch.isfinite(unlock_fraction)
+    )
+    inward_progress = torch.clamp(
+        previous_distance_xy - distance_xy,
+        min=0.0,
+        max=max_step_change,
+    )
+    clearance_weight = 1.0 - torch.clamp(unlock_fraction, min=0.0, max=1.0)
+    return torch.where(
+        finite & active & was_active,
+        clearance_weight * inward_progress,
+        torch.zeros_like(distance_xy),
+    )
+
+
+def pregrasp_opening_quality_factor(
+    bilateral_open_fraction: torch.Tensor,
+    candidate_min_open_fraction: float,
+    preclose_min_open_fraction: float,
+) -> torch.Tensor:
+    """Return a dense factor aligned with the grasp-ready aperture gate."""
+
+    if preclose_min_open_fraction <= candidate_min_open_fraction:
+        raise ValueError(
+            "preclose_min_open_fraction must exceed candidate_min_open_fraction"
+        )
+    open_quality = torch.clamp(
+        (bilateral_open_fraction - candidate_min_open_fraction)
+        / (preclose_min_open_fraction - candidate_min_open_fraction),
+        min=0.0,
+        max=1.0,
+    )
+    return torch.where(
+        torch.isfinite(bilateral_open_fraction),
+        open_quality,
+        torch.zeros_like(open_quality),
+    )
+
+
+def required_axis_progress_valid(
+    predicted_translation: torch.Tensor,
+    requested_translation: torch.Tensor,
+    require_xy: torch.Tensor,
+    require_z: torch.Tensor,
+    minimum_progress_ratio: float = 1.0e-6,
+    request_active_epsilon: float = 1.0e-9,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Validate the minimum progress ratio on each axis a candidate owns."""
+
+    if minimum_progress_ratio <= 0.0:
+        raise ValueError("minimum_progress_ratio must be positive")
+
+    batch_size = predicted_translation.shape[0]
+    require_xy = torch.as_tensor(
+        require_xy, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(batch_size)
+    require_z = torch.as_tensor(
+        require_z, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(batch_size)
+
+    requested_xy_squared = torch.sum(requested_translation[:, :2] ** 2, dim=1)
+    requested_z_squared = requested_translation[:, 2] ** 2
+    xy_active = requested_xy_squared > request_active_epsilon**2
+    z_active = torch.abs(requested_translation[:, 2]) > request_active_epsilon
+    xy_ratio = torch.sum(
+        predicted_translation[:, :2] * requested_translation[:, :2], dim=1
+    ) / torch.clamp(requested_xy_squared, min=request_active_epsilon**2)
+    z_ratio = (
+        predicted_translation[:, 2]
+        * requested_translation[:, 2]
+        / torch.clamp(requested_z_squared, min=request_active_epsilon**2)
+    )
+
+    finite = (
+        torch.all(torch.isfinite(predicted_translation), dim=1)
+        & torch.all(torch.isfinite(requested_translation), dim=1)
+        & torch.isfinite(xy_ratio)
+        & torch.isfinite(z_ratio)
+    )
+    requirements_consistent = (~require_xy | xy_active) & (~require_z | z_active)
+    required_progress = (
+        (~require_xy | (xy_ratio >= minimum_progress_ratio))
+        & (~require_z | (z_ratio >= minimum_progress_ratio))
+    )
+    return finite & requirements_consistent & required_progress, xy_ratio, z_ratio
+
+
 def scale_delta_to_cartesian_bounds(
     joint_delta: torch.Tensor,
     predicted_translation: torch.Tensor,
     position_error: torch.Tensor,
+    requested_translation: torch.Tensor,
+    require_xy_progress: torch.Tensor,
+    require_z_progress: torch.Tensor,
     maximum_xy: float | torch.Tensor,
     maximum_up: float | torch.Tensor,
     maximum_down: float | torch.Tensor,
     horizontal_deadband: float | torch.Tensor,
     vertical_deadband: float | torch.Tensor,
     inactive_leak_tolerance: float | torch.Tensor,
+    minimum_progress_ratio: float = 1.0e-6,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Uniformly shrink a joint delta to satisfy Cartesian safety bounds.
 
@@ -91,6 +272,12 @@ def scale_delta_to_cartesian_bounds(
     xy_deadband = as_batch(horizontal_deadband)
     z_deadband = as_batch(vertical_deadband)
     leak_tolerance = as_batch(inactive_leak_tolerance)
+    require_xy_progress = torch.as_tensor(
+        require_xy_progress, device=joint_delta.device, dtype=torch.bool
+    ).reshape(batch_size)
+    require_z_progress = torch.as_tensor(
+        require_z_progress, device=joint_delta.device, dtype=torch.bool
+    ).reshape(batch_size)
 
     xy_error = position_error[:, :2]
     xy_step = predicted_translation[:, :2]
@@ -151,6 +338,15 @@ def scale_delta_to_cartesian_bounds(
     )
 
     scale = torch.clamp(torch.minimum(xy_bound, z_bound), min=0.0, max=1.0)
+    scaled_prediction = predicted_translation * scale[:, None]
+    progress_valid, _, _ = required_axis_progress_valid(
+        scaled_prediction,
+        requested_translation,
+        require_xy_progress,
+        require_z_progress,
+        minimum_progress_ratio,
+    )
+    required_motion = require_xy_progress | require_z_progress
     finite = (
         torch.all(torch.isfinite(joint_delta), dim=1)
         & torch.all(torch.isfinite(predicted_translation), dim=1)
@@ -179,6 +375,8 @@ def scale_delta_to_cartesian_bounds(
         finite
         & parameters_valid
         & (xy_active | z_active)
+        & required_motion
+        & progress_valid
         & forward
         & nonzero_delta
         & nonzero_prediction

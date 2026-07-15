@@ -1,6 +1,6 @@
 # OpenArm Pick-and-Place Handoff
 
-Last updated: 2026-07-14 KST
+Last updated: 2026-07-15 KST
 
 ## Repository And Tasks
 
@@ -14,9 +14,9 @@ Train: Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0
 GUI:   Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0
 ```
 
-Current code target is untrained v35. The GUI-approved v34 baseline is
-`2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt`; it is archived under
-`artifacts/checkpoints/openarm_pick_place/v34/` with its resolved agent and environment settings.
+Current code target is untrained v36. The latest GUI-approved v35 baseline is
+`2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt`; it is archived under
+`artifacts/checkpoints/openarm_pick_place/v35/` with its resolved agent and environment settings.
 
 ## V19 Result And Exact Cause
 
@@ -502,7 +502,7 @@ controls that do pass have good progress, while lead-constraint rebases and fina
 zero. This identifies all-or-nothing candidate rejection, not insufficient gain, reward, or training
 time, as the remaining nominal bottleneck.
 
-## Current V35 Policy (Untrained)
+## V35 Policy and Completed Result
 
 V35 keeps v34's observations, actions, 20 rewards, PPO, `.670m` goal, 16-second episode, grasp
 contract, release XY `40mm`, success XY `50mm`, height `+2/-3mm`, release speed `.06m/s`, and
@@ -521,9 +521,9 @@ current-relative three-control lead. It makes only the verified final-controller
   release, or success thresholds.
 - TensorBoard now separates scaled repairs, XY/Z fallbacks, XY/Z raw rejects, and final full holds.
 
-Static validation: `35 passed`, Python compilation and `git diff --check` passed, and a 100,000-row
-randomized Cartesian-bound check found zero safety violations. No Isaac simulation was used to claim
-v35 performance; it must be trained fresh.
+Before training, static validation was `35 passed`; Python compilation, `git diff --check`, and a
+100,000-row randomized Cartesian-bound check also passed. Those checks established the safety
+contract but did not claim runtime performance.
 
 Run from `/home/mh/.codex_tmp_openarm_remote` as one shell line:
 
@@ -535,3 +535,76 @@ Do not resume or bootstrap. At rolling-50, require grasp `>=96.5%`, transport `>
 `>=91%`, release authorization and success `>=67.5/67%`, total timeout `<=33%`, center-to-release
 timeout `<=22%`, incremental full stops `<=50%`, and no-motion lead holds `<=30%`. Do not add domain
 randomization until the deterministic center-to-release bottleneck passes this gate and GUI review.
+
+The fresh v35 run `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35` completed all 5000 iterations.
+The selected GUI checkpoint is `model_3275.pt`: sampled rolling-50 grasp/success are
+`93.33/61.47%`. The user judged its overall actor-mean GUI behavior good, while observing an
+occasional grasp miss and a slight near-rim touch during the early carry. The checkpoint is archived
+under `artifacts/checkpoints/openarm_pick_place/v35/` with SHA-256
+`9063292df616bbd74ade6a42728c9774c6d1d5485c2eb4e42a8a9e40cbd29260`.
+
+V35 did solve the controller bottleneck: incremental full stops fell from v34's `79.25%` to about
+`0.80%`, no-motion lead holds fell from `56.44%` to about `1.46%`, and center-to-release timeout fell
+from `26.05%` to `18.58%`. It did not pass the full nominal policy gate because shared-PPO drift
+reduced grasp and sampled success. At `model_3275`, `6.418pp` of the `6.667pp` grasp shortfall is
+approach timeout; close/verification contributes only `0.054pp`. The deterministic closing and
+coupling gates therefore must not be relaxed.
+
+Post-run review found one correctness defect in the v35 repair path. A candidate could satisfy the
+non-regression test with zero progress on a requested axis, or be revived by motion on an inactive
+axis. This explains some residual low-progress acceptance, but it does not invalidate v35's final
+Cartesian safety gate. V36 requires at least `25%` progress on every axis owned by a coupled
+candidate and only on the selected axis for a phase fallback. Previous-target and current-pose holds
+remain allowed as explicit stabilization paths.
+
+## Current V36 Policy (Untrained)
+
+V36 is the intended final nominal candidate before domain randomization. It preserves the `75` policy
+observations, `8` actions, `.73/.75/.79m` carry band, `.670m` release target, assist radii, PPO,
+16-second episode, and every strict physical grasp/release/success gate. It changes the reward count
+from `20` to `21` for one explicit low-clearance path cost.
+
+- The basket rim is about world Z `.6497m`; the verified `.73m` lift gate already provides enough
+  height. Geometry and policy/reward ordering indicate the most likely cause of the observed touch:
+  the actor saw basket XY and carry Z simultaneously while the `-15/s` pre-assist delay favored a
+  diagonal shortcut. V36 training and GUI review must verify this inference.
+- From verified-contact lift through actor-owned carry, basket-directed XY unlocks continuously from
+  object Z `.710m` to `.730m` with a quintic blend. Below `.710m` the goal XY follows the cube, at
+  `.720m` it is halfway to the basket goal, and by `.730m` it is the unchanged final XY. Carry Z
+  remains `.750m`; if the cube sags below `.730m` before assist, XY immediately relocks by height.
+- Basket-directed progress below full clearance receives a stateful `-200/m` cost weighted by the
+  remaining locked fraction. A 5cm low shortcut costs at most `-10`; stationary motion, retreat,
+  first-active discontinuity, assist descent, and release receive zero cost. The inward half of a
+  back-and-forth jitter cycle is intentionally charged.
+- Grasp approach shaping reuses the established broad alignment quality, which already includes a
+  smooth relative-speed term, and applies only a bounded `0.75 -> 1.0` gripper-opening multiplier.
+  Quality/dwell scales change `5+1 -> 4+2`, keeping the maximum `6/s` shaping without creating a
+  zero-gradient speed plateau. Physical closing, contact, coupling, and retry gates are unchanged.
+- Coupled assist candidates require at least the configured `25%` progress ratio on both XY and Z
+  when both are requested. XY-only and Z-only fallbacks require the same floor only on their owned
+  axis while retaining full cross-axis leak, joint-limit, angular-lead, and continuity checks. Zero,
+  low-progress, and inactive-leak-only revival is blocked at raw, scaled, entry, preferred-lead, and
+  incremental-lead stages; explicit previous-target/current-pose stabilization remains available.
+- `task_low_clearance_basket_approach_steps` records pre-assist controls inside `.17m` of the goal while
+  object Z is below the full `.730m` clearance. ContactSensor remains disabled because its
+  5120-environment PhysX and filtered finger-contact cost is unmeasured and its post-contact signal
+  was not selected; reconsider direct contact sensing if v36 GUI review still shows contact.
+
+Static validation is `46 passed`; Python compilation, `git diff --check`, archive JSON/hash checks,
+and an ad-hoc 100,000-row requested-axis progress audit pass. No Isaac simulation or training was
+launched for v36 during the edit.
+
+Run fresh as one shell line from `/home/mh/.codex_tmp_openarm_remote`:
+
+```bash
+python scripts/rsl_rl/train.py --task=Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0 --num_envs=5120 --headless --device=cuda --max_iterations=5000 --run_name=fresh_lift_first_grasp_progress_v36
+```
+
+Do not resume or bootstrap. At rolling-50, require grasp `>=96.5%`, first-attempt grasp `>=78%`,
+ready/candidate `>=98/97.5%`, approach timeout `<=3%`, empty-close abort `0`, transport `>=96.2%`,
+center `>=91%`, success `>=67%`, total timeout `<=33%`, center-to-release timeout `<=22%`,
+low-clearance occupancy `<=0.1 controls/episode`, incremental full stops `<=5%`, and lead holds
+`<=10%`. Review models 500, 1000, 2000, 3500, and the best late checkpoint. Domain randomization
+stays off until those sampled gates pass and formal actor-mean evaluation reaches success `>=80%`,
+lift/transport `>=90%`, timeout `<=15%` across multiple seeds, plus 20 GUI episodes with zero
+near-rim contact.

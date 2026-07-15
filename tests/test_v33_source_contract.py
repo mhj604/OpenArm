@@ -40,7 +40,7 @@ def test_v33_keeps_episode_and_policy_contract():
         and isinstance(node.value.func, ast.Name)
         and node.value.func.id == "RewTerm"
     ]
-    assert len(reward_terms) == 20
+    assert len(reward_terms) == 21
 
 
 def test_train_and_play_share_the_low_release_target():
@@ -128,10 +128,14 @@ def test_global_cross_axis_throttle_paths_were_removed():
 
 def test_v35_repairs_invalid_dls_before_holding_the_arm():
     assert "scale_delta_to_cartesian_bounds" in MDP_SOURCE
+    assert "required_axis_progress_valid" in MDP_SOURCE
     assert "use_scaled = requested_motion & ~candidate_valid & scaled_valid" in MDP_SOURCE
     assert "def solve_single_axis_candidate" in MDP_SOURCE
     assert "select_phase_axis_fallback" in MDP_SOURCE
     assert "state.inside_release_xy[assist_ids]" in MDP_SOURCE
+    assert "selected_required_xy" in MDP_SOURCE
+    assert "selected_required_z" in MDP_SOURCE
+    assert "no_progress_required" in MDP_SOURCE
     assert "selected_valid |= use_xy_fallback | use_z_fallback" in MDP_SOURCE
     for metric in (
         "task_assist_incremental_scaled_repairs",
@@ -141,6 +145,30 @@ def test_v35_repairs_invalid_dls_before_holding_the_arm():
         "task_assist_incremental_z_rejects",
     ):
         assert metric in MDP_SOURCE
+
+
+def test_v36_lift_first_grasp_and_progress_contracts_are_explicit():
+    assert "STAGE_CARRY_MIN_HEIGHT_W = 0.73" in ENV_SOURCE
+    assert "STAGE_CARRY_TARGET_HEIGHT_W = 0.75" in ENV_SOURCE
+    assert "STAGE_CARRY_MAX_HEIGHT_W = 0.79" in ENV_SOURCE
+    assert "TRANSPORT_XY_UNLOCK_START_HEIGHT_W = 0.710" in ENV_SOURCE
+    assert "TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W" in ENV_SOURCE
+    assert "LOW_CLEARANCE_BASKET_APPROACH_XY = 0.17" in ENV_SOURCE
+    assert "low_clearance_height=TRANSPORT_XY_UNLOCK_FULL_HEIGHT_W" in ENV_SOURCE
+    assert '"quality_scale": 4.0' in ENV_SOURCE
+    assert '"dwell_scale": 2.0' in ENV_SOURCE
+    assert "weight=-200.0" in ENV_SOURCE
+    assert "lift_first_transport_goal" in MDP_SOURCE
+    assert "task_preclearance_inward_progress" in MDP_SOURCE
+    assert "pregrasp_opening_quality_factor" in MDP_SOURCE
+    assert "task_low_clearance_basket_approach_steps" in MDP_SOURCE
+    assert MDP_SOURCE.count("lift_first_actor_phase(") == 2
+    assert MDP_SOURCE.count("lift_first_reward_phase(") == 2
+    assert "quality = state.grasp_alignment_quality * aperture_multiplier" in MDP_SOURCE
+    assert "aperture_multiplier = 0.75 + 0.25 * open_quality" in MDP_SOURCE
+    assert MDP_SOURCE.count("self.cfg.minimum_active_progress_ratio") >= 8
+    assert "ContactSensor" not in ENV_SOURCE
+    assert "ContactSensor" not in MDP_SOURCE
 
 
 def test_pregrasp_reward_excludes_only_automatic_pose_holds():

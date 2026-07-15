@@ -30,10 +30,17 @@ from .controller_math import (
     constrain_target_lead,
     damped_pseudoinverse,
     jerk_limited_cartesian_velocity,
+    lift_first_actor_phase,
+    lift_first_reward_phase,
+    lift_first_transport_goal,
+    lift_first_xy_unlock_fraction,
     limit_vector_norm,
+    preclearance_inward_progress_cost,
+    pregrasp_opening_quality_factor,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
+    required_axis_progress_valid,
     scale_delta_to_joint_limits,
     scale_delta_to_cartesian_bounds,
     select_phase_axis_fallback,
@@ -99,6 +106,7 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_grasp_candidate_object_lift",
             "task_grasp_candidate_tcp_lift",
             "task_transport_displacement",
+            "task_low_clearance_basket_approach_steps",
             "task_assist_engaged",
             "task_assist_active",
             "task_assist_owns_arm",
@@ -288,6 +296,21 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 state.grasp_candidate_tcp_lift.clone()
             )
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
+            low_clearance_approach = (
+                lift_first_reward_phase(
+                    state.grasp_lift_authorized,
+                    state.grasp_acquired,
+                    state.assist_engaged,
+                    state.assist_owns_arm,
+                    state.released,
+                    state.failed,
+                )
+                & (state.distance_xy <= self.cfg.near_basket_xy_threshold)
+                & (state.object_height < self.cfg.low_clearance_height)
+            )
+            self.metrics["task_low_clearance_basket_approach_steps"].add_(
+                low_clearance_approach.float()
+            )
             self.metrics["task_assist_engaged"] = state.assist_engaged.float()
             self.metrics["task_assist_active"] = state.assist_active.float()
             self.metrics["task_assist_owns_arm"] = state.assist_owns_arm.float()
@@ -565,6 +588,8 @@ class StagedObjectPoseCommandCfg(UniformPoseCommandCfg):
     curriculum_num_steps: int = 72_000
     curriculum_power: float = 1.5
     force_final_goal: bool = False
+    low_clearance_height: float = 0.710
+    near_basket_xy_threshold: float = 0.17
 
 
 class HystereticBinaryJointPositionAction(BinaryJointPositionAction):
@@ -1574,9 +1599,21 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 entry_z_limit,
                 self.cfg.cartesian_hard_leak_tolerance,
             )
+            entry_require_xy = (
+                torch.norm(entry_target_lead[:, :2], dim=1) > 1.0e-9
+            )
+            entry_require_z = torch.abs(entry_target_lead[:, 2]) > 1.0e-9
+            entry_progress_valid, _, _ = required_axis_progress_valid(
+                predicted_entry_twist[:, :3],
+                entry_target_lead,
+                entry_require_xy,
+                entry_require_z,
+                self.cfg.minimum_active_progress_ratio,
+            )
             entry_valid = (
                 entry_xy_safe
                 & entry_z_safe
+                & entry_progress_valid
                 & (
                     torch.norm(predicted_entry_twist[:, 3:], dim=1)
                     <= self.cfg.max_angular_target_lead + 1.0e-6
@@ -1642,6 +1679,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
 
         def evaluate_delta(
             candidate_delta: torch.Tensor,
+            require_xy: torch.Tensor,
+            require_z: torch.Tensor,
         ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             candidate_prediction = (
                 task_jacobian @ candidate_delta.unsqueeze(-1)
@@ -1654,16 +1693,24 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 requested_z,
                 self.cfg.cartesian_hard_leak_tolerance,
             )
+            candidate_progress_valid, _, _ = required_axis_progress_valid(
+                candidate_prediction[:, :3],
+                delta_position,
+                require_xy,
+                require_z,
+                self.cfg.minimum_active_progress_ratio,
+            )
             candidate_valid = (
                 candidate_xy_safe
                 & candidate_z_safe
+                & candidate_progress_valid
                 & torch.all(torch.isfinite(candidate_delta), dim=1)
             )
             candidate_ratio = active_translation_progress_ratio(
                 candidate_prediction[:, :3],
                 delta_position,
-                requested_xy_active,
-                requested_z_active,
+                require_xy,
+                require_z,
             )
             return candidate_prediction, candidate_valid, candidate_ratio
 
@@ -1672,6 +1719,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             candidate_prediction: torch.Tensor,
             candidate_valid: torch.Tensor,
             candidate_ratio: torch.Tensor,
+            require_xy: torch.Tensor,
+            require_z: torch.Tensor,
         ) -> tuple[
             torch.Tensor,
             torch.Tensor,
@@ -1683,14 +1732,20 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 candidate_delta,
                 candidate_prediction[:, :3],
                 object_error,
+                delta_position,
+                require_xy,
+                require_z,
                 requested_xy_norm,
                 requested_z,
                 requested_z,
                 self.cfg.horizontal_position_deadband,
                 self.cfg.vertical_position_deadband,
                 self.cfg.cartesian_hard_leak_tolerance,
+                self.cfg.minimum_active_progress_ratio,
             )
-            scaled_prediction, scaled_valid, scaled_ratio = evaluate_delta(scaled_delta)
+            scaled_prediction, scaled_valid, scaled_ratio = evaluate_delta(
+                scaled_delta, require_xy, require_z
+            )
             scaled_valid &= scaled_feasible
             use_scaled = requested_motion & ~candidate_valid & scaled_valid
             return (
@@ -1707,7 +1762,9 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             prioritized_raw_prediction,
             prioritized_valid,
             prioritized_ratio,
-        ) = evaluate_delta(prioritized_delta)
+        ) = evaluate_delta(
+            prioritized_delta, requested_xy_active, requested_z_active
+        )
         (
             prioritized_delta,
             prioritized_prediction,
@@ -1719,8 +1776,12 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             prioritized_raw_prediction,
             prioritized_valid,
             prioritized_ratio,
+            requested_xy_active,
+            requested_z_active,
         )
-        active_raw_prediction, active_valid, active_ratio = evaluate_delta(active_only_delta)
+        active_raw_prediction, active_valid, active_ratio = evaluate_delta(
+            active_only_delta, requested_xy_active, requested_z_active
+        )
         (
             active_only_delta,
             active_prediction,
@@ -1732,6 +1793,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             active_raw_prediction,
             active_valid,
             active_ratio,
+            requested_xy_active,
+            requested_z_active,
         )
         use_active_only = active_valid & (
             ~prioritized_valid | (active_ratio > prioritized_ratio)
@@ -1758,7 +1821,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         )
 
         postured_raw_prediction, postured_valid, postured_ratio = evaluate_delta(
-            postured_delta
+            postured_delta, requested_xy_active, requested_z_active
         )
         (
             postured_delta,
@@ -1771,6 +1834,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             postured_raw_prediction,
             postured_valid,
             postured_ratio,
+            requested_xy_active,
+            requested_z_active,
         )
         use_posture = (
             requested_motion
@@ -1812,11 +1877,19 @@ class PlaceAssistJointPositionAction(JointPositionAction):
 
         use_scaled_repair = selected_scaled_repair
         unresolved = requested_motion & ~selected_valid
+        selected_required_xy = requested_xy_active.clone()
+        selected_required_z = requested_z_active.clone()
 
         def solve_single_axis_candidate(
             candidate_mask: torch.Tensor,
             use_xy_axis: bool,
         ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            required_xy = (
+                candidate_mask if use_xy_axis else torch.zeros_like(candidate_mask)
+            )
+            required_z = (
+                torch.zeros_like(candidate_mask) if use_xy_axis else candidate_mask
+            )
             if use_xy_axis:
                 axis_jacobian = task_jacobian[:, :2, :]
                 axis_target = delta_position[:, :2]
@@ -1863,12 +1936,16 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 local_delta,
                 local_prediction[:, :3],
                 object_error,
+                delta_position,
+                required_xy,
+                required_z,
                 requested_xy_norm,
                 requested_z,
                 requested_z,
                 self.cfg.horizontal_position_deadband,
                 self.cfg.vertical_position_deadband,
                 self.cfg.cartesian_hard_leak_tolerance,
+                self.cfg.minimum_active_progress_ratio,
             )
             local_prediction = (
                 task_jacobian @ local_delta.unsqueeze(-1)
@@ -1881,18 +1958,26 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 requested_z,
                 self.cfg.cartesian_hard_leak_tolerance,
             )
+            local_progress_valid, _, _ = required_axis_progress_valid(
+                local_prediction[:, :3],
+                delta_position,
+                required_xy,
+                required_z,
+                self.cfg.minimum_active_progress_ratio,
+            )
             local_valid = (
                 candidate_mask
                 & local_feasible
                 & local_xy_safe
                 & local_z_safe
+                & local_progress_valid
                 & torch.all(torch.isfinite(local_delta), dim=1)
             )
             local_ratio = active_translation_progress_ratio(
                 local_prediction[:, :3],
                 delta_position,
-                requested_xy_active,
-                requested_z_active,
+                required_xy,
+                required_z,
             )
             return local_delta, local_valid, local_ratio
 
@@ -1924,6 +2009,13 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         selected_ratio = torch.where(
             use_xy_fallback, xy_fallback_ratio, selected_ratio
         )
+        fallback_used = use_xy_fallback | use_z_fallback
+        selected_required_xy = (
+            selected_required_xy & ~fallback_used
+        ) | use_xy_fallback
+        selected_required_z = (
+            selected_required_z & ~fallback_used
+        ) | use_z_fallback
         selected_valid |= use_xy_fallback | use_z_fallback
         self.assist_incremental_scaled_repair[assist_ids] = (
             use_scaled_repair.float()
@@ -1949,10 +2041,18 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             requested_z,
             self.cfg.cartesian_hard_leak_tolerance,
         )
+        increment_progress_valid, _, _ = required_axis_progress_valid(
+            predicted_increment_twist[:, :3],
+            delta_position,
+            selected_required_xy,
+            selected_required_z,
+            self.cfg.minimum_active_progress_ratio,
+        )
         increment_valid = (
             selected_valid
             & increment_xy_hard_safe
             & increment_z_hard_safe
+            & increment_progress_valid
             & torch.all(torch.isfinite(delta_joint), dim=1)
         )
         delta_joint = torch.where(
@@ -1967,14 +2067,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             requested_xy_active,
             requested_z_active,
         )
-        progress_ratio = torch.where(
-            requested_xy_active & requested_z_active,
-            torch.minimum(xy_progress_ratio, z_progress_ratio),
-            torch.where(
-                requested_xy_active,
-                xy_progress_ratio,
-                z_progress_ratio,
-            ),
+        progress_ratio = active_translation_progress_ratio(
+            predicted_increment_twist[:, :3],
+            delta_position,
+            selected_required_xy,
+            selected_required_z,
         )
         progress_ratio = torch.where(
             requested_motion,
@@ -2068,6 +2165,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         def repair_lead(
             raw_lead: torch.Tensor,
             eligible: torch.Tensor,
+            require_xy: torch.Tensor,
+            require_z: torch.Tensor,
         ) -> tuple[torch.Tensor, torch.Tensor]:
             repaired_all = torch.zeros_like(raw_lead)
             valid_all = torch.zeros_like(eligible)
@@ -2099,9 +2198,17 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 allowed_lead_z[candidate_ids],
                 self.cfg.cartesian_hard_leak_tolerance,
             )
+            candidate_progress_valid, _, _ = required_axis_progress_valid(
+                candidate_twist[:, :3],
+                delta_position[candidate_ids],
+                require_xy[candidate_ids],
+                require_z[candidate_ids],
+                self.cfg.minimum_active_progress_ratio,
+            )
             candidate_valid = (
                 candidate_xy_safe
                 & candidate_z_safe
+                & candidate_progress_valid
                 & (
                     torch.norm(candidate_twist[:, 3:], dim=1)
                     <= self.cfg.max_angular_target_lead + 1.0e-6
@@ -2170,9 +2277,17 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 allowed_lead_z[repair_ids],
                 self.cfg.cartesian_hard_leak_tolerance,
             )
+            repaired_progress_valid, _, _ = required_axis_progress_valid(
+                predicted[:, :3],
+                delta_position[repair_ids],
+                require_xy[repair_ids],
+                require_z[repair_ids],
+                self.cfg.minimum_active_progress_ratio,
+            )
             repaired_valid = (
                 repaired_xy_safe
                 & repaired_z_safe
+                & repaired_progress_valid
                 & (
                     torch.norm(predicted[:, 3:], dim=1)
                     <= self.cfg.max_angular_target_lead + 1.0e-6
@@ -2195,10 +2310,15 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         new_lead, new_lead_valid = repair_lead(
             preferred_raw_lead,
             steady_assist & increment_valid,
+            selected_required_xy,
+            selected_required_z,
         )
+        no_progress_required = torch.zeros_like(requested_motion)
         previous_lead, previous_lead_valid = repair_lead(
             previous_target - current_joint_pos[assist_ids],
             steady_assist & ~new_lead_valid,
+            no_progress_required,
+            no_progress_required,
         )
         incremental_lead, incremental_lead_valid = repair_lead(
             delta_joint,
@@ -2206,6 +2326,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             & increment_valid
             & ~new_lead_valid
             & ~previous_lead_valid,
+            selected_required_xy,
+            selected_required_z,
         )
 
         selected_lead = torch.zeros_like(new_lead)
@@ -2632,30 +2754,90 @@ def transport_goal_command(
     env: ManagerBasedRLEnv,
     command_name: str,
     carry_height_b: float,
+    unlock_start_height_w: float,
+    unlock_full_height_w: float,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
-    """Expose the actual goal XY at the carry height used before placement."""
+    """Expose a smooth lift-first waypoint, then the actual carry-height goal."""
 
-    command = env.command_manager.get_command(command_name).clone()
-    command[:, 2] = carry_height_b
-    return command
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    object_pos_b, _ = subtract_frame_transforms(
+        robot.data.root_pos_w,
+        robot.data.root_quat_w,
+        obj.data.root_pos_w,
+    )
+    state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
+    lift_first_active = (
+        lift_first_actor_phase(
+            state.grasp_lift_authorized,
+            state.grasp_acquired,
+            state.assist_engaged,
+            state.released,
+            state.failed,
+        )
+        if state is not None
+        else torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=obj.data.root_pos_w.device,
+        )
+    )
+    goal, _ = lift_first_transport_goal(
+        object_pos_b,
+        obj.data.root_pos_w[:, 2],
+        command,
+        lift_first_active,
+        carry_height_b,
+        unlock_start_height_w,
+        unlock_full_height_w,
+    )
+    return goal
 
 
 def object_to_transport_goal_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     command_name: str,
     carry_height_b: float,
+    unlock_start_height_w: float,
+    unlock_full_height_w: float,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
-    """Return object translation to the actual goal XY at the carry height."""
+    """Return object translation to the active lift-first carry waypoint."""
 
     robot: Articulation = env.scene[robot_cfg.name]
     obj: RigidObject = env.scene[object_cfg.name]
     command = env.command_manager.get_command(command_name)
     object_pos_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, obj.data.root_pos_w)
-    goal_pos_b = command[:, :3].clone()
-    goal_pos_b[:, 2] = carry_height_b
-    return goal_pos_b - object_pos_b
+    state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
+    lift_first_active = (
+        lift_first_actor_phase(
+            state.grasp_lift_authorized,
+            state.grasp_acquired,
+            state.assist_engaged,
+            state.released,
+            state.failed,
+        )
+        if state is not None
+        else torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=obj.data.root_pos_w.device,
+        )
+    )
+    goal_command, _ = lift_first_transport_goal(
+        object_pos_b,
+        obj.data.root_pos_w[:, 2],
+        command,
+        lift_first_active,
+        carry_height_b,
+        unlock_start_height_w,
+        unlock_full_height_w,
+    )
+    return goal_command[:, :3] - object_pos_b
 
 
 def object_linear_velocity_in_robot_root_frame(
@@ -4062,7 +4244,7 @@ def task_pregrasp_centering_reward(
     quality_scale: float,
     dwell_scale: float,
 ) -> torch.Tensor:
-    """Reward geometry inside the same narrow basin that authorizes grasp closure."""
+    """Reward broad grasp alignment plus confirmed ready-gate dwell."""
 
     state: TaskStateTracker = env._openarm_pick_place_state
     actor_controlled = ~state.grasp_controller_owns_arm
@@ -4073,25 +4255,13 @@ def task_pregrasp_centering_reward(
         & (state.grasp_retry_cooldown == 0)
         & actor_controlled
     )
-    offset_error = state.object_offset_tcp - state._alignment_target
-    negative_span = state._alignment_target - state._alignment_lower_bounds
-    positive_span = state._alignment_upper_bounds - state._alignment_target
-    gate_span = torch.where(offset_error < 0.0, negative_span, positive_span)
-    normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)
-    pose_quality = torch.exp(-0.5 * torch.sum(torch.square(normalized_offset), dim=1))
-    symmetry_quality = torch.exp(
-        -0.5
-        * torch.square(
-            state.finger_distance_asymmetry
-            / max(state._alignment_max_finger_asymmetry, 1.0e-6)
-        )
+    open_quality = pregrasp_opening_quality_factor(
+        state.bilateral_open_fraction,
+        state._candidate_min_open_fraction,
+        state._preclose_min_open_fraction,
     )
-    proximity_quality = torch.clamp(
-        state.bilateral_finger_proximity / state._candidate_proximity_threshold,
-        min=0.0,
-        max=1.0,
-    )
-    quality = pose_quality * symmetry_quality * proximity_quality
+    aperture_multiplier = 0.75 + 0.25 * open_quality
+    quality = state.grasp_alignment_quality * aperture_multiplier
     actor_dwell_steps = max(state._alignment_confirm_steps - 1, 1)
     dwell = torch.clamp(
         state.grasp_alignment_streak.float() / actor_dwell_steps,
@@ -4197,6 +4367,64 @@ class task_potential_progress(ManagerTermBase):
         self._previous_potential[:] = potential
         self._was_active[:] = active
         return reward
+
+
+class task_preclearance_inward_progress(ManagerTermBase):
+    """Penalize only basket-directed XY shortcuts below the lift-first clearance."""
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._previous_distance_xy = torch.zeros(env.num_envs, device=env.device)
+        self._was_active = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if env_ids is None:
+            env_ids = slice(None)
+        self._previous_distance_xy[env_ids] = 0.0
+        self._was_active[env_ids] = False
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        unlock_start_height: float,
+        unlock_full_height: float,
+        max_step_change: float,
+        object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ) -> torch.Tensor:
+        state: TaskStateTracker = env._openarm_pick_place_state
+        obj: RigidObject = env.scene[object_cfg.name]
+        active = lift_first_reward_phase(
+            state.grasp_lift_authorized,
+            state.grasp_acquired,
+            state.assist_engaged,
+            state.assist_owns_arm,
+            state.released,
+            state.failed,
+        )
+        unlock_fraction = lift_first_xy_unlock_fraction(
+            obj.data.root_pos_w[:, 2],
+            active,
+            unlock_start_height,
+            unlock_full_height,
+        )
+        cost = preclearance_inward_progress_cost(
+            self._previous_distance_xy,
+            state.distance_xy,
+            unlock_fraction,
+            active,
+            self._was_active,
+            max_step_change,
+        )
+        finite_distance = torch.isfinite(state.distance_xy)
+        self._previous_distance_xy[:] = torch.where(
+            finite_distance,
+            state.distance_xy,
+            self._previous_distance_xy,
+        )
+        self._was_active[:] = active & finite_distance
+        return cost / env.step_dt
 
 
 def constant_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
