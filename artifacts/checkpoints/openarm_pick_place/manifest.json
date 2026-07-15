@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "archive": "openarm_pick_place_v18_v34",
+  "archive": "openarm_pick_place_v18_v35",
   "task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-v0",
   "play_task": "Isaac-PickPlace-OpenArm-TestUSD-Bi-Stage-Play-v0",
   "checkpoint_filename": "checkpoint.pt",
@@ -15,7 +15,8 @@
     "v31": "4b0ea6082a89cb1f94009362282c2b18464c756f",
     "v32": "aa9ddf88a0690fa9f282bb896083377a4243bbc5",
     "v33": "7155085720262b22dddd888f101e96a5a7f6af0c",
-    "v34": "9f6ee3847d608450008b19e0fb1d4dbd574c3e2a"
+    "v34": "9f6ee3847d608450008b19e0fb1d4dbd574c3e2a",
+    "v35": "3045a86eefdc225f718888bdf95f257bcf912122"
   },
   "validated_baselines": [
     {
@@ -47,6 +48,12 @@
       "checkpoint": "v34/checkpoint.pt",
       "status": "USER_APPROVED_WITH_CAVEATS",
       "scope": "User judged the overall actor-mean GUI pick-and-place result very good; final assist safety holds remain a refinement target."
+    },
+    {
+      "version": "v35",
+      "checkpoint": "v35/checkpoint.pt",
+      "status": "USER_APPROVED_WITH_CAVEATS",
+      "scope": "User judged the overall actor-mean GUI behavior good; occasional grasp failure and low-clearance near-rim carry contact remain refinement targets."
     }
   ],
   "checkpoints": [
@@ -169,6 +176,14 @@
       "size_bytes": 1482421,
       "sha256": "cbda3a4bb0d6681b291d2f27d52efa809eefebf260633f8f338ea4c04c25a39e",
       "selection": "User-approved v34 checkpoint judged very good in actor-mean GUI; final assist safety holds remain a refinement target."
+    },
+    {
+      "version": "v35",
+      "source_run": "2026-07-15_00-03-34_fresh_safe_axis_fallback_v35",
+      "source_checkpoint": "model_3275.pt",
+      "size_bytes": 1482421,
+      "sha256": "9063292df616bbd74ade6a42728c9774c6d1d5485c2eb4e42a8a9e40cbd29260",
+      "selection": "User-approved good overall v35 actor-mean GUI result; selected for controller gains while preserving the observed grasp and near-rim caveats."
     }
   ]
 }

@@ -1,7 +1,7 @@
 # OpenArm Pick-and-Place Checkpoint Archive
 
 This archive preserves representative checkpoints and the resolved RSL-RL/Isaac Lab configuration
-for policy versions v18 through v30, plus the user-approved v33 and v34 candidates. Raw training
+for policy versions v18 through v30, plus the user-approved v33 through v35 candidates. Raw training
 directories remain ignored because they contain thousands of redundant checkpoints and several
 gigabytes of logs.
 
@@ -37,14 +37,15 @@ sha256sum --check SHA256SUMS
 | v30 | `2026-07-12_22-06-37/model_1775.pt` | Best sampled window in a run that later collapsed; diagnostic candidate only |
 | v33 | `2026-07-13_20-04-29_fresh_continuous_assist_v33/model_4999.pt` | User-approved strong grasp/transport candidate; final rim interference remains |
 | v34 | `2026-07-14_14-15-15_fresh_current_relative_assist_v34/model_4575.pt` | User-approved very good GUI result; final assist safety holds remain a refinement target |
+| v35 | `2026-07-15_00-03-34_fresh_safe_axis_fallback_v35/model_3275.pt` | User-approved good overall GUI behavior; occasional grasp and near-rim carry contact remain |
 
 ## User-Approved Baselines
 
-The five user-approved good references are v18 `model_825`, v28 `model_4999`, v29 `model_2100`,
-v33 `model_4999`, and v34 `model_4575`. Their validation scope and remaining caveats are recorded in
+The six user-approved good references are v18 `model_825`, v28 `model_4999`, v29 `model_2100`,
+v33 `model_4999`, v34 `model_4575`, and v35 `model_3275`. Their validation scope and remaining caveats are recorded in
 `docs/validated_checkpoints.md` and the structured `validated_baselines` manifest field. User
 approval is intentionally distinct from the pending multi-seed formal acceptance protocol. v30 is
-not one of these five baselines; its best-of-run checkpoint is retained for diagnosis and GUI review.
+not one of these six baselines; its best-of-run checkpoint is retained for diagnosis and GUI review.
 
 ## Source History Boundary
 
@@ -67,6 +68,7 @@ Version-specific source boundaries are available from v25 onward:
 | v32 | `aa9ddf88a0690fa9f282bb896083377a4243bbc5` |
 | v33 | `7155085720262b22dddd888f101e96a5a7f6af0c` |
 | v34 | `9f6ee3847d608450008b19e0fb1d4dbd574c3e2a` |
+| v35 | `3045a86eefdc225f718888bdf95f257bcf912122` |
 
 Do not compare TensorBoard sampled-action success directly with GUI actor-mean behavior. A
 checkpoint is accepted only after actor-mean, first-complete-episode physical grasp, lift, transport,
