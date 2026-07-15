@@ -172,6 +172,170 @@ def required_axis_progress_valid(
     return finite & requirements_consistent & required_progress, xy_ratio, z_ratio
 
 
+def select_phase_primary_axis(
+    active_xy: torch.Tensor,
+    active_z: torch.Tensor,
+    prefer_z: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Choose one meaningful-progress axis while keeping both axes active."""
+
+    active_xy = torch.as_tensor(active_xy, dtype=torch.bool)
+    active_z = torch.as_tensor(active_z, device=active_xy.device, dtype=torch.bool)
+    prefer_z = torch.as_tensor(prefer_z, device=active_xy.device, dtype=torch.bool)
+    primary_z = active_z & (prefer_z | ~active_xy)
+    primary_xy = active_xy & ~primary_z
+    return primary_xy, primary_z
+
+
+def phase_primary_axis_progress_valid(
+    predicted_translation: torch.Tensor,
+    requested_translation: torch.Tensor,
+    active_xy: torch.Tensor,
+    active_z: torch.Tensor,
+    prefer_z: torch.Tensor,
+    minimum_primary_progress_ratio: float,
+    minimum_companion_progress_ratio: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Require strong phase-primary progress and smaller forward companion progress."""
+
+    if not 0.0 < minimum_companion_progress_ratio <= minimum_primary_progress_ratio <= 1.0:
+        raise ValueError(
+            "progress ratios must satisfy 0 < companion <= primary <= 1"
+        )
+    active_xy = torch.as_tensor(
+        active_xy, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(predicted_translation.shape[0])
+    active_z = torch.as_tensor(
+        active_z, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(predicted_translation.shape[0])
+    prefer_z = torch.as_tensor(
+        prefer_z, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(predicted_translation.shape[0])
+    primary_xy, primary_z = select_phase_primary_axis(active_xy, active_z, prefer_z)
+    primary_present = primary_xy | primary_z
+    primary_valid, xy_ratio, z_ratio = required_axis_progress_valid(
+        predicted_translation,
+        requested_translation,
+        primary_xy,
+        primary_z,
+        minimum_primary_progress_ratio,
+    )
+    requested_xy_active = torch.sum(requested_translation[:, :2] ** 2, dim=1) > 1.0e-18
+    requested_z_active = torch.abs(requested_translation[:, 2]) > 1.0e-9
+    active_requests_valid = (~active_xy | requested_xy_active) & (
+        ~active_z | requested_z_active
+    )
+    companion_xy = active_xy & ~primary_xy
+    companion_z = active_z & ~primary_z
+    companion_progress_valid = (
+        (~companion_xy | (xy_ratio >= minimum_companion_progress_ratio))
+        & (~companion_z | (z_ratio >= minimum_companion_progress_ratio))
+    )
+    return (
+        primary_present
+        & primary_valid
+        & active_requests_valid
+        & companion_progress_valid,
+        xy_ratio,
+        z_ratio,
+    )
+
+
+def advance_post_center_descent_progress(
+    current_progress: torch.Tensor,
+    xy_progress: torch.Tensor,
+    ramp_start_progress: torch.Tensor,
+    ramp_elapsed_steps: torch.Tensor,
+    ramp_started: torch.Tensor,
+    ramp_candidate: torch.Tensor,
+    ramp_active: torch.Tensor,
+    ramp_total_steps: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Advance a pausable, monotonic descent ramp without changing its start target."""
+
+    if ramp_total_steps < 1:
+        raise ValueError("post-center descent ramp must contain at least one step")
+    ramp_started = torch.as_tensor(
+        ramp_started, device=current_progress.device, dtype=torch.bool
+    )
+    ramp_candidate = torch.as_tensor(
+        ramp_candidate, device=current_progress.device, dtype=torch.bool
+    )
+    ramp_active = torch.as_tensor(
+        ramp_active, device=current_progress.device, dtype=torch.bool
+    )
+    pre_ramp_baseline = torch.maximum(current_progress, xy_progress)
+    baseline = torch.where(
+        ramp_started | ramp_candidate,
+        current_progress,
+        pre_ramp_baseline,
+    ).clamp(0.0, 1.0)
+    start_now = ramp_active & ~ramp_started
+    updated_start = torch.where(start_now, baseline, ramp_start_progress).clamp(
+        0.0, 1.0
+    )
+    updated_started = ramp_started | start_now
+    advance = ramp_active & updated_started
+    updated_elapsed = torch.where(
+        advance,
+        torch.clamp(ramp_elapsed_steps + 1, max=ramp_total_steps),
+        ramp_elapsed_steps,
+    )
+    ramp_fraction = updated_elapsed.to(dtype=baseline.dtype) / ramp_total_steps
+    timed_progress = updated_start + (1.0 - updated_start) * quintic_smoothstep(
+        ramp_fraction
+    )
+    updated_progress = torch.where(
+        updated_started,
+        torch.maximum(baseline, timed_progress),
+        baseline,
+    )
+    return updated_progress, updated_start, updated_elapsed, updated_started
+
+
+def post_center_descent_readiness(
+    descent_active: torch.Tensor,
+    place_centered: torch.Tensor,
+    distance_xy: torch.Tensor,
+    object_xy_speed: torch.Tensor,
+    target_tracking_error: torch.Tensor,
+    maximum_xy_distance: float,
+    maximum_xy_speed: float,
+    maximum_tracking_error: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Gate descent target advancement and expose mutually exclusive pause causes."""
+
+    if maximum_xy_distance <= 0.0:
+        raise ValueError("maximum XY distance must be positive")
+    if maximum_xy_speed <= 0.0:
+        raise ValueError("maximum XY speed must be positive")
+    if maximum_tracking_error <= 0.0:
+        raise ValueError("maximum tracking error must be positive")
+    device = distance_xy.device
+    descent_active = torch.as_tensor(
+        descent_active, device=device, dtype=torch.bool
+    )
+    place_centered = torch.as_tensor(
+        place_centered, device=device, dtype=torch.bool
+    )
+    candidate = (
+        descent_active
+        & torch.isfinite(distance_xy)
+        & (distance_xy <= maximum_xy_distance)
+    )
+    centered_candidate = candidate & place_centered
+    stable = torch.isfinite(object_xy_speed) & (
+        object_xy_speed <= maximum_xy_speed
+    )
+    tracking = torch.isfinite(target_tracking_error) & (
+        target_tracking_error <= maximum_tracking_error
+    )
+    stability_pause = centered_candidate & ~stable
+    tracking_pause = centered_candidate & stable & ~tracking
+    ready = centered_candidate & stable & tracking
+    return candidate, ready, stability_pause, tracking_pause
+
+
 def scale_delta_to_cartesian_bounds(
     joint_delta: torch.Tensor,
     predicted_translation: torch.Tensor,
@@ -186,6 +350,8 @@ def scale_delta_to_cartesian_bounds(
     vertical_deadband: float | torch.Tensor,
     inactive_leak_tolerance: float | torch.Tensor,
     minimum_progress_ratio: float = 1.0e-6,
+    prefer_z_progress: torch.Tensor | None = None,
+    minimum_companion_progress_ratio: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Uniformly shrink a joint delta to satisfy Cartesian safety bounds.
 
@@ -196,6 +362,13 @@ def scale_delta_to_cartesian_bounds(
     """
 
     batch_size = joint_delta.shape[0]
+    phase_options_complete = (prefer_z_progress is None) == (
+        minimum_companion_progress_ratio is None
+    )
+    if not phase_options_complete:
+        raise ValueError(
+            "prefer_z_progress and minimum_companion_progress_ratio must be provided together"
+        )
 
     def as_batch(value: float | torch.Tensor) -> torch.Tensor:
         tensor = torch.as_tensor(
@@ -278,13 +451,24 @@ def scale_delta_to_cartesian_bounds(
 
     scale = torch.clamp(torch.minimum(xy_bound, z_bound), min=0.0, max=1.0)
     scaled_prediction = predicted_translation * scale[:, None]
-    progress_valid, _, _ = required_axis_progress_valid(
-        scaled_prediction,
-        requested_translation,
-        require_xy_progress,
-        require_z_progress,
-        minimum_progress_ratio,
-    )
+    if prefer_z_progress is None or minimum_companion_progress_ratio is None:
+        progress_valid, _, _ = required_axis_progress_valid(
+            scaled_prediction,
+            requested_translation,
+            require_xy_progress,
+            require_z_progress,
+            minimum_progress_ratio,
+        )
+    else:
+        progress_valid, _, _ = phase_primary_axis_progress_valid(
+            scaled_prediction,
+            requested_translation,
+            require_xy_progress,
+            require_z_progress,
+            prefer_z_progress,
+            minimum_progress_ratio,
+            minimum_companion_progress_ratio,
+        )
     required_motion = require_xy_progress | require_z_progress
     finite = (
         torch.all(torch.isfinite(joint_delta), dim=1)
@@ -333,12 +517,10 @@ def select_phase_axis_fallback(
     unresolved: torch.Tensor,
     xy_valid: torch.Tensor,
     z_valid: torch.Tensor,
-    place_centered: torch.Tensor,
-    inside_release_xy: torch.Tensor,
+    prefer_z: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Select XY before centering and Z only inside the current release basin."""
+    """Prefer the current phase axis, falling back to the other valid axis."""
 
-    prefer_z = place_centered & inside_release_xy
     use_z = unresolved & z_valid & (prefer_z | ~xy_valid)
     use_xy = unresolved & xy_valid & ~use_z
     return use_xy, use_z

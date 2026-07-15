@@ -129,11 +129,11 @@ def test_global_cross_axis_throttle_paths_were_removed():
 
 def test_v35_repairs_invalid_dls_before_holding_the_arm():
     assert "scale_delta_to_cartesian_bounds" in MDP_SOURCE
-    assert "required_axis_progress_valid" in MDP_SOURCE
+    assert "phase_primary_axis_progress_valid" in MDP_SOURCE
     assert "use_scaled = requested_motion & ~candidate_valid & scaled_valid" in MDP_SOURCE
     assert "def solve_single_axis_candidate" in MDP_SOURCE
     assert "select_phase_axis_fallback" in MDP_SOURCE
-    assert "state.inside_release_xy[assist_ids]" in MDP_SOURCE
+    assert "prefer_z_progress = state.post_center_descent_z_priority[assist_ids]" in MDP_SOURCE
     assert "selected_required_xy" in MDP_SOURCE
     assert "selected_required_z" in MDP_SOURCE
     assert "no_progress_required" in MDP_SOURCE
@@ -169,9 +169,45 @@ def test_v38_restores_actor_transport_and_localizes_clearance_cost():
     assert "previous_local_distance - local_distance" in CONTROLLER_SOURCE
     assert "normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)" in MDP_SOURCE
     assert "quality = pose_quality * symmetry_quality * proximity_quality" in MDP_SOURCE
-    assert MDP_SOURCE.count("self.cfg.minimum_active_progress_ratio") >= 8
+    assert MDP_SOURCE.count("self.cfg.minimum_active_progress_ratio") >= 7
     assert "ContactSensor" not in ENV_SOURCE
     assert "ContactSensor" not in MDP_SOURCE
+
+
+def test_v39_decouples_phase_progress_and_completes_post_center_descent():
+    assert '"post_center_descent_xy_threshold": 0.030' in ENV_SOURCE
+    assert '"post_center_descent_steps": 18' in ENV_SOURCE
+    assert '"post_center_descent_max_tracking_error": 0.012' in ENV_SOURCE
+    assert "minimum_companion_progress_ratio=0.05" in ENV_SOURCE
+    assert "minimum_companion_progress_ratio: float = 0.05" in MDP_SOURCE
+    assert MDP_SOURCE.count("phase_primary_axis_progress_valid(") >= 6
+    assert MDP_SOURCE.count("self.cfg.minimum_companion_progress_ratio") >= 7
+    assert "advance_post_center_descent_progress" in MDP_SOURCE
+    assert "post_center_descent_readiness" in MDP_SOURCE
+    assert "state.post_center_descent_z_priority[assist_ids]" in MDP_SOURCE
+    assert "self.post_center_descent_z_priority[:] = (" in MDP_SOURCE
+    assert "self.object_height >= carry_height" in MDP_SOURCE
+    assert MDP_SOURCE.count("allow_stabilization=True") == 1
+    assert "raw_xy_progress_floor = torch.where(" in MDP_SOURCE
+    assert "raw_z_progress_floor = torch.where(" in MDP_SOURCE
+    for metric in (
+        "task_post_center_descent_started",
+        "task_post_center_descent_elapsed_fraction",
+        "task_post_center_descent_steps",
+        "task_post_center_descent_tracking_pause_steps",
+        "task_post_center_descent_stability_pause_steps",
+        "task_post_center_descent_centering_pause_steps",
+        "task_post_center_descent_basin_pause_steps",
+        "task_assist_entry_object_height",
+        "task_assist_entry_object_speed",
+        "task_assist_entry_height_blocked_steps",
+        "task_assist_entry_height_shortfall_max",
+        "task_assist_entry_joint_limit_proximity",
+    ):
+        assert metric in MDP_SOURCE
+
+    assert "def required_axis_progress_valid" in CONTROLLER_SOURCE
+    assert "def phase_primary_axis_progress_valid" in CONTROLLER_SOURCE
 
 
 def test_preassist_call_sites_start_only_after_verified_grasp():
