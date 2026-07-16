@@ -27,18 +27,29 @@ advance_post_center_descent_progress = (
 )
 actor_owned_carry_phase = controller_math.actor_owned_carry_phase
 apply_stopping_speed_envelope = controller_math.apply_stopping_speed_envelope
+automatic_release_ready = controller_math.automatic_release_ready
 build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
 carry_clearance_fraction = controller_math.carry_clearance_fraction
 constrain_target_lead = controller_math.constrain_target_lead
+coupled_lift_progress = controller_math.coupled_lift_progress
+discounted_potential_delta = controller_math.discounted_potential_delta
 low_clearance_inward_progress_cost = controller_math.low_clearance_inward_progress_cost
+persistent_best_signed_progress = controller_math.persistent_best_signed_progress
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
 project_goal_directed_step = controller_math.project_goal_directed_step
 quintic_smoothstep = controller_math.quintic_smoothstep
 realized_translation_progress = controller_math.realized_translation_progress
 required_axis_progress_valid = controller_math.required_axis_progress_valid
 phase_primary_axis_progress_valid = controller_math.phase_primary_axis_progress_valid
+phase_primary_translation_progress_ratio = (
+    controller_math.phase_primary_translation_progress_ratio
+)
+post_grasp_actor_authority = controller_math.post_grasp_actor_authority
 post_center_descent_readiness = controller_math.post_center_descent_readiness
 scale_delta_to_cartesian_bounds = controller_math.scale_delta_to_cartesian_bounds
+select_higher_phase_primary_candidate = (
+    controller_math.select_higher_phase_primary_candidate
+)
 select_phase_axis_fallback = controller_math.select_phase_axis_fallback
 select_phase_primary_axis = controller_math.select_phase_primary_axis
 solve_prioritized_dls_delta = controller_math.solve_prioritized_dls_delta
@@ -47,6 +58,95 @@ target_lead_constraint_intersection = (
     controller_math.target_lead_constraint_intersection
 )
 translation_progress_ratios = controller_math.translation_progress_ratios
+
+
+def _persistent_progress_trace(
+    qualities: list[float], active: list[bool] | None = None
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if active is None:
+        active = [True] * len(qualities)
+    previous = torch.tensor([0.0])
+    best = torch.tensor([0.0])
+    was_active = torch.tensor([False])
+    deltas = []
+    best_history = []
+    for quality_value, active_value in zip(qualities, active, strict=True):
+        quality = torch.tensor([quality_value])
+        is_active = torch.tensor([active_value])
+        delta, best = persistent_best_signed_progress(
+            quality, previous, best, is_active, was_active
+        )
+        deltas.append(delta)
+        best_history.append(best.clone())
+        previous = quality
+        was_active = is_active
+    return torch.cat(deltas), torch.cat(best_history)
+
+
+@pytest.mark.parametrize(
+    "qualities",
+    (
+        [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.2],
+        [0.2, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2],
+    ),
+)
+def test_pregrasp_progress_cycle_has_zero_undiscounted_return(qualities):
+    deltas, _ = _persistent_progress_trace(qualities)
+
+    assert torch.sum(deltas).item() == pytest.approx(0.0, abs=1.0e-6)
+
+
+def test_pregrasp_progress_does_not_repay_recovery_to_an_old_best():
+    deltas, _ = _persistent_progress_trace([0.2, 0.8, 0.2, 0.8, 0.2])
+
+    assert deltas.tolist() == pytest.approx([0.0, 0.6, -0.6, 0.0, -0.6])
+
+
+def test_pregrasp_progress_keeps_best_across_inactive_retry_periods():
+    deltas, best = _persistent_progress_trace(
+        [0.2, 0.8, 0.2, 0.2, 0.8],
+        [True, True, False, True, True],
+    )
+
+    assert best.tolist() == pytest.approx([0.2, 0.8, 0.8, 0.8, 0.8])
+    assert deltas.tolist() == pytest.approx([0.0, 0.6, 0.0, 0.0, 0.0])
+
+
+def test_pregrasp_progress_absorbs_inactive_improvement_without_credit():
+    deltas, best = _persistent_progress_trace(
+        [0.2, 0.8, 0.8, 0.8],
+        [True, False, True, True],
+    )
+
+    assert best.tolist() == pytest.approx([0.2, 0.2, 0.8, 0.8])
+    assert deltas.tolist() == pytest.approx([0.0, 0.0, 0.0, 0.0])
+
+
+def test_pregrasp_progress_does_not_pay_repeated_dwell_at_the_best():
+    deltas, _ = _persistent_progress_trace([0.2, 0.8, 0.8, 0.8])
+
+    assert deltas.tolist() == pytest.approx([0.0, 0.6, 0.0, 0.0])
+
+
+def test_pregrasp_progress_keeps_vectorized_environment_masks_independent():
+    current = torch.tensor([0.8, 0.7, 0.4])
+    previous = torch.tensor([0.2, 0.8, 0.6])
+    best = torch.tensor([0.5, 0.9, 0.6])
+    active = torch.tensor([True, False, True])
+    was_active = torch.tensor([True, True, False])
+
+    delta, updated_best = persistent_best_signed_progress(
+        current, previous, best, active, was_active
+    )
+
+    assert delta.tolist() == pytest.approx([0.3, 0.0, 0.0])
+    assert updated_best.tolist() == pytest.approx([0.8, 0.9, 0.6])
+
+
+def test_pregrasp_progress_preserves_a_large_one_step_improvement():
+    deltas, _ = _persistent_progress_trace([0.2, 0.8])
+
+    assert deltas.tolist() == pytest.approx([0.0, 0.6])
 
 
 def test_quintic_blend_has_exact_endpoints_and_is_monotonic():
@@ -69,6 +169,143 @@ def test_actor_owned_carry_phase_excludes_every_automatic_control_path():
     assert torch.equal(
         phase,
         torch.tensor([False, True, False, False, False, True]),
+    )
+
+
+def test_automatic_release_requires_every_shared_gate():
+    true = torch.ones(6, dtype=torch.bool)
+    gates = [true.clone() for _ in range(5)]
+    for missing_gate, gate in enumerate(gates, start=1):
+        gate[missing_gate] = False
+
+    ready = automatic_release_ready(*gates)
+
+    assert torch.equal(
+        ready,
+        torch.tensor([True, False, False, False, False, False]),
+    )
+
+
+def test_actor_authority_excludes_only_post_grasp_automatic_control():
+    false = torch.zeros(8, dtype=torch.bool)
+    gates = [false.clone() for _ in range(7)]
+    for automatic_case, gate in enumerate(gates, start=1):
+        gate[automatic_case] = True
+
+    authority = post_grasp_actor_authority(*gates)
+
+    assert torch.equal(
+        authority,
+        torch.tensor([True, False, False, False, False, False, False, False]),
+    )
+
+
+def test_coupled_lift_progress_requires_object_and_tcp_to_rise_together():
+    object_progress, tcp_progress, coupled = coupled_lift_progress(
+        object_height=torch.tensor([0.680, 0.680, 0.680, 0.740]),
+        tcp_height=torch.tensor([0.680, 0.640, 0.740, 0.740]),
+        object_origin_height=torch.full((4,), 0.640),
+        tcp_origin_height=torch.full((4,), 0.640),
+        target_object_height=0.720,
+    )
+
+    assert object_progress.tolist() == pytest.approx([0.5, 0.5, 0.5, 1.0])
+    assert tcp_progress.tolist() == pytest.approx([0.5, 0.0, 1.0, 1.0])
+    assert coupled.tolist() == pytest.approx([0.5, 0.0, 0.5, 1.0])
+
+
+def test_coupled_lift_progress_handles_a_grasp_near_the_target_height():
+    _, _, coupled = coupled_lift_progress(
+        object_height=torch.tensor([0.7306]),
+        tcp_height=torch.tensor([0.7311]),
+        object_origin_height=torch.tensor([0.7295]),
+        tcp_origin_height=torch.tensor([0.7300]),
+        target_object_height=0.730,
+    )
+
+    assert coupled.item() == pytest.approx(1.0)
+
+
+def test_discount_correct_lift_shaping_has_no_discounted_cycle_return():
+    gamma = 0.995
+    potentials = [torch.tensor([0.0]), torch.tensor([0.6]), torch.tensor([0.0])]
+    rewards = [
+        discounted_potential_delta(current, previous, gamma, torch.tensor([False]))
+        for previous, current in zip(potentials[:-1], potentials[1:], strict=True)
+    ]
+
+    discounted_return = rewards[0] + gamma * rewards[1]
+
+    assert discounted_return.item() == pytest.approx(0.0, abs=1.0e-7)
+    constant = discounted_potential_delta(
+        torch.tensor([0.6]),
+        torch.tensor([0.6]),
+        gamma,
+        torch.tensor([False]),
+    )
+    assert constant.item() == pytest.approx((gamma - 1.0) * 0.6, abs=1.0e-7)
+
+
+def test_discount_correct_lift_shaping_closes_terminal_potential():
+    delta = discounted_potential_delta(
+        torch.tensor([0.8]),
+        torch.tensor([0.6]),
+        0.995,
+        torch.tensor([True]),
+    )
+
+    assert delta.item() == pytest.approx(-0.6)
+
+
+def test_discount_correct_lift_trace_closes_every_failed_excursion():
+    gamma = 0.995
+    potentials = [0.0, 0.3, 0.6, 0.3, 0.6]
+    rewards = []
+    for previous, current in zip(potentials[:-1], potentials[1:], strict=True):
+        rewards.append(
+            discounted_potential_delta(
+                torch.tensor([current]),
+                torch.tensor([previous]),
+                gamma,
+                torch.tensor([False]),
+            )
+        )
+    rewards.append(
+        discounted_potential_delta(
+            torch.tensor([potentials[-1]]),
+            torch.tensor([potentials[-1]]),
+            gamma,
+            torch.tensor([True]),
+        )
+    )
+
+    discounted_return = sum(
+        gamma**step * reward for step, reward in enumerate(rewards)
+    )
+
+    assert discounted_return.item() == pytest.approx(0.0, abs=1.0e-7)
+
+
+def test_lift_completion_retains_one_bounded_terminal_bonus():
+    gamma = 0.995
+    potentials = [0.0, 0.3, 0.6, 1.0]
+    rewards = [
+        discounted_potential_delta(
+            torch.tensor([current]),
+            torch.tensor([previous]),
+            gamma,
+            torch.tensor([False]),
+        )
+        for previous, current in zip(potentials[:-1], potentials[1:], strict=True)
+    ]
+
+    discounted_return = sum(
+        gamma**step * reward for step, reward in enumerate(rewards)
+    )
+
+    assert (30.0 * discounted_return).item() == pytest.approx(
+        30.0 * gamma ** (len(potentials) - 1),
+        abs=1.0e-5,
     )
 
 
@@ -385,6 +622,62 @@ def test_v39_phase_primary_progress_uses_smaller_positive_companion_floor():
     assert torch.isclose(z_ratio[3], torch.tensor(0.70))
 
 
+def test_v40_phase_primary_score_does_not_rank_by_the_weaker_companion_axis():
+    requested = torch.tensor([[0.002, 0.0, -0.003]] * 2)
+    predicted = torch.tensor(
+        [
+            [0.00011, 0.0, -0.0024],
+            [0.0004, 0.0, -0.00075],
+        ]
+    )
+    active = torch.ones(2, dtype=torch.bool)
+    prefer_z = torch.ones(2, dtype=torch.bool)
+
+    valid, _, _ = phase_primary_axis_progress_valid(
+        predicted,
+        requested,
+        active,
+        active,
+        prefer_z,
+        minimum_primary_progress_ratio=0.25,
+        minimum_companion_progress_ratio=0.05,
+    )
+    phase_score = phase_primary_translation_progress_ratio(
+        predicted,
+        requested,
+        active,
+        active,
+        prefer_z,
+    )
+    weakest_axis_score = active_translation_progress_ratio(
+        predicted,
+        requested,
+        active,
+        active,
+    )
+
+    assert torch.all(valid)
+    assert torch.allclose(phase_score, torch.tensor([0.80, 0.25]))
+    assert torch.allclose(weakest_axis_score, torch.tensor([0.055, 0.20]))
+    assert phase_score[0] > phase_score[1]
+    assert weakest_axis_score[0] < weakest_axis_score[1]
+
+
+def test_v40_z_priority_upgrade_requires_a_safe_strict_primary_improvement():
+    upgrade = select_higher_phase_primary_candidate(
+        current_valid=torch.tensor([True, True, True, False, True]),
+        current_ratio=torch.tensor([0.25, 0.80, 0.25, 0.25, float("nan")]),
+        candidate_valid=torch.tensor([True, True, False, True, True]),
+        candidate_ratio=torch.tensor([0.80, 0.25, 0.90, 0.90, 0.90]),
+        phase_allows_candidate=torch.tensor([True, True, True, True, True]),
+    )
+
+    assert torch.equal(
+        upgrade,
+        torch.tensor([True, False, False, False, False]),
+    )
+
+
 def test_v39_single_axis_still_requires_the_full_primary_floor():
     requested = torch.tensor(
         [[0.002, 0.0, -0.003], [0.002, 0.0, -0.003]]
@@ -450,15 +743,16 @@ def test_phase_axis_fallback_requires_the_current_release_basin_for_z_priority()
     assert torch.equal(use_z, torch.tensor([False, True, False, True, False]))
 
 
-def test_v39_post_center_descent_ramp_is_continuous_pausable_and_bounded():
-    progress = torch.tensor([0.80])
+def test_v40_post_center_descent_ramp_is_continuous_pausable_and_bounded():
+    ramp_steps = 12
+    progress = torch.tensor([0.7795])
     xy_progress = progress.clone()
     start = torch.zeros_like(progress)
     elapsed = torch.zeros(1, dtype=torch.long)
     started = torch.zeros(1, dtype=torch.bool)
     history = [progress.item()]
 
-    for _ in range(6):
+    for _ in range(4):
         progress, start, elapsed, started = advance_post_center_descent_progress(
             progress,
             xy_progress,
@@ -467,7 +761,7 @@ def test_v39_post_center_descent_ramp_is_continuous_pausable_and_bounded():
             started,
             ramp_candidate=torch.ones(1, dtype=torch.bool),
             ramp_active=torch.ones(1, dtype=torch.bool),
-            ramp_total_steps=18,
+            ramp_total_steps=ramp_steps,
         )
         history.append(progress.item())
 
@@ -481,12 +775,12 @@ def test_v39_post_center_descent_ramp_is_continuous_pausable_and_bounded():
             started,
             ramp_candidate=torch.ones(1, dtype=torch.bool),
             ramp_active=torch.zeros(1, dtype=torch.bool),
-            ramp_total_steps=18,
+            ramp_total_steps=ramp_steps,
         )
     assert torch.equal(progress, paused)
-    assert elapsed.item() == 6
+    assert elapsed.item() == 4
 
-    for _ in range(12):
+    for _ in range(8):
         progress, start, elapsed, started = advance_post_center_descent_progress(
             progress,
             xy_progress,
@@ -495,16 +789,16 @@ def test_v39_post_center_descent_ramp_is_continuous_pausable_and_bounded():
             started,
             ramp_candidate=torch.ones(1, dtype=torch.bool),
             ramp_active=torch.ones(1, dtype=torch.bool),
-            ramp_total_steps=18,
+            ramp_total_steps=ramp_steps,
         )
         history.append(progress.item())
 
     assert started.item()
-    assert elapsed.item() == 18
+    assert elapsed.item() == ramp_steps
     assert progress.item() == 1.0
     assert all(after >= before for before, after in zip(history, history[1:]))
     heights = 0.75 + torch.tensor(history) * (0.67 - 0.75)
-    assert torch.max(torch.abs(heights[1:] - heights[:-1])) < 0.003
+    assert torch.max(torch.abs(heights[1:] - heights[:-1])) <= 0.003
 
 
 def test_v39_post_center_descent_freezes_before_start_inside_the_candidate_basin():
@@ -1070,6 +1364,49 @@ def test_prioritized_dls_preserves_active_progress_while_canceling_feasible_leak
 
     assert predicted[0, 0].item() >= 0.99 * target[0, 0].item()
     assert torch.abs(predicted[0, 1]).item() < 1.0e-5
+
+
+def test_v40_phase_primary_mask_preserves_the_selected_dls_axis_first():
+    jacobian = torch.zeros((2, 6, 2))
+    jacobian[:, 0, :] = torch.tensor([1.0, 1.0])
+    jacobian[:, 2, :] = torch.tensor([1.0, -1.0])
+    target = torch.zeros((2, 6))
+    target[:, 0] = 0.006
+    target[:, 2] = 0.002
+    active = torch.ones(2, dtype=torch.bool)
+    primary_xy, primary_z = select_phase_primary_axis(
+        active,
+        active,
+        prefer_z=torch.tensor([False, True]),
+    )
+    primary_mask = torch.zeros_like(target, dtype=torch.bool)
+    primary_mask[:, :2] = primary_xy[:, None]
+    primary_mask[:, 2] = primary_z
+
+    solver = build_prioritized_dls_solver(
+        jacobian,
+        primary_mask,
+        damping=1.0e-4,
+    )
+    delta = solve_prioritized_dls_delta(
+        target,
+        jacobian,
+        primary_mask,
+        solver,
+        maximum_joint_step=0.003,
+    )
+    predicted = (jacobian @ delta.unsqueeze(-1)).squeeze(-1)
+    xy_ratio, z_ratio = translation_progress_ratios(
+        predicted[:, :3],
+        target[:, :3],
+        active,
+        active,
+    )
+
+    assert xy_ratio[0] > xy_ratio[1]
+    assert z_ratio[1] > z_ratio[0]
+    assert torch.all(xy_ratio > 0.0)
+    assert torch.all(z_ratio > 0.0)
 
 
 def test_prioritized_dls_does_not_trade_away_active_motion_when_leak_is_unavoidable():

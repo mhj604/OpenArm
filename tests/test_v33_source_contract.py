@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 
@@ -17,6 +18,37 @@ ENV_SOURCE = (TASK_DIR / "testusd_pick_place_env_cfg.py").read_text()
 MDP_SOURCE = (TASK_DIR / "mdp.py").read_text()
 CONTROLLER_SOURCE = (TASK_DIR / "controller_math.py").read_text()
 PPO_SOURCE = (TASK_DIR / "agents" / "rsl_rl_ppo_cfg.py").read_text()
+AUTHORITY_PPO_SOURCE = (TASK_DIR / "agents" / "authority_masked_ppo.py").read_text()
+TRAIN_SOURCE = (ROOT / "scripts" / "rsl_rl" / "train.py").read_text()
+PLAY_SOURCE = (ROOT / "scripts" / "rsl_rl" / "play.py").read_text()
+SPAWNER_SOURCE = (
+    ROOT
+    / "source"
+    / "openarm_testusd_task"
+    / "openarm_testusd_task"
+    / "tasks"
+    / "testusd_reach"
+    / "original_usd_spawner.py"
+).read_text()
+REACH_ENV_SOURCE = (
+    ROOT
+    / "source"
+    / "openarm_testusd_task"
+    / "openarm_testusd_task"
+    / "tasks"
+    / "testusd_reach"
+    / "testusd_reach_env_cfg.py"
+).read_text()
+PICK_PLACE_REGISTRY_SOURCE = (TASK_DIR / "__init__.py").read_text()
+REACH_REGISTRY_SOURCE = (
+    ROOT
+    / "source"
+    / "openarm_testusd_task"
+    / "openarm_testusd_task"
+    / "tasks"
+    / "testusd_reach"
+    / "__init__.py"
+).read_text()
 
 
 def test_v33_keeps_episode_and_policy_contract():
@@ -41,7 +73,7 @@ def test_v33_keeps_episode_and_policy_contract():
         and isinstance(node.value.func, ast.Name)
         and node.value.func.id == "RewTerm"
     ]
-    assert len(reward_terms) == 21
+    assert len(reward_terms) == 22
 
 
 def test_train_and_play_share_the_low_release_target():
@@ -82,7 +114,7 @@ def test_v33_recovery_and_assist_safety_parameters_are_explicit():
         "assist_entry_target_lead_steps=3",
         "assist_target_lead_steps=3",
         "horizontal_position_deadband=0.005",
-        "vertical_position_deadband=0.002",
+        "vertical_position_deadband=0.0015",
         "max_horizontal_acceleration=0.60",
         "max_vertical_acceleration=0.45",
         "max_horizontal_jerk=6.0",
@@ -156,8 +188,6 @@ def test_v38_restores_actor_transport_and_localizes_clearance_cost():
     assert "LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W" in ENV_SOURCE
     assert "LOW_CLEARANCE_BASKET_APPROACH_XY = 0.17" in ENV_SOURCE
     assert "low_clearance_height=LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W" in ENV_SOURCE
-    assert '"quality_scale": 5.0' in ENV_SOURCE
-    assert '"dwell_scale": 1.0' in ENV_SOURCE
     assert "weight=-200.0" in ENV_SOURCE
     assert "lift_first_transport_goal" not in MDP_SOURCE
     assert "lift_first_actor_phase" not in MDP_SOURCE
@@ -168,15 +198,15 @@ def test_v38_restores_actor_transport_and_localizes_clearance_cost():
     assert '"near_basket_xy_threshold": LOW_CLEARANCE_BASKET_APPROACH_XY' in ENV_SOURCE
     assert "previous_local_distance - local_distance" in CONTROLLER_SOURCE
     assert "normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)" in MDP_SOURCE
-    assert "quality = pose_quality * symmetry_quality * proximity_quality" in MDP_SOURCE
+    assert "return pose_quality * symmetry_quality * proximity_quality" in MDP_SOURCE
     assert MDP_SOURCE.count("self.cfg.minimum_active_progress_ratio") >= 7
     assert "ContactSensor" not in ENV_SOURCE
     assert "ContactSensor" not in MDP_SOURCE
 
 
-def test_v39_decouples_phase_progress_and_completes_post_center_descent():
+def test_v40_decouples_phase_progress_and_accelerates_post_center_descent():
     assert '"post_center_descent_xy_threshold": 0.030' in ENV_SOURCE
-    assert '"post_center_descent_steps": 18' in ENV_SOURCE
+    assert '"post_center_descent_steps": 12' in ENV_SOURCE
     assert '"post_center_descent_max_tracking_error": 0.012' in ENV_SOURCE
     assert "minimum_companion_progress_ratio=0.05" in ENV_SOURCE
     assert "minimum_companion_progress_ratio: float = 0.05" in MDP_SOURCE
@@ -190,6 +220,9 @@ def test_v39_decouples_phase_progress_and_completes_post_center_descent():
     assert MDP_SOURCE.count("allow_stabilization=True") == 1
     assert "raw_xy_progress_floor = torch.where(" in MDP_SOURCE
     assert "raw_z_progress_floor = torch.where(" in MDP_SOURCE
+    assert "phase_primary_translation_progress_ratio" in MDP_SOURCE
+    assert "select_higher_phase_primary_candidate" in MDP_SOURCE
+    assert "phase_primary_xy, phase_primary_z = select_phase_primary_axis(" in MDP_SOURCE
     for metric in (
         "task_post_center_descent_started",
         "task_post_center_descent_elapsed_fraction",
@@ -203,11 +236,239 @@ def test_v39_decouples_phase_progress_and_completes_post_center_descent():
         "task_assist_entry_height_blocked_steps",
         "task_assist_entry_height_shortfall_max",
         "task_assist_entry_joint_limit_proximity",
+        "task_assist_z_priority_control_steps",
+        "task_assist_incremental_z_priority_upgrades",
     ):
         assert metric in MDP_SOURCE
 
     assert "def required_axis_progress_valid" in CONTROLLER_SOURCE
     assert "def phase_primary_axis_progress_valid" in CONTROLLER_SOURCE
+    assert "def phase_primary_translation_progress_ratio" in CONTROLLER_SOURCE
+
+
+def test_v41_masks_only_post_grasp_automation_and_keeps_terminal_contract():
+    assert "self.is_finite_horizon = True" in ENV_SOURCE
+    assert "class AuthorityCfg(ObsGroup)" in ENV_SOURCE
+    assert "func=mdp.task_actor_authority_observation" in ENV_SOURCE
+    assert 'obs_groups = {"policy": ["policy"], "critic": ["policy"]}' in PPO_SOURCE
+    assert PPO_SOURCE.count("policy = RslRlPpoActorCriticCfg(") == 2
+    assert "ArmOnlyLogProbActorCritic" not in PPO_SOURCE
+    assert "ArmOnlyLogProbActorCritic" not in AUTHORITY_PPO_SOURCE
+    assert 'class_name: str = "AuthorityMaskedPPO"' in PPO_SOURCE
+    assert "advantages.zero_()" in AUTHORITY_PPO_SOURCE
+    assert "advantages[authority_mask] = normalized" in AUTHORITY_PPO_SOURCE
+    assert "actor_authority_fraction" in AUTHORITY_PPO_SOURCE
+    assert "register_step_pre_hook" not in AUTHORITY_PPO_SOURCE
+    assert "register_step_post_hook" not in AUTHORITY_PPO_SOURCE
+    assert "actor_step_scale" not in AUTHORITY_PPO_SOURCE
+    assert 'loss_dict["actor_parameter_delta_norm"]' in AUTHORITY_PPO_SOURCE
+    assert "register_openarm_rsl_rl_classes()" in TRAIN_SOURCE
+    assert "register_openarm_rsl_rl_classes()" in PLAY_SOURCE
+
+    authority_source = MDP_SOURCE.split(
+        "def task_actor_authority_observation", maxsplit=1
+    )[1].split("def task_grasp_quality_observation", maxsplit=1)[0]
+    assert "post_grasp_actor_authority(" in authority_source
+    assert "def post_grasp_actor_authority" in CONTROLLER_SOURCE
+    for pregrasp_mask in (
+        "imminent_grasp_control",
+        "closing_hold",
+        "retry_recovery",
+    ):
+        assert pregrasp_mask not in authority_source
+
+
+def test_v41_restores_the_verified_dense_pregrasp_learning_contract():
+    reward_source = ENV_SOURCE.split("class RewardsCfgV18", maxsplit=1)[1].split(
+        "class TerminationsCfgV18", maxsplit=1
+    )[0]
+    assert "func=mdp.task_pregrasp_centering_reward" in reward_source
+    assert "func=mdp.task_pregrasp_signed_potential_progress" not in reward_source
+    pregrasp_source = reward_source.split("pregrasp_centering =", maxsplit=1)[1].split(
+        "lift_progress =", maxsplit=1
+    )[0]
+    assert '"quality_scale": 5.0' in pregrasp_source
+    assert '"dwell_scale": 1.0' in pregrasp_source
+    assert "weight=1.0" in pregrasp_source
+    assert "task_gripper_action_phase_error" in reward_source
+    assert "weight=-1.0" in reward_source
+
+
+def test_v42_repairs_only_verified_post_grasp_lift_economics():
+    reward_source = ENV_SOURCE.split("class RewardsCfgV18", maxsplit=1)[1].split(
+        "class TerminationsCfgV18", maxsplit=1
+    )[0]
+    assert "func=mdp.task_verified_paired_lift_progress" in reward_source
+    assert 'params={"discount_factor": 0.995}' in reward_source
+    assert "gamma=0.995" in PPO_SOURCE
+    assert "weight=30.0" in reward_source
+    assert reward_source.count('params={"preassist_multiplier": 1.0}') == 1
+    assert reward_source.count('params={"preassist_multiplier": 2.0}') == 1
+    assert "self.is_finite_horizon = True" in ENV_SOURCE
+
+    reward_class = next(
+        node
+        for node in ast.parse(ENV_SOURCE).body
+        if isinstance(node, ast.ClassDef) and node.name == "RewardsCfgV18"
+    )
+    reward_assignments = {
+        node.targets[0].id: node.value
+        for node in reward_class.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and isinstance(node.value, ast.Call)
+    }
+
+    def keyword_value(term_name: str, keyword_name: str):
+        term = reward_assignments[term_name]
+        keyword = next(item for item in term.keywords if item.arg == keyword_name)
+        return ast.literal_eval(keyword.value)
+
+    acquired_event_credit = sum(
+        keyword_value(term_name, "weight")
+        for term_name in ("grasp_ready", "grasp_candidate", "grasp_acquired")
+    )
+    failure_cost = abs(keyword_value("failed_place", "weight"))
+    failure_multiplier = keyword_value("failed_place", "params")[
+        "preassist_multiplier"
+    ]
+    timeout_multiplier = keyword_value("incomplete_timeout", "params")[
+        "preassist_multiplier"
+    ]
+    assert failure_cost * failure_multiplier > acquired_event_credit
+    assert timeout_multiplier == 1.0
+
+    paired_source = MDP_SOURCE.split(
+        "class task_verified_paired_lift_progress", maxsplit=1
+    )[1].split("class task_preclearance_inward_progress", maxsplit=1)[0]
+    assert "discounted_potential_delta(" in paired_source
+    assert "state.grasp_acquired" in paired_source
+    assert "state.just_lifted" in paired_source
+    assert "closed_terminal" in paired_source
+    assert "one-time lift-completion bonus" in paired_source
+    assert "current_hold" not in paired_source
+
+    lift_source = MDP_SOURCE.split('elif mode == "lift":', maxsplit=1)[1].split(
+        'elif mode == "transport":', maxsplit=1
+    )[0]
+    assert "state.grasp_candidate_tracking | state.just_grasped" in lift_source
+    assert "state.grasp_acquired" not in lift_source
+    for metric in (
+        "task_verified_lift_object_progress",
+        "task_verified_lift_tcp_progress",
+        "task_verified_lift_coupled_progress",
+    ):
+        assert metric in MDP_SOURCE
+
+
+def test_openarm_scenes_fail_closed_with_self_collisions_enabled():
+    required_spawner_contract = (
+        'OPENARM_ROBOT_REL_PATH = "openarm_bimanual"',
+        'OPENARM_ARTICULATION_ROOT_PRIM_PATH = "/root_joint"',
+        "OPENARM_ARTICULATION_REL_PATH = OPENARM_ROBOT_REL_PATH + OPENARM_ARTICULATION_ROOT_PRIM_PATH",
+        "references.ClearReferences()",
+        "Referenced source did not contribute",
+        "articulation_prim.HasAPI(UsdPhysics.ArticulationRootAPI)",
+        "PhysxSchema.PhysxArticulationAPI.Apply(articulation_prim)",
+        "Usd.EditContext(stage, Usd.EditTarget(stage.GetRootLayer()))",
+        "stage.GetRootLayer().GetAttributeAtPath(enabled_attr.GetPath())",
+        "enabled_attr.Set(True)",
+        "enabled_attr.Get() is not True",
+        "def assert_openarm_self_collision_contract(env, env_ids)",
+        "for env_prim_path in env_prim_paths:",
+        "OPENARM_SELF_COLLISION_FILTER_PAIRS",
+        "def _author_openarm_self_collision_filters",
+        "UsdPhysics.FilteredPairsAPI.Apply(source_prim)",
+        "CreateFilteredPairsRel()",
+        "SetTargets([target_sdf_path])",
+        "GetRelationshipAtPath(",
+        "root_relationship.targetPathList.GetAppliedItems()",
+        "for prim in Usd.PrimRange(robot_prim):",
+        "observed_filters != expected_filters",
+        "Self-collision filters are invalid",
+    )
+    for contract_line in required_spawner_contract:
+        assert contract_line in SPAWNER_SOURCE
+
+    spawn_source = SPAWNER_SOURCE.split("def spawn_original_usd_scene", maxsplit=1)[1]
+    reference_index = spawn_source.index("scene_prim = _reference_prim(")
+    enable_index = spawn_source.index("_enable_articulation_self_collisions(stage, articulation_path)")
+    filter_index = spawn_source.index("_author_openarm_self_collision_filters(stage, robot_path)")
+    standardize_index = spawn_source.index("standardize_xform_ops(")
+    assert reference_index < enable_index < filter_index < standardize_index
+
+    for env_source in (ENV_SOURCE, REACH_ENV_SOURCE):
+        assert 'cfg.prim_path = f"{{ENV_REGEX_NS}}/Scene/{OPENARM_ROBOT_REL_PATH}"' in env_source
+        assert "cfg.articulation_root_prim_path = OPENARM_ARTICULATION_ROOT_PRIM_PATH" in env_source
+        assert "cfg.spawn = None" in env_source
+        assert "func=assert_openarm_self_collision_contract, mode=\"startup\"" in env_source
+        assert "apply_openarm_self_collision_physx_profile(self.sim.physx)" in env_source
+        assert "self_collision_articulation_paths" not in env_source
+    assert "Set(False)" not in SPAWNER_SOURCE
+
+
+def test_pick_place_reserves_contact_rich_physx_buffers():
+    required_buffers = (
+        "gpu_max_rigid_contact_count = 2**23",
+        "gpu_max_rigid_patch_count = 2**23",
+        "gpu_found_lost_pairs_capacity = 2**22",
+        "gpu_found_lost_aggregate_pairs_capacity = 2**25",
+        "gpu_total_aggregate_pairs_capacity = 2**21",
+        "gpu_collision_stack_size = 2**28",
+        "gpu_heap_capacity = 2**27",
+        "gpu_temp_buffer_capacity = 2**25",
+    )
+    for buffer_contract in required_buffers:
+        assert buffer_contract in SPAWNER_SOURCE
+
+
+def test_every_registered_openarm_task_inherits_the_verified_scene_contract():
+    def registered_env_cfg_names(registry_source: str) -> set[str]:
+        return set(re.findall(r"env_cfg_entry_point.*:([A-Za-z0-9_]+)", registry_source))
+
+    def class_bases(source: str) -> dict[str, set[str]]:
+        tree = ast.parse(source)
+        return {
+            node.name: {base.id for base in node.bases if isinstance(base, ast.Name)}
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+        }
+
+    def inherits(class_name: str, required_base: str, bases: dict[str, set[str]]) -> bool:
+        if class_name == required_base:
+            return True
+        return any(inherits(base, required_base, bases) for base in bases.get(class_name, set()))
+
+    for registry_source, env_source, required_base in (
+        (PICK_PLACE_REGISTRY_SOURCE, ENV_SOURCE, "OpenArmTestUsdPickPlaceEnvCfg"),
+        (REACH_REGISTRY_SOURCE, REACH_ENV_SOURCE, "OpenArmTestUsdReachEnvCfg"),
+    ):
+        bases = class_bases(env_source)
+        registered_names = registered_env_cfg_names(registry_source)
+        assert registered_names
+        assert all(inherits(name, required_base, bases) for name in registered_names)
+
+
+def test_v40_release_has_no_hidden_actor_control_after_authority_is_removed():
+    assert "& ~state.release_commanded" in MDP_SOURCE
+    assert MDP_SOURCE.count("automatic_release_ready(") == 2
+    assert "def _imminent_automatic_release(" in MDP_SOURCE
+    assert "imminent_automatic_release | state.release_commanded | state.released" in MDP_SOURCE
+    assert "& ~imminent_automatic_release" in MDP_SOURCE
+    assert "self._processed_actions[release_hold] = current_joint_pos[release_hold]" in MDP_SOURCE
+    assert "self._handoff_steps_remaining[release_hold] = 0" in MDP_SOURCE
+    assert "| release_hold" in MDP_SOURCE
+    actions_source = ENV_SOURCE.split("class ActionsCfg:", maxsplit=1)[1].split(
+        "class ObservationsCfg:", maxsplit=1
+    )[0]
+    assert actions_source.index("arm_action") < actions_source.index("gripper_action")
+
+
+def test_v40_z_fallback_and_proactive_upgrade_metrics_remain_disjoint():
+    assert "unresolved_z_fallback = use_z_fallback.clone()" in MDP_SOURCE
+    assert "use_z_fallback |= z_priority_upgrade" in MDP_SOURCE
+    assert "unresolved_z_fallback.float()" in MDP_SOURCE
 
 
 def test_preassist_call_sites_start_only_after_verified_grasp():
@@ -296,10 +557,11 @@ def object_to_transport_goal_position_in_robot_root_frame(
     assert "lift_first" not in policy_source
 
 
-def test_pregrasp_reward_excludes_only_automatic_pose_holds():
+def test_pregrasp_reward_excludes_every_automatic_pose_hold():
     assert "state.grasp_controller_owns_arm[:] = grasp_control" in MDP_SOURCE
     assert 'phase_masks["close_verify"] = remaining & self.grasp_attempt_active' in MDP_SOURCE
-    assert "actor_controlled = ~state.grasp_controller_owns_arm" in MDP_SOURCE
+    assert "& ~state.grasp_controller_owns_arm" in MDP_SOURCE
+    assert "& ~state.assist_owns_arm" in MDP_SOURCE
     assert "sync_task_latched_metrics" in MDP_SOURCE
 
 

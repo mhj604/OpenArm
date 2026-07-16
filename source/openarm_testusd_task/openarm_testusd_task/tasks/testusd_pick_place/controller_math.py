@@ -84,6 +84,123 @@ def actor_owned_carry_phase(
     return grasp_acquired & ~assist_owns_arm & ~released & ~failed
 
 
+def automatic_release_ready(
+    grasp_acquired: torch.Tensor,
+    lift_completed: torch.Tensor,
+    validated_transport: torch.Tensor,
+    release_ready_reached: torch.Tensor,
+    release_ready: torch.Tensor,
+) -> torch.Tensor:
+    """Return the shared release gate used by the arm and gripper action terms."""
+
+    return (
+        grasp_acquired
+        & lift_completed
+        & validated_transport
+        & release_ready_reached
+        & release_ready
+    )
+
+
+def post_grasp_actor_authority(
+    assist_active: torch.Tensor,
+    hold_recovery: torch.Tensor,
+    handoff_pending: torch.Tensor,
+    imminent_automatic_release: torch.Tensor,
+    release_commanded: torch.Tensor,
+    released: torch.Tensor,
+    failed: torch.Tensor,
+) -> torch.Tensor:
+    """Return actor authority after excluding post-grasp automatic arm control."""
+
+    return ~(
+        assist_active
+        | hold_recovery
+        | handoff_pending
+        | imminent_automatic_release
+        | release_commanded
+        | released
+        | failed
+    )
+
+
+def coupled_lift_progress(
+    object_height: torch.Tensor,
+    tcp_height: torch.Tensor,
+    object_origin_height: torch.Tensor,
+    tcp_origin_height: torch.Tensor,
+    target_object_height: float,
+    minimum_height_span: float = 1.0e-3,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return normalized object, TCP, and coupled post-grasp lift progress."""
+
+    if minimum_height_span <= 0.0:
+        raise ValueError("minimum lift height span must be positive")
+    height_span = torch.clamp(
+        target_object_height - object_origin_height,
+        min=minimum_height_span,
+    )
+    object_progress = torch.clamp(
+        (object_height - object_origin_height) / height_span,
+        min=0.0,
+        max=1.0,
+    )
+    tcp_progress = torch.clamp(
+        (tcp_height - tcp_origin_height) / height_span,
+        min=0.0,
+        max=1.0,
+    )
+    return object_progress, tcp_progress, torch.minimum(object_progress, tcp_progress)
+
+
+def discounted_potential_delta(
+    current_potential: torch.Tensor,
+    previous_potential: torch.Tensor,
+    discount_factor: float,
+    terminal: torch.Tensor,
+) -> torch.Tensor:
+    """Return gamma-correct shaping with terminal potential closed at zero."""
+
+    if not 0.0 < discount_factor <= 1.0:
+        raise ValueError("discount factor must be in (0, 1]")
+    terminal = torch.as_tensor(
+        terminal,
+        device=current_potential.device,
+        dtype=torch.bool,
+    )
+    next_potential = torch.where(
+        terminal,
+        torch.zeros_like(current_potential),
+        current_potential,
+    )
+    return discount_factor * next_potential - previous_potential
+
+
+def persistent_best_signed_progress(
+    current_quality: torch.Tensor,
+    previous_quality: torch.Tensor,
+    best_quality: torch.Tensor,
+    active: torch.Tensor,
+    was_active: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pay new episode-best quality once and charge every active regression."""
+
+    continued = active & was_active
+    new_best_improvement = torch.clamp(current_quality - best_quality, min=0.0)
+    signed_regression = torch.clamp(current_quality - previous_quality, max=0.0)
+    progress = torch.where(
+        continued,
+        new_best_improvement + signed_regression,
+        torch.zeros_like(current_quality),
+    )
+    updated_best = torch.where(
+        active,
+        torch.maximum(best_quality, current_quality),
+        best_quality,
+    )
+    return progress, updated_best
+
+
 def low_clearance_inward_progress_cost(
     previous_distance_xy: torch.Tensor,
     distance_xy: torch.Tensor,
@@ -238,6 +355,69 @@ def phase_primary_axis_progress_valid(
         & companion_progress_valid,
         xy_ratio,
         z_ratio,
+    )
+
+
+def phase_primary_translation_progress_ratio(
+    predicted_translation: torch.Tensor,
+    requested_translation: torch.Tensor,
+    active_xy: torch.Tensor,
+    active_z: torch.Tensor,
+    prefer_z: torch.Tensor,
+) -> torch.Tensor:
+    """Return progress on the phase-primary axis, not the weaker companion axis."""
+
+    active_xy = torch.as_tensor(
+        active_xy, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(predicted_translation.shape[0])
+    active_z = torch.as_tensor(
+        active_z, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(predicted_translation.shape[0])
+    prefer_z = torch.as_tensor(
+        prefer_z, device=predicted_translation.device, dtype=torch.bool
+    ).reshape(predicted_translation.shape[0])
+    xy_ratio, z_ratio = translation_progress_ratios(
+        predicted_translation,
+        requested_translation,
+        active_xy,
+        active_z,
+    )
+    primary_xy, primary_z = select_phase_primary_axis(
+        active_xy, active_z, prefer_z
+    )
+    ratio = torch.where(primary_z, z_ratio, xy_ratio)
+    return torch.where(
+        primary_xy | primary_z,
+        ratio,
+        torch.ones_like(ratio),
+    )
+
+
+def select_higher_phase_primary_candidate(
+    current_valid: torch.Tensor,
+    current_ratio: torch.Tensor,
+    candidate_valid: torch.Tensor,
+    candidate_ratio: torch.Tensor,
+    phase_allows_candidate: torch.Tensor,
+    minimum_improvement: float = 1.0e-6,
+) -> torch.Tensor:
+    """Select a safe phase-specific candidate only when it improves primary progress."""
+
+    if minimum_improvement < 0.0:
+        raise ValueError("minimum improvement must be non-negative")
+    device = current_ratio.device
+    current_valid = torch.as_tensor(current_valid, device=device, dtype=torch.bool)
+    candidate_valid = torch.as_tensor(candidate_valid, device=device, dtype=torch.bool)
+    phase_allows_candidate = torch.as_tensor(
+        phase_allows_candidate, device=device, dtype=torch.bool
+    )
+    finite = torch.isfinite(current_ratio) & torch.isfinite(candidate_ratio)
+    return (
+        phase_allows_candidate
+        & current_valid
+        & candidate_valid
+        & finite
+        & (candidate_ratio > current_ratio + minimum_improvement)
     )
 
 

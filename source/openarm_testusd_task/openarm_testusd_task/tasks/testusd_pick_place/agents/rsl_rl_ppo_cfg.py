@@ -3,6 +3,12 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 
 @configclass
+class OpenArmAuthorityMaskedPPOCfg(RslRlPpoAlgorithmCfg):
+    class_name: str = "AuthorityMaskedPPO"
+    authority_observation_group: str = "authority"
+
+
+@configclass
 class OpenArmTestUsdPickPlacePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 5000
@@ -41,6 +47,7 @@ class OpenArmTestUsdPickPlacePPORunnerCfg(RslRlOnPolicyRunnerCfg):
 class OpenArmTestUsdPickPlaceStagePPORunnerCfg(OpenArmTestUsdPickPlacePPORunnerCfg):
     num_steps_per_env = 48
     max_iterations = 5000
+    obs_groups = {"policy": ["policy"], "critic": ["policy"]}
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.05,
         noise_std_type="log",
@@ -50,7 +57,7 @@ class OpenArmTestUsdPickPlaceStagePPORunnerCfg(OpenArmTestUsdPickPlacePPORunnerC
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
     )
-    algorithm = RslRlPpoAlgorithmCfg(
+    algorithm = OpenArmAuthorityMaskedPPOCfg(
         value_loss_coef=0.25,
         use_clipped_value_loss=True,
         clip_param=0.1,

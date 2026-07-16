@@ -24,24 +24,30 @@ from isaaclab.utils.math import (
 from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, F403
 
 from .controller_math import (
-    active_translation_progress_ratio,
     advance_post_center_descent_progress,
     actor_owned_carry_phase,
     apply_stopping_speed_envelope,
+    automatic_release_ready,
     build_prioritized_dls_solver,
     carry_clearance_fraction,
     constrain_target_lead,
+    coupled_lift_progress,
     damped_pseudoinverse,
+    discounted_potential_delta,
     jerk_limited_cartesian_velocity,
     limit_vector_norm,
     low_clearance_inward_progress_cost,
+    persistent_best_signed_progress,
     phase_primary_axis_progress_valid,
+    phase_primary_translation_progress_ratio,
+    post_grasp_actor_authority,
     post_center_descent_readiness,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
     scale_delta_to_joint_limits,
     scale_delta_to_cartesian_bounds,
+    select_higher_phase_primary_candidate,
     select_phase_axis_fallback,
     select_phase_primary_axis,
     solve_primary_dls_delta,
@@ -105,6 +111,9 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_grasp_retry_success",
             "task_grasp_candidate_object_lift",
             "task_grasp_candidate_tcp_lift",
+            "task_verified_lift_object_progress",
+            "task_verified_lift_tcp_progress",
+            "task_verified_lift_coupled_progress",
             "task_transport_displacement",
             "task_low_clearance_basket_approach_steps",
             "task_assist_engaged",
@@ -185,6 +194,8 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_incremental_scaled_repairs",
             "task_assist_incremental_xy_fallbacks",
             "task_assist_incremental_z_fallbacks",
+            "task_assist_z_priority_control_steps",
+            "task_assist_incremental_z_priority_upgrades",
             "task_assist_incremental_xy_rejects",
             "task_assist_incremental_z_rejects",
             "task_assist_lead_fallbacks",
@@ -306,6 +317,15 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             )
             self.metrics["task_grasp_candidate_tcp_lift"] = (
                 state.grasp_candidate_tcp_lift.clone()
+            )
+            self.metrics["task_verified_lift_object_progress"] = (
+                state.verified_lift_object_progress.clone()
+            )
+            self.metrics["task_verified_lift_tcp_progress"] = (
+                state.verified_lift_tcp_progress.clone()
+            )
+            self.metrics["task_verified_lift_coupled_progress"] = (
+                state.verified_lift_coupled_progress.clone()
             )
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
             low_clearance_approach = (
@@ -514,6 +534,12 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 self.metrics["task_assist_incremental_z_fallbacks"].add_(
                     arm_action.assist_incremental_z_fallback
                 )
+                self.metrics["task_assist_z_priority_control_steps"].add_(
+                    arm_action.assist_z_priority
+                )
+                self.metrics[
+                    "task_assist_incremental_z_priority_upgrades"
+                ].add_(arm_action.assist_incremental_z_priority_upgrade)
                 self.metrics["task_assist_incremental_xy_rejects"].add_(
                     arm_action.assist_incremental_xy_reject
                 )
@@ -698,12 +724,12 @@ class HystereticBinaryJointPositionAction(BinaryJointPositionAction):
         if self.cfg.enforce_task_phase:
             state = getattr(self._env, "_openarm_pick_place_state", None)
             if state is not None:
-                release_ready = (
-                    state.grasp_acquired
-                    & state.lift_completed
-                    & state.validated_transport
-                    & state.release_ready_reached
-                    & state.release_ready
+                release_ready = automatic_release_ready(
+                    state.grasp_acquired,
+                    state.lift_completed,
+                    state.validated_transport,
+                    state.release_ready_reached,
+                    state.release_ready,
                 )
                 if self.cfg.automatic_phase_control:
                     safe_release_request = release_ready
@@ -745,6 +771,27 @@ class HystereticBinaryJointPositionActionCfg(BinaryJointPositionActionCfg):
     close_threshold: float = -0.15
     enforce_task_phase: bool = False
     automatic_phase_control: bool = False
+
+
+def _imminent_automatic_release(
+    env: ManagerBasedRLEnv, state: "TaskStateTracker"
+) -> torch.Tensor:
+    """Predict the release request made by the later gripper action term."""
+
+    gripper_action = env.action_manager.get_term("gripper_action")
+    automatic_release_enabled = bool(
+        getattr(gripper_action.cfg, "enforce_task_phase", False)
+        and getattr(gripper_action.cfg, "automatic_phase_control", False)
+    )
+    if not automatic_release_enabled:
+        return torch.zeros_like(state.release_commanded)
+    return automatic_release_ready(
+        state.grasp_acquired,
+        state.lift_completed,
+        state.validated_transport,
+        state.release_ready_reached,
+        state.release_ready,
+    )
 
 
 class PlaceAssistJointPositionAction(JointPositionAction):
@@ -919,6 +966,12 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_incremental_z_fallback = torch.zeros(
             self._env.num_envs, device=self.device
         )
+        self.assist_z_priority = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_incremental_z_priority_upgrade = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
         self.assist_incremental_xy_reject = torch.zeros(
             self._env.num_envs, device=self.device
         )
@@ -1015,6 +1068,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_incremental_scaled_repair[resolved_env_ids] = 0.0
         self.assist_incremental_xy_fallback[resolved_env_ids] = 0.0
         self.assist_incremental_z_fallback[resolved_env_ids] = 0.0
+        self.assist_z_priority[resolved_env_ids] = 0.0
+        self.assist_incremental_z_priority_upgrade[resolved_env_ids] = 0.0
         self.assist_incremental_xy_reject[resolved_env_ids] = 0.0
         self.assist_incremental_z_reject[resolved_env_ids] = 0.0
         self.assist_lead_fallback[resolved_env_ids] = 0.0
@@ -1146,6 +1201,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         state = getattr(self._env, "_openarm_pick_place_state", None)
         if state is None:
             return
+        imminent_automatic_release = _imminent_automatic_release(self._env, state)
         state.assist_active[:] = False
         state.assist_owns_arm[:] = False
         state.grasp_controller_owns_arm[:] = False
@@ -1187,6 +1243,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_incremental_scaled_repair[:] = 0.0
         self.assist_incremental_xy_fallback[:] = 0.0
         self.assist_incremental_z_fallback[:] = 0.0
+        self.assist_z_priority[:] = 0.0
+        self.assist_incremental_z_priority_upgrade[:] = 0.0
         self.assist_incremental_xy_reject[:] = 0.0
         self.assist_incremental_z_reject[:] = 0.0
         self.assist_lead_fallback[:] = 0.0
@@ -1326,6 +1384,8 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         post_assist = (
             state.grasp_acquired
             & state.assist_engaged
+            & ~imminent_automatic_release
+            & ~state.release_commanded
             & ~state.released
             & ~state.failed
         )
@@ -1421,8 +1481,19 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self._assist_joint_target[handoff] = (current_joint_pos + handoff_lead)[handoff]
         self._processed_actions[handoff] = self._assist_joint_target[handoff]
         self._handoff_steps_remaining[handoff] -= 1
+        release_hold = (
+            imminent_automatic_release | state.release_commanded | state.released
+        )
+        self._assist_joint_target[release_hold] = current_joint_pos[release_hold]
+        self._processed_actions[release_hold] = current_joint_pos[release_hold]
+        self._handoff_steps_remaining[release_hold] = 0
         state.assist_owns_arm[:] = (
-            grasp_control | grasp_handoff | assist_active | hold_recovery | handoff
+            grasp_control
+            | grasp_handoff
+            | assist_active
+            | hold_recovery
+            | handoff
+            | release_hold
         )
         # Only automatic pose holds own the arm for reward purposes. During
         # verification/handoff the bounded target still comes from the actor.
@@ -1637,9 +1708,14 @@ class PlaceAssistJointPositionAction(JointPositionAction):
 
         delta_twist = torch.zeros((assist_ids.numel(), 6), device=self.device)
         delta_twist[:, :3] = delta_position
+        phase_primary_xy, phase_primary_z = select_phase_primary_axis(
+            requested_xy_active,
+            requested_z_active,
+            prefer_z_progress,
+        )
         primary_row_mask = torch.zeros_like(delta_twist, dtype=torch.bool)
-        primary_row_mask[:, :2] = requested_xy_active[:, None]
-        primary_row_mask[:, 2] = requested_z_active
+        primary_row_mask[:, :2] = phase_primary_xy[:, None]
+        primary_row_mask[:, 2] = phase_primary_z
         solver = build_prioritized_dls_solver(
             task_jacobian,
             primary_row_mask,
@@ -1664,15 +1740,20 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 (fresh_local_ids.numel(), 6), device=self.device
             )
             entry_target_twist[:, :3] = entry_target_lead
+            entry_active_xy = (
+                torch.norm(entry_target_lead[:, :2], dim=1) > 1.0e-9
+            )
+            entry_active_z = torch.abs(entry_target_lead[:, 2]) > 1.0e-9
+            entry_primary_xy, entry_primary_z = select_phase_primary_axis(
+                entry_active_xy,
+                entry_active_z,
+                prefer_z_progress[fresh_local_ids],
+            )
             entry_primary_mask = torch.zeros_like(
                 entry_target_twist, dtype=torch.bool
             )
-            entry_primary_mask[:, :2] = (
-                torch.norm(entry_target_lead[:, :2], dim=1) > 1.0e-9
-            )[:, None]
-            entry_primary_mask[:, 2] = (
-                torch.abs(entry_target_lead[:, 2]) > 1.0e-9
-            )
+            entry_primary_mask[:, :2] = entry_primary_xy[:, None]
+            entry_primary_mask[:, 2] = entry_primary_z
             entry_solver = build_prioritized_dls_solver(
                 task_jacobian[fresh_local_ids],
                 entry_primary_mask,
@@ -1722,15 +1803,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 entry_z_limit,
                 self.cfg.cartesian_hard_leak_tolerance,
             )
-            entry_require_xy = (
-                torch.norm(entry_target_lead[:, :2], dim=1) > 1.0e-9
-            )
-            entry_require_z = torch.abs(entry_target_lead[:, 2]) > 1.0e-9
             entry_progress_valid, _, _ = phase_primary_axis_progress_valid(
                 predicted_entry_twist[:, :3],
                 entry_target_lead,
-                entry_require_xy,
-                entry_require_z,
+                entry_active_xy,
+                entry_active_z,
                 prefer_z_progress[fresh_local_ids],
                 self.cfg.minimum_active_progress_ratio,
                 self.cfg.minimum_companion_progress_ratio,
@@ -1833,11 +1910,12 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 & candidate_progress_valid
                 & torch.all(torch.isfinite(candidate_delta), dim=1)
             )
-            candidate_ratio = active_translation_progress_ratio(
+            candidate_ratio = phase_primary_translation_progress_ratio(
                 candidate_prediction[:, :3],
                 delta_position,
                 require_xy,
                 require_z,
+                prefer_z_progress,
             )
             return candidate_prediction, candidate_valid, candidate_ratio
 
@@ -2136,19 +2214,24 @@ class PlaceAssistJointPositionAction(JointPositionAction):
                 & local_progress_valid
                 & torch.all(torch.isfinite(local_delta), dim=1)
             )
-            local_ratio = active_translation_progress_ratio(
+            local_ratio = phase_primary_translation_progress_ratio(
                 local_prediction[:, :3],
                 delta_position,
                 required_xy,
                 required_z,
+                prefer_z_progress,
             )
             return local_delta, local_valid, local_ratio
 
         xy_fallback_delta, xy_fallback_valid, xy_fallback_ratio = (
             solve_single_axis_candidate(unresolved & requested_xy_active, True)
         )
+        z_priority_candidate = prefer_z_progress & requested_z_active
         z_fallback_delta, z_fallback_valid, z_fallback_ratio = (
-            solve_single_axis_candidate(unresolved & requested_z_active, False)
+            solve_single_axis_candidate(
+                (unresolved & requested_z_active) | z_priority_candidate,
+                False,
+            )
         )
         use_xy_fallback, use_z_fallback = select_phase_axis_fallback(
             unresolved,
@@ -2156,6 +2239,16 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             z_fallback_valid,
             prefer_z_progress,
         )
+        unresolved_z_fallback = use_z_fallback.clone()
+        z_priority_upgrade = select_higher_phase_primary_candidate(
+            selected_valid,
+            selected_ratio,
+            z_fallback_valid,
+            z_fallback_ratio,
+            z_priority_candidate,
+        )
+        use_z_fallback |= z_priority_upgrade
+        use_xy_fallback &= ~use_z_fallback
         selected_delta = torch.where(
             use_z_fallback[:, None], z_fallback_delta, selected_delta
         )
@@ -2172,6 +2265,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             use_xy_fallback, xy_fallback_ratio, selected_ratio
         )
         fallback_used = use_xy_fallback | use_z_fallback
+        use_scaled_repair &= ~fallback_used
         selected_required_xy = (
             selected_required_xy & ~fallback_used
         ) | use_xy_fallback
@@ -2186,7 +2280,13 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             use_xy_fallback.float()
         )
         self.assist_incremental_z_fallback[assist_ids] = (
-            use_z_fallback.float()
+            unresolved_z_fallback.float()
+        )
+        self.assist_z_priority[assist_ids] = (
+            prefer_z_progress & requested_motion
+        ).float()
+        self.assist_incremental_z_priority_upgrade[assist_ids] = (
+            z_priority_upgrade.float()
         )
 
         delta_joint = torch.where(
@@ -2231,11 +2331,12 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             requested_xy_active,
             requested_z_active,
         )
-        progress_ratio = active_translation_progress_ratio(
+        progress_ratio = phase_primary_translation_progress_ratio(
             predicted_increment_twist[:, :3],
             delta_position,
             selected_required_xy,
             selected_required_z,
+            prefer_z_progress,
         )
         progress_ratio = torch.where(
             requested_motion,
@@ -3274,7 +3375,11 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_candidate_object_lift = torch.zeros(env.num_envs, device=env.device)
         self.grasp_candidate_tcp_lift = torch.zeros(env.num_envs, device=env.device)
         self.grasp_object_origin = torch.zeros((env.num_envs, 3), device=env.device)
+        self.grasp_tcp_origin = torch.zeros((env.num_envs, 3), device=env.device)
         self.grasp_tcp_offset = torch.zeros((env.num_envs, 3), device=env.device)
+        self.verified_lift_object_progress = torch.zeros(env.num_envs, device=env.device)
+        self.verified_lift_tcp_progress = torch.zeros(env.num_envs, device=env.device)
+        self.verified_lift_coupled_progress = torch.zeros(env.num_envs, device=env.device)
         self.object_offset_tcp = torch.zeros((env.num_envs, 3), device=env.device)
         params = cfg.params
         self._proximity_std = float(params["proximity_std"])
@@ -3965,6 +4070,7 @@ class TaskStateTracker(ManagerTermBase):
         )
         self.grasp_tcp_offset[self.just_grasped] = self.object_offset_tcp[self.just_grasped]
         self.grasp_object_origin[self.just_grasped] = obj.data.root_pos_w[self.just_grasped]
+        self.grasp_tcp_origin[self.just_grasped] = tcp_pos_w[self.just_grasped]
         self.grasp_attempt_active[self.grasp_acquired] = False
         self.grasp_lift_authorized[self.grasp_acquired] = False
         self.grasp_verification_active[self.grasp_acquired] = False
@@ -3987,6 +4093,32 @@ class TaskStateTracker(ManagerTermBase):
             & self.grasp_acquired
             & (self.grasp_offset_error <= hold_max_offset_error)
             & (self.grasp_relative_speed <= hold_max_relative_speed)
+        )
+
+        object_lift_progress, tcp_lift_progress, coupled_progress = (
+            coupled_lift_progress(
+                obj.data.root_pos_w[:, 2],
+                tcp_pos_w[:, 2],
+                self.grasp_object_origin[:, 2],
+                self.grasp_tcp_origin[:, 2],
+                carry_height,
+            )
+        )
+        verified_grasp = self.grasp_acquired & ~self.released
+        self.verified_lift_object_progress[:] = torch.where(
+            verified_grasp,
+            object_lift_progress,
+            0.0,
+        )
+        self.verified_lift_tcp_progress[:] = torch.where(
+            verified_grasp,
+            tcp_lift_progress,
+            0.0,
+        )
+        self.verified_lift_coupled_progress[:] = torch.where(
+            verified_grasp,
+            coupled_progress,
+            0.0,
         )
 
         previous_lift = self.lift_completed.clone()
@@ -4324,6 +4456,49 @@ def task_state_observation(env: ManagerBasedRLEnv) -> torch.Tensor:
     ).float()
 
 
+def task_actor_authority_observation(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Mask actor learning only while post-grasp automation owns the arm."""
+
+    state: TaskStateTracker | None = getattr(env, "_openarm_pick_place_state", None)
+    if state is None:
+        return torch.ones((env.num_envs, 1), device=env.device)
+    state.update_grasp_geometry(env)
+    imminent_automatic_release = _imminent_automatic_release(env, state)
+
+    post_assist = (
+        state.grasp_acquired
+        & state.assist_engaged
+        & ~imminent_automatic_release
+        & ~state.release_commanded
+        & ~state.released
+        & ~state.failed
+    )
+    arm_action = env.action_manager.get_term("arm_action")
+    outer_xy_threshold = float(getattr(arm_action.cfg, "outer_xy_threshold", 0.0))
+    assist_active = post_assist & state.current_hold & (
+        state.distance_xy < outer_xy_threshold
+    )
+    hold_recovery = post_assist & ~state.current_hold
+    previous_assist_active = getattr(arm_action, "_assist_was_active", state.assist_active)
+    deactivating_assist = previous_assist_active & ~assist_active & ~hold_recovery
+    handoff_remaining = getattr(arm_action, "_handoff_steps_remaining", None)
+    if handoff_remaining is None:
+        handoff_pending = deactivating_assist
+    else:
+        handoff_pending = deactivating_assist | (handoff_remaining > 0)
+
+    actor_authority = post_grasp_actor_authority(
+        assist_active,
+        hold_recovery,
+        handoff_pending,
+        imminent_automatic_release,
+        state.release_commanded,
+        state.released,
+        state.failed,
+    )
+    return actor_authority.unsqueeze(1).float()
+
+
 def task_grasp_quality_observation(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Expose the geometry and motion used by the centered grasp gate."""
 
@@ -4478,22 +4653,7 @@ def task_pregrasp_delay_penalty(
     return actor_waiting.float() + retry_event
 
 
-def task_pregrasp_centering_reward(
-    env: ManagerBasedRLEnv,
-    quality_scale: float,
-    dwell_scale: float,
-) -> torch.Tensor:
-    """Reward geometry inside the same narrow basin that authorizes grasp closure."""
-
-    state: TaskStateTracker = env._openarm_pick_place_state
-    actor_controlled = ~state.grasp_controller_owns_arm
-    active = (
-        ~state.grasp_acquired
-        & ~state.grasp_attempt_active
-        & ~state.failed
-        & (state.grasp_retry_cooldown == 0)
-        & actor_controlled
-    )
+def _task_pregrasp_alignment_quality(state: TaskStateTracker) -> torch.Tensor:
     offset_error = state.object_offset_tcp - state._alignment_target
     negative_span = state._alignment_target - state._alignment_lower_bounds
     positive_span = state._alignment_upper_bounds - state._alignment_target
@@ -4512,7 +4672,26 @@ def task_pregrasp_centering_reward(
         min=0.0,
         max=1.0,
     )
-    quality = pose_quality * symmetry_quality * proximity_quality
+    return pose_quality * symmetry_quality * proximity_quality
+
+
+def task_pregrasp_centering_reward(
+    env: ManagerBasedRLEnv,
+    quality_scale: float,
+    dwell_scale: float,
+) -> torch.Tensor:
+    """Reward geometry inside the same narrow basin that authorizes grasp closure."""
+
+    state: TaskStateTracker = env._openarm_pick_place_state
+    actor_controlled = ~state.grasp_controller_owns_arm
+    active = (
+        ~state.grasp_acquired
+        & ~state.grasp_attempt_active
+        & ~state.failed
+        & (state.grasp_retry_cooldown == 0)
+        & actor_controlled
+    )
+    quality = _task_pregrasp_alignment_quality(state)
     actor_dwell_steps = max(state._alignment_confirm_steps - 1, 1)
     dwell = torch.clamp(
         state.grasp_alignment_streak.float() / actor_dwell_steps,
@@ -4520,6 +4699,50 @@ def task_pregrasp_centering_reward(
         max=1.0,
     )
     return active.float() * (quality_scale * quality + dwell_scale * dwell)
+
+
+class task_pregrasp_signed_potential_progress(ManagerTermBase):
+    """Reward new-best alignment once and charge every actor-owned regression."""
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._previous_quality = torch.zeros(env.num_envs, device=env.device)
+        self._best_quality = torch.zeros(env.num_envs, device=env.device)
+        self._was_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if env_ids is None:
+            env_ids = slice(None)
+        self._previous_quality[env_ids] = 0.0
+        self._best_quality[env_ids] = 0.0
+        self._was_active[env_ids] = False
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+    ) -> torch.Tensor:
+        state: TaskStateTracker = env._openarm_pick_place_state
+        active = (
+            ~state.grasp_acquired
+            & ~state.grasp_attempt_active
+            & ~state.failed
+            & (state.grasp_retry_cooldown == 0)
+            & ~state.grasp_controller_owns_arm
+            & ~state.assist_owns_arm
+        )
+        quality = _task_pregrasp_alignment_quality(state)
+        quality_delta, updated_best = persistent_best_signed_progress(
+            quality,
+            self._previous_quality,
+            self._best_quality,
+            active,
+            self._was_active,
+        )
+        reward = quality_delta / env.step_dt
+        self._previous_quality[:] = quality
+        self._best_quality[:] = updated_best
+        self._was_active[:] = active
+        return reward
 
 
 class task_potential_progress(ManagerTermBase):
@@ -4560,8 +4783,7 @@ class task_potential_progress(ManagerTermBase):
         elif mode == "lift":
             potential = obj.data.root_pos_w[:, 2]
             active = (
-                (state.grasp_candidate_tracking | state.grasp_acquired)
-                & ~state.lift_completed
+                (state.grasp_candidate_tracking | state.just_grasped)
                 & ~state.released
             )
         elif mode == "transport":
@@ -4617,6 +4839,67 @@ class task_potential_progress(ManagerTermBase):
             self._best_potential[:] = torch.where(active, active_best, potential)
         self._previous_potential[:] = potential
         self._was_active[:] = active
+        return reward
+
+
+class task_verified_paired_lift_progress(ManagerTermBase):
+    """Shape only coupled object/TCP lift after the physical grasp is verified."""
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._previous_potential = torch.zeros(env.num_envs, device=env.device)
+        self._was_active = torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=env.device,
+        )
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if env_ids is None:
+            env_ids = slice(None)
+        self._previous_potential[env_ids] = 0.0
+        self._was_active[env_ids] = False
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        discount_factor: float,
+    ) -> torch.Tensor:
+        state: TaskStateTracker = env._openarm_pick_place_state
+        timed_out = env.episode_length_buf >= env.max_episode_length
+        terminal = state.failed | state.released | timed_out
+        active = (
+            state.grasp_acquired
+            & (~state.lift_completed | state.just_lifted)
+            & ~terminal
+        )
+        continued = active & self._was_active
+        closed_terminal = terminal & self._was_active
+        shaping_delta = discounted_potential_delta(
+            state.verified_lift_coupled_progress,
+            self._previous_potential,
+            discount_factor,
+            terminal,
+        )
+        reward = torch.where(
+            continued | closed_terminal,
+            shaping_delta / env.step_dt,
+            0.0,
+        )
+
+        first_active = active & ~self._was_active
+        self._previous_potential[:] = torch.where(
+            first_active,
+            state.verified_lift_coupled_progress,
+            torch.where(
+                active,
+                state.verified_lift_coupled_progress,
+                self._previous_potential,
+            ),
+        )
+        self._previous_potential[closed_terminal] = 0.0
+        # Keep the final bounded potential as a one-time lift-completion bonus.
+        self._was_active[:] = active & ~state.just_lifted
         return reward
 
 

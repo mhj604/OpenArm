@@ -23,7 +23,14 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab_assets.robots.openarm import OPENARM_BI_HIGH_PD_CFG
 
 from . import mdp
-from ..testusd_reach.original_usd_spawner import OriginalUsdSceneCfg, spawn_original_usd_scene
+from ..testusd_reach.original_usd_spawner import (
+    OPENARM_ARTICULATION_ROOT_PRIM_PATH,
+    OPENARM_ROBOT_REL_PATH,
+    OriginalUsdSceneCfg,
+    apply_openarm_self_collision_physx_profile,
+    assert_openarm_self_collision_contract,
+    spawn_original_usd_scene,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
@@ -119,9 +126,9 @@ RIGHT_READY_JOINT_POS = {
 
 def _openarm_robot_from_original_usd_cfg() -> ArticulationCfg:
     cfg = OPENARM_BI_HIGH_PD_CFG.copy()
-    cfg.prim_path = "{ENV_REGEX_NS}/Scene/openarm_bimanual"
+    cfg.prim_path = f"{{ENV_REGEX_NS}}/Scene/{OPENARM_ROBOT_REL_PATH}"
     cfg.spawn = None
-    cfg.articulation_root_prim_path = "/root_joint"
+    cfg.articulation_root_prim_path = OPENARM_ARTICULATION_ROOT_PRIM_PATH
     cfg.init_state.pos = ROBOT_ROOT_POS
     cfg.init_state.rot = ROBOT_ROOT_ROT
     cfg.init_state.joint_pos = {
@@ -167,7 +174,7 @@ class OpenArmTestUsdPickPlaceSceneCfg(InteractiveSceneCfg):
             func=spawn_original_usd_scene,
             usd_path=ORIGINAL_USD_PATH,
             translation_overrides={"packing_table/container_h20": BASKET_PRIM_TRANSLATION},
-            disable_gravity_paths=("openarm_bimanual",),
+            disable_gravity_paths=(OPENARM_ROBOT_REL_PATH,),
         ),
     )
 
@@ -250,6 +257,8 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
+    verify_self_collisions = EventTerm(func=assert_openarm_self_collision_contract, mode="startup")
+
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset", params={"reset_joint_targets": True})
 
     hold_left_gripper_open = EventTerm(
@@ -1008,12 +1017,21 @@ class ObservationsCfgV18:
         episode_progress = ObsTerm(func=mdp.episode_progress_observation)
         release_target = ObsTerm(func=mdp.task_release_target_observation)
 
+    @configclass
+    class AuthorityCfg(ObsGroup):
+        actor = ObsTerm(func=mdp.task_actor_authority_observation)
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
     policy: PolicyCfg = PolicyCfg()
+    authority: AuthorityCfg = AuthorityCfg()
 
 
 @configclass
 class RewardsCfgV18:
-    """Rewards for actions the learned actor controls; assist-generated motion is excluded."""
+    """Keep the verified pre-grasp contract and mask only post-grasp assist motion."""
 
     pregrasp_centering = RewTerm(
         func=mdp.task_pregrasp_centering_reward,
@@ -1027,6 +1045,11 @@ class RewardsCfgV18:
         func=mdp.task_potential_progress,
         params={"mode": "lift", "max_step_change": 0.03},
         weight=150.0,
+    )
+    verified_lift_progress = RewTerm(
+        func=mdp.task_verified_paired_lift_progress,
+        params={"discount_factor": 0.995},
+        weight=30.0,
     )
     transport_progress = RewTerm(
         func=mdp.task_potential_progress,
@@ -1086,7 +1109,7 @@ class RewardsCfgV18:
 
     incomplete_timeout = RewTerm(
         func=mdp.task_timeout_without_success,
-        params={"preassist_multiplier": 2.0},
+        params={"preassist_multiplier": 1.0},
         weight=-50.0,
     )
     elapsed_time = RewTerm(func=mdp.constant_penalty, weight=-0.5)
@@ -1149,7 +1172,7 @@ class TerminationsCfgV18:
             "descent_end_xy_threshold": 0.005,
             "preplace_height_above_release": 0.020,
             "post_center_descent_xy_threshold": 0.030,
-            "post_center_descent_steps": 18,
+            "post_center_descent_steps": 12,
             "post_center_descent_max_tracking_error": 0.012,
             "assist_entry_xy_threshold": STAGE_ASSIST_ENTRY_XY_THRESHOLD,
             "basket_entry_xy_threshold": 0.10,
@@ -1260,10 +1283,7 @@ class OpenArmTestUsdPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 1.0 / 60.0
         self.sim.render_interval = self.decimation
         self.sim.physx.bounce_threshold_velocity = 0.01
-        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
-        # Keep reset/contact headroom when training with 5120 environments.
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-        self.sim.physx.gpu_total_aggregate_pairs_capacity = 64 * 1024
+        apply_openarm_self_collision_physx_profile(self.sim.physx)
         self.sim.physx.friction_correlation_distance = 0.00625
 
         self.viewer.eye = (1.6, -1.2, 1.2)
@@ -1303,6 +1323,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
+        self.is_finite_horizon = True
         self.scene.replicate_physics = True
         self.commands.object_pose.force_final_goal = True
         self.commands.object_pose.debug_vis = False
@@ -1339,7 +1360,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             max_horizontal_jerk=6.0,
             max_vertical_jerk=4.5,
             horizontal_position_deadband=0.005,
-            vertical_position_deadband=0.002,
+            vertical_position_deadband=0.0015,
             cartesian_leak_tolerance=0.0002,
             cartesian_hard_leak_tolerance=0.0010,
             minimum_active_progress_ratio=0.25,

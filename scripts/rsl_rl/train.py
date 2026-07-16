@@ -16,6 +16,11 @@ sys.path.insert(0, str(TASK_SOURCE))
 sys.path.insert(0, str(ISAAC_TRAIN_DIR))
 
 import openarm_testusd_task  # noqa: F401, E402
+from openarm_testusd_task.tasks.testusd_pick_place.agents.authority_masked_ppo import (  # noqa: E402
+    register_openarm_rsl_rl_classes,
+)
+
+register_openarm_rsl_rl_classes()
 
 try:
     from isaacsim.simulation_app import SimulationApp

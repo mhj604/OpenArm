@@ -22,7 +22,14 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import isaaclab_tasks.manager_based.manipulation.reach.mdp as mdp
 from isaaclab_assets.robots.openarm import OPENARM_BI_HIGH_PD_CFG
 
-from .original_usd_spawner import OriginalUsdSceneCfg, spawn_original_usd_scene
+from .original_usd_spawner import (
+    OPENARM_ARTICULATION_ROOT_PRIM_PATH,
+    OPENARM_ROBOT_REL_PATH,
+    OriginalUsdSceneCfg,
+    apply_openarm_self_collision_physx_profile,
+    assert_openarm_self_collision_contract,
+    spawn_original_usd_scene,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
@@ -33,9 +40,9 @@ ROBOT_ROOT_ROT = (1.0, 0.0, 0.0, 0.0)
 
 def _openarm_robot_from_original_usd_cfg() -> ArticulationCfg:
     cfg = OPENARM_BI_HIGH_PD_CFG.copy()
-    cfg.prim_path = "{ENV_REGEX_NS}/Scene/openarm_bimanual"
+    cfg.prim_path = f"{{ENV_REGEX_NS}}/Scene/{OPENARM_ROBOT_REL_PATH}"
     cfg.spawn = None
-    cfg.articulation_root_prim_path = "/root_joint"
+    cfg.articulation_root_prim_path = OPENARM_ARTICULATION_ROOT_PRIM_PATH
     cfg.init_state.pos = ROBOT_ROOT_POS
     cfg.init_state.rot = ROBOT_ROOT_ROT
     cfg.init_state.joint_pos = {
@@ -54,7 +61,10 @@ class OriginalTestUsdSceneCfg(InteractiveSceneCfg):
 
     original_usd: AssetBaseCfg = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Scene",
-        spawn=OriginalUsdSceneCfg(func=spawn_original_usd_scene, usd_path=ORIGINAL_USD_PATH),
+        spawn=OriginalUsdSceneCfg(
+            func=spawn_original_usd_scene,
+            usd_path=ORIGINAL_USD_PATH,
+        ),
     )
 
     robot: ArticulationCfg = MISSING
@@ -137,6 +147,8 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
+    verify_self_collisions = EventTerm(func=assert_openarm_self_collision_contract, mode="startup")
+
     reset_robot_joints = EventTerm(
         func=mdp.reset_joints_by_scale,
         mode="reset",
@@ -251,6 +263,7 @@ class OpenArmTestUsdReachEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.eye = (1.7028798, 0.0835766, 0.9590004)
         self.viewer.lookat = (-0.7228655, -0.0446134, 0.6415680)
         self.sim.dt = 1.0 / 60.0
+        apply_openarm_self_collision_physx_profile(self.sim.physx)
 
 
 @configclass
