@@ -1,0 +1,6 @@
+# Kept compatible with Ubuntu 22.04 / ROS 2 Humble's NumPy 1.21.
+zarr==2.12.0
+numcodecs==0.11.0
+PyYAML==6.0.2
+pyrealsense2==2.57.7.10387
+pytest==8.3.5

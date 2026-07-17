@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=71"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_openarm_can_passive"
+version = "0.1.0"
+description = "Passive LeRobot recorder for an already-running OpenArm CAN control path"
+requires-python = ">=3.12,<3.13"
+dependencies = ["lerobot==0.6.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

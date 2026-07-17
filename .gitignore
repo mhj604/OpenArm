@@ -16,3 +16,7 @@ calibration/*.npy
 calibration/*.json
 configs/workspace_crop.before_*.yaml
 vendor/
+backups/
+DP3
+ZERO
+wait

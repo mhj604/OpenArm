@@ -1,0 +1,32 @@
+{
+  "camera_serial": "261722072049",
+  "host_time_ns": 1784256538168773329,
+  "device_timestamp_ms": 1784256538134.1194,
+  "depth_scale_m": 0.0010000000474974513,
+  "intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 607.6209716796875,
+    "fy": 607.0798950195312,
+    "ppx": 331.2261657714844,
+    "ppy": 247.20811462402344,
+    "model": "distortion.inverse_brown_conrady",
+    "coeffs": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "pixel_roi": [
+    0,
+    306,
+    480,
+    444
+  ],
+  "depth_range_m": [
+    0.1,
+    0.569
+  ]
+}

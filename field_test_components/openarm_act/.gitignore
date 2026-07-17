@@ -1,0 +1,12 @@
+.venv/
+.uv-cache/
+python/
+data/
+outputs/
+logs/*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+hardware.env

@@ -1,0 +1,13 @@
+.venv-collect/
+.venv-dp3/
+.virtualenv-bootstrap/
+datasets/**
+!datasets/.gitkeep
+outputs/**
+!outputs/.gitkeep
+logs/**
+!logs/.gitkeep
+config/camera_serials.local.yaml
+__pycache__/
+*.pyc
+.pytest_cache/

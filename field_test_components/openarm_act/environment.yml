@@ -1,0 +1,11 @@
+name: openarm-act
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r requirements.lock.txt
+
+# The current host has no conda installation. This file is an optional export;
+# the active environment is the project-local uv environment in .venv.

@@ -46,7 +46,7 @@ def test_trim_removes_long_static_prefix_and_suffix(tmp_path: Path) -> None:
     assert 35 <= end <= 40
 
 
-def test_raw_episode_converts_to_dp3_replay_buffer(tmp_path: Path) -> None:
+def test_raw_episode_converts_to_dp3_training_buffer(tmp_path: Path) -> None:
     raw_root = tmp_path / "raw"
     cfg = settings(raw_root)
     writer = EpisodeWriter(

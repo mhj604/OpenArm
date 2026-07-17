@@ -1,0 +1,36 @@
+schema_version: 1
+cameras:
+  chest:
+    role: chest_overview
+    model: Intel RealSense D435ICB
+    serial_number: "261722072049"
+    type: intelrealsense
+    width: 640
+    height: 480
+    fps: 30
+    warmup_s: 2
+    use_rgb: true
+    use_depth: false
+    mount: chest
+  wrist_left:
+    role: left_gripper_close_view
+    model: Intel RealSense D405
+    serial_number: "260322271498"
+    type: intelrealsense
+    width: 640
+    height: 480
+    fps: 30
+    warmup_s: 2
+    use_rgb: true
+    use_depth: false
+    mount: left_end_effector
+
+forbidden_camera_keys:
+  - wrist_right
+  - right_wrist
+
+future_depth_metadata:
+  record_intrinsics: true
+  record_depth_scale: true
+  extrinsic_calibration_required: true
+  enabled_for_initial_act: false

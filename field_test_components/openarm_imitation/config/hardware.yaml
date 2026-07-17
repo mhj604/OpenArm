@@ -1,0 +1,59 @@
+schema_version: 1
+
+robot:
+  model: OpenArm-v1-bimanual
+  can_fd: false
+  bitrate: 1000000
+  right_can: can0
+  left_can: can1
+  state_order: [right, left]
+  units:
+    position: degree
+    velocity: degree_per_second
+    torque: newton_meter
+  exo_topic: /exo/joint_command
+  exo_expected_positions: 16
+
+cameras:
+  serial_file: /home/mh/openarm_imitation/config/camera_serials.local.yaml
+  chest:
+    role: primary_point_cloud
+    model_contains: [D435I, D435]
+    serial: null
+    required: true
+    width: 640
+    height: 480
+    fps: 30
+    align_depth_to_color: true
+    make_point_cloud: true
+  hand:
+    role: hand_rgbd
+    model_contains: [D405]
+    serial: null
+    required: true
+    width: 640
+    height: 480
+    fps: 30
+    # D405 depth/color alignment behavior varies by SDK/firmware. It is recorded as
+    # RGB here, but is not fused into the chest-camera point cloud without extrinsics.
+    align_depth_to_color: false
+    make_point_cloud: false
+
+point_cloud:
+  camera: chest
+  points: 1024
+  source_stride: 2
+  bounds_m:
+    x: [-0.80, 0.80]
+    y: [-0.80, 0.80]
+    z: [0.15, 1.50]
+
+recording:
+  fps: 30
+  image_width: 320
+  image_height: 240
+  save_depth: false
+  max_sensor_age_ms: 200
+  minimum_episode_frames: 15
+  compression_level: 3
+

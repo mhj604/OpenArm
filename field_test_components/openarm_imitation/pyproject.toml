@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=59"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm-imitation"
+version = "0.1.0"
+description = "Passive bimanual OpenArm-v1 imitation-learning data tools"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["openarm_imitation*"]
+

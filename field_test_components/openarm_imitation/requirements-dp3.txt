@@ -1,0 +1,16 @@
+# Real-robot Simple-DP3 subset. Simulator/MuJoCo dependencies are intentionally omitted.
+numpy==1.23.5
+zarr==2.12.0
+numcodecs==0.11.0
+hydra-core==1.2.0
+omegaconf==2.2.3
+dill==0.3.5.1
+einops==0.4.1
+diffusers==0.11.1
+huggingface-hub==0.12.0
+termcolor==2.4.0
+tqdm==4.67.1
+wandb==0.15.12
+matplotlib==3.7.5
+pytest==8.3.5
+

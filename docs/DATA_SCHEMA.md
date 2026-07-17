@@ -15,7 +15,7 @@ Each `data/raw/episodes/episode_NNNNNN.zarr` contains:
 Episodes are committed atomically. Rejected episodes have `accepted=false` and
 remain on disk.
 
-## Processed DP3 replay buffer
+## Processed DP3 training buffer
 
 `data/processed/openarm_cube_to_point.zarr` contains:
 

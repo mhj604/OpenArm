@@ -1,0 +1,31 @@
+schema_version: 1
+source_file: /home/mh/openarm_teleop/exo_openarm_bridge/exo_to_openarm.py
+purpose: documentation_only
+input:
+  topic: /exo/joint_command
+  message_type: sensor_msgs/msg/JointState
+  unit: radian
+  order: left_7_right_7_left_trigger_right_trigger
+mapping:
+  capture_home_from_first_message: true
+  joint_scale: 1.8
+  left:
+    source_indices: [0, 1, 2, 3, 4, 6, 5]
+    signs: [1, 1, -1, 1, 1, -1, 1]
+  right:
+    source_indices: [7, 8, 9, 10, 11, 13, 12]
+    signs: [1, 1, -1, 1, 1, -1, -1]
+  gripper:
+    left_source_index: 14
+    right_source_index: 15
+    scale: -0.70
+    scale_environment_variable: OPENARM_GRIPPER_SCALE_RAD
+    minimum_scale_radian_exclusive: 0.0
+    maximum_scale_radian_inclusive: 0.7854
+    trigger_input_clamped_to: [0.0, 1.0]
+output:
+  unit: radian
+  action_source_for_dataset: decoded_outgoing_CAN_MIT_target
+notes:
+  - Dataset recording does not recompute this mapping.
+  - Outgoing CAN target frames are captured so the action exactly matches the command already sent by the existing bridge.

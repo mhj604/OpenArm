@@ -1,0 +1,31 @@
+[project]
+name = "openarm-act-workspace"
+version = "0.1.0"
+description = "Isolated LeRobot ACT workspace for OpenArm-v1 bimanual + ExoArm-7"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "lerobot[core_scripts,intelrealsense,training]==0.6.0",
+    "lerobot_robot_openarm_can_passive",
+    "pyyaml>=6.0.2,<7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "ruff>=0.12,<1",
+]
+
+[tool.uv.sources]
+lerobot = { path = "vendor/lerobot", editable = true }
+lerobot_robot_openarm_can_passive = { path = "plugins/lerobot_robot_openarm_can_passive", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

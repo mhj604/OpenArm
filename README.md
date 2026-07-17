@@ -68,7 +68,38 @@ collector stops after 50 accepted demonstrations, not after 50 total attempts.
 /home/mh/openarm_dp3/scripts/train_simple_dp3.sh
 ```
 
-Training is offline and never sends robot commands. Autonomous hardware rollout
-is intentionally not part of this stage.
+Training is offline and never sends robot commands. After training, the active
+rollout remains a separately locked command; see `docs/RUNBOOK.md` and
+`docs/SAFETY.md` before using it.
+
+The active controller always uses the same zero-radian arm target already used
+by the existing ExoArm bridge. A camera/GPU-only preview is available:
+
+```bash
+/home/mh/openarm_dp3/scripts/preview_learned_dp3.sh
+```
+
+The learned-policy command never loads or replays a recorded action trajectory. In its
+default continuous mode, every cycle is: move to zero pose, generate PICK→PLACE
+actions with the trained DP3 policy, detect the released cube at the learned
+goal, return to zero pose, and wait for a yellow cube inside the center start
+box. The process repeats until Ctrl+C.
+
+The active profile preserves the last operator-tuned controller: one
+deterministic DP3 sample, the complete 15-action future suffix, arm gain
+`0.87890625`, and a `0.05859375` rad policy/motor step ceiling. Its first 0.4
+seconds use gain blending `0.90` and a `0.029296875` rad step ceiling. This is
+learned-output shaping, not demonstration replay.
+
+An independent, explicitly locked diagnostic can replay one operator-accepted
+raw demonstration without loading a policy or camera. It first ramps both arms
+to that episode's recorded start state, then sends the recorded CAN position
+targets at the original sample rate. Replay-specific arm/gripper limits are
+derived from that episode so the policy controller's tuned step ceiling cannot
+distort the raw demonstration:
+
+```bash
+OPENARM_DP3_REPLAY=YES DP3_REPLAY_EPISODE=1 ./scripts/replay_demonstration.sh
+```
 
 See `docs/RUNBOOK.md`, `docs/TASK_PROTOCOL.md`, and `docs/SAFETY.md`.
