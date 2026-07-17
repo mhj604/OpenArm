@@ -20,7 +20,7 @@ final target fixed: the cube center should finish over the left red point.
 - Three demonstrations are supported only for a pipeline overfit test.
 - First meaningful training: at least 30 successful demonstrations.
 - Recommended first dataset: 40 successful demonstrations.
-- Generalization comparison: 50 successful demonstrations.
+- Current generalization dataset target: 50 successful demonstrations.
 
 Keep the chest camera, center red rectangle, left red point, robot base, control
 mapping, and initial robot pose fixed for the first dataset. Change only the

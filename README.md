@@ -52,12 +52,13 @@ Then start the existing HMI, ExoArm ROS path, and known-good OpenArm bridge as
 usual. The passive collector itself does not enable or move a motor:
 
 ```bash
-/home/mh/openarm_dp3/scripts/record_demonstrations.sh 40
+/home/mh/openarm_dp3/scripts/record_demonstrations.sh 50
 ```
 
 Press Enter to start only after the cube and robot are ready. During recording,
 press Enter immediately after releasing the cube. Mark failed or unsafe
-attempts as rejected; rejected episodes remain preserved but are excluded.
+attempts as rejected; rejected episodes remain preserved but are excluded. The
+collector stops after 50 accepted demonstrations, not after 50 total attempts.
 
 ## Convert and train
 

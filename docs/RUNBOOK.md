@@ -30,7 +30,7 @@ Start the existing Qnbot HMI, ExoArm ROS path, and known-good bridge using the
 same commands that already work. Then run:
 
 ```bash
-/home/mh/openarm_dp3/scripts/record_demonstrations.sh 40
+/home/mh/openarm_dp3/scripts/record_demonstrations.sh 50
 ```
 
 The wrapper starts only the existing receive-only telemetry mirror if needed.
@@ -42,6 +42,9 @@ For each episode:
 4. Center the cube on the left red point, place it, and release.
 5. Press Enter immediately.
 6. Accept only a clean success; reject failures.
+
+The target is 50 accepted demonstrations. Rejected or too-short attempts are
+preserved for traceability and do not reduce the remaining accepted count.
 
 ## 4. Convert without altering raw data
 

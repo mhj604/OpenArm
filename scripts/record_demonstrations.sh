@@ -3,7 +3,7 @@
 set -euo pipefail
 source /home/mh/openarm_dp3/scripts/env.sh
 
-NUM_EPISODES="${1:-40}"
+NUM_EPISODES="${1:-50}"
 shift || true
 if [[ ! "${NUM_EPISODES}" =~ ^[0-9]+$ ]] || (( NUM_EPISODES < 1 )); then
   echo "Usage: $0 [positive episode count]" >&2

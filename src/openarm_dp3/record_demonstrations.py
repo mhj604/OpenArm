@@ -287,7 +287,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("/home/mh/openarm_dp3/configs/workspace_crop.yaml"),
     )
-    parser.add_argument("--num-episodes", type=int)
+    parser.add_argument(
+        "--num-episodes",
+        type=int,
+        help="number of accepted demonstrations to collect",
+    )
     return parser.parse_args()
 
 
@@ -308,8 +312,8 @@ def main() -> None:
     assert workspace is not None
     if workspace.camera_serial != hardware.chest.serial:
         raise ValueError("workspace calibration serial does not match the chest D435ICB")
-    episode_target = args.num_episodes or collection.target_episodes
-    if episode_target <= 0:
+    accepted_target = args.num_episodes or collection.target_episodes
+    if accepted_target <= 0:
         raise ValueError("num-episodes must be positive")
 
     signal.signal(signal.SIGINT, _signal_handler)
@@ -332,12 +336,13 @@ def main() -> None:
             wait_for_telemetry(broker)
             accepted_count = 0
             attempted_count = 0
-            while attempted_count < episode_target and not STOP_REQUESTED.is_set():
+            while accepted_count < accepted_target and not STOP_REQUESTED.is_set():
                 index = next_episode_index(collection.dataset_root)
                 if sys.stdin.isatty():
                     command = input(
-                        f"\nPlace cube at a new center-box position. "
-                        f"Press Enter for episode {index}, or q to finish: "
+                        f"\nAccepted {accepted_count}/{accepted_target}. "
+                        f"Place cube at a new center-box position. "
+                        f"Press Enter for raw episode {index}, or q to finish: "
                     ).strip().lower()
                     if command in {"q", "quit"}:
                         break
@@ -377,12 +382,25 @@ def main() -> None:
                             "accepted": accepted,
                             "path": str(path),
                             "accepted_this_run": accepted_count,
+                            "attempted_this_run": attempted_count,
+                            "accepted_target": accepted_target,
                         },
                         ensure_ascii=False,
                     )
                 )
                 if quit_after:
                     break
+            print(
+                json.dumps(
+                    {
+                        "accepted_this_run": accepted_count,
+                        "attempted_this_run": attempted_count,
+                        "accepted_target": accepted_target,
+                        "target_reached": accepted_count >= accepted_target,
+                    },
+                    ensure_ascii=False,
+                )
+            )
         finally:
             wrist_camera.stop()
             chest_camera.stop()

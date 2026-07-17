@@ -7,7 +7,7 @@ dataset_root: /home/mh/openarm_dp3/data/raw/episodes
 sample_fps: 15
 max_episode_seconds: 30
 countdown_seconds: 3
-target_episodes: 40
+target_episodes: 50
 minimum_recommended_episodes: 30
 maximum_recommended_episodes: 50
 preview_width: 320
