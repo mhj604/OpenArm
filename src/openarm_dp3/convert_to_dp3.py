@@ -189,7 +189,7 @@ def convert(settings: CollectionSettings, output: Path, *, overwrite: bool) -> d
             "schema_version": 1,
             "task_id": settings.task_id,
             "point_cloud_source": "chest",
-            "point_cloud_coordinate_frame": "chest_camera",
+            "point_cloud_coordinate_frame": "d435_depth_ir",
             "point_cloud_channels": "xyz_meters",
             "state_dim": 16,
             "action_dim": 16,

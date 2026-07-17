@@ -10,9 +10,10 @@ cameras:
     model: Intel RealSense D435ICB
     serial: "261722072049"
     mount: chest_fixed
-    width: 640
+    width: 848
     height: 480
     fps: 30
+    align_to: depth
     use_rgb: true
     use_depth: true
   wrist_left:
@@ -22,6 +23,7 @@ cameras:
     width: 640
     height: 480
     fps: 30
+    align_to: color
     use_rgb: true
     use_depth: true
 forbidden_cameras:

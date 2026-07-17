@@ -31,6 +31,7 @@ class CameraSettings:
     width: int
     height: int
     fps: int
+    align_to: str
 
     @classmethod
     def from_dict(cls, key: str, value: Any) -> CameraSettings:
@@ -44,11 +45,14 @@ class CameraSettings:
             width=int(value.get("width", 0)),
             height=int(value.get("height", 0)),
             fps=int(value.get("fps", 0)),
+            align_to=str(value.get("align_to", "")),
         )
         if not camera.serial.isdigit():
             raise ConfigError(f"camera {key!r} serial must be numeric")
         if min(camera.width, camera.height, camera.fps) <= 0:
             raise ConfigError(f"camera {key!r} dimensions and fps must be positive")
+        if camera.align_to not in {"color", "depth"}:
+            raise ConfigError(f"camera {key!r} align_to must be color or depth")
         return camera
 
 

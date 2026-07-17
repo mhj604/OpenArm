@@ -17,7 +17,7 @@ their receive-only telemetry adapter and never opens a transmit CAN socket.
 
 Simple DP3 is trained from:
 
-- `point_cloud`: 1,024 XYZ points in the fixed chest-camera frame.
+- `point_cloud`: 1,024 XYZ points in the fixed, wide D435 depth/IR frame.
 - `agent_pos`: 16 OpenArm joint/gripper positions in radians.
 - `action`: 16 outgoing CAN target positions in radians.
 
@@ -25,6 +25,10 @@ Both cameras' RGB-D and raw sampled point clouds are saved. D405 data is kept
 for later multi-view or calibrated wrist-camera work, but it is not fused into
 the first model because the wrist camera moves and no hand-eye transform has
 been measured yet.
+
+The chest D435 uses RGB 848x480 at 30 fps. RGB is aligned into the 848x480
+depth coordinate system so DP3 retains the wider stereo depth/IR field of view
+instead of cropping geometry to the narrower 640x480 RGB field of view.
 
 ## Setup
 

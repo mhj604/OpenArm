@@ -20,6 +20,10 @@ its left from the D435 image. It does not write guessed bounds. Review the saved
 PNG under `calibration/`; the cyan outer rectangle must contain the start
 region, target point, and their approach space.
 
+The chest D435 profile is RGB/depth 848x480 at 30 fps. Color is aligned to the
+wider depth coordinate system; depth is not cropped to the narrower 640x480
+color field of view.
+
 ## 3. Collect demonstrations
 
 Start the existing Qnbot HMI, ExoArm ROS path, and known-good bridge using the

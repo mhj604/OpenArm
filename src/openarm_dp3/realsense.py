@@ -87,7 +87,8 @@ class RealSenseRGBD:
             depth_sensor = profile.get_device().first_depth_sensor()
             self.depth_scale_m = float(depth_sensor.get_depth_scale())
             self.pipeline = pipeline
-            self.align = rs.align(rs.stream.color)
+            align_stream = rs.stream.depth if self.settings.align_to == "depth" else rs.stream.color
+            self.align = rs.align(align_stream)
             self.point_cloud = rs.pointcloud()
             for _ in range(max(1, warmup_frames)):
                 self._wait_for_aligned_frames()

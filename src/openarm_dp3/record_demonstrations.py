@@ -38,8 +38,26 @@ def motor_vector(values: dict[str, float]) -> np.ndarray:
 
 
 def resize_preview(frame: RGBDFrame, *, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
-    rgb = cv2.resize(frame.rgb, (width, height), interpolation=cv2.INTER_AREA)
-    depth = cv2.resize(frame.depth_raw, (width, height), interpolation=cv2.INTER_NEAREST)
+    source_height, source_width = frame.depth_raw.shape
+    scale = min(width / source_width, height / source_height)
+    resized_width = max(1, round(source_width * scale))
+    resized_height = max(1, round(source_height * scale))
+    rgb_resized = cv2.resize(
+        frame.rgb,
+        (resized_width, resized_height),
+        interpolation=cv2.INTER_AREA,
+    )
+    depth_resized = cv2.resize(
+        frame.depth_raw,
+        (resized_width, resized_height),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    rgb = np.zeros((height, width, 3), dtype=np.uint8)
+    depth = np.zeros((height, width), dtype=np.uint16)
+    x0 = (width - resized_width) // 2
+    y0 = (height - resized_height) // 2
+    rgb[y0 : y0 + resized_height, x0 : x0 + resized_width] = rgb_resized
+    depth[y0 : y0 + resized_height, x0 : x0 + resized_width] = depth_resized
     return (
         np.ascontiguousarray(rgb, dtype=np.uint8),
         np.ascontiguousarray(depth, dtype=np.uint16),
@@ -169,6 +187,8 @@ def record_episode(
         "wrist_left_intrinsics": first_wrist.intrinsics,
         "chest_depth_scale_m": first_chest.depth_scale_m,
         "wrist_left_depth_scale_m": first_wrist.depth_scale_m,
+        "chest_alignment_target": hardware.chest.align_to,
+        "wrist_left_alignment_target": hardware.wrist_left.align_to,
         "workspace_pixel_roi": list(workspace.pixel_roi),
         "workspace_depth_range_m": list(workspace.depth_range_m),
         "workspace_calibration_source": workspace.calibration_source,

@@ -13,6 +13,9 @@ def test_hardware_has_only_two_real_cameras() -> None:
     assert hardware.wrist_left.serial == "260322271498"
     assert hardware.chest.mount == "chest_fixed"
     assert hardware.wrist_left.mount == "left_end_effector"
+    assert (hardware.chest.width, hardware.chest.height, hardware.chest.fps) == (848, 480, 30)
+    assert hardware.chest.align_to == "depth"
+    assert hardware.wrist_left.align_to == "color"
 
 
 def test_uncalibrated_workspace_is_rejected(tmp_path: Path) -> None:
