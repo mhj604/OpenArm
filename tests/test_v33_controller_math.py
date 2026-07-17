@@ -30,9 +30,9 @@ apply_stopping_speed_envelope = controller_math.apply_stopping_speed_envelope
 automatic_release_ready = controller_math.automatic_release_ready
 build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
 carry_clearance_fraction = controller_math.carry_clearance_fraction
+capped_raw_coupled_lift_rise = controller_math.capped_raw_coupled_lift_rise
 constrain_target_lead = controller_math.constrain_target_lead
 coupled_lift_progress = controller_math.coupled_lift_progress
-discounted_potential_delta = controller_math.discounted_potential_delta
 low_clearance_inward_progress_cost = controller_math.low_clearance_inward_progress_cost
 persistent_best_signed_progress = controller_math.persistent_best_signed_progress
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
@@ -226,87 +226,44 @@ def test_coupled_lift_progress_handles_a_grasp_near_the_target_height():
     assert coupled.item() == pytest.approx(1.0)
 
 
-def test_discount_correct_lift_shaping_has_no_discounted_cycle_return():
-    gamma = 0.995
-    potentials = [torch.tensor([0.0]), torch.tensor([0.6]), torch.tensor([0.0])]
-    rewards = [
-        discounted_potential_delta(current, previous, gamma, torch.tensor([False]))
-        for previous, current in zip(potentials[:-1], potentials[1:], strict=True)
-    ]
-
-    discounted_return = rewards[0] + gamma * rewards[1]
-
-    assert discounted_return.item() == pytest.approx(0.0, abs=1.0e-7)
-    constant = discounted_potential_delta(
-        torch.tensor([0.6]),
-        torch.tensor([0.6]),
-        gamma,
-        torch.tensor([False]),
-    )
-    assert constant.item() == pytest.approx((gamma - 1.0) * 0.6, abs=1.0e-7)
-
-
-def test_discount_correct_lift_shaping_closes_terminal_potential():
-    delta = discounted_potential_delta(
-        torch.tensor([0.8]),
-        torch.tensor([0.6]),
-        0.995,
-        torch.tensor([True]),
+def test_capped_raw_coupled_lift_rise_uses_the_smaller_physical_rise():
+    rise = capped_raw_coupled_lift_rise(
+        object_height=torch.tensor([0.657, 0.757, 0.750, 0.7398, 0.741]),
+        tcp_height=torch.tensor([0.667, 0.757, 0.750, 0.7398, 0.741]),
+        object_origin_height=torch.tensor([0.637, 0.637, 0.700, 0.7298, 0.731]),
+        tcp_origin_height=torch.tensor([0.637, 0.637, 0.700, 0.7298, 0.731]),
+        target_object_height=0.730,
+        maximum_credit_height=0.093,
     )
 
-    assert delta.item() == pytest.approx(-0.6)
+    assert rise.tolist() == pytest.approx(
+        [0.020, 0.093, 0.030, 0.0002, 0.0], abs=1.0e-6
+    )
 
 
-def test_discount_correct_lift_trace_closes_every_failed_excursion():
-    gamma = 0.995
-    potentials = [0.0, 0.3, 0.6, 0.3, 0.6]
-    rewards = []
-    for previous, current in zip(potentials[:-1], potentials[1:], strict=True):
-        rewards.append(
-            discounted_potential_delta(
-                torch.tensor([current]),
-                torch.tensor([previous]),
-                gamma,
-                torch.tensor([False]),
-            )
+def test_capped_raw_coupled_lift_rise_rejects_one_sided_or_negative_motion():
+    rise = capped_raw_coupled_lift_rise(
+        object_height=torch.tensor([0.660, 0.640, 0.630]),
+        tcp_height=torch.tensor([0.640, 0.660, 0.630]),
+        object_origin_height=torch.full((3,), 0.640),
+        tcp_origin_height=torch.full((3,), 0.640),
+        target_object_height=0.730,
+        maximum_credit_height=0.093,
+    )
+
+    assert rise.tolist() == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_capped_raw_coupled_lift_rise_rejects_a_negative_credit_cap():
+    with pytest.raises(ValueError, match="non-negative"):
+        capped_raw_coupled_lift_rise(
+            object_height=torch.tensor([0.640]),
+            tcp_height=torch.tensor([0.640]),
+            object_origin_height=torch.tensor([0.640]),
+            tcp_origin_height=torch.tensor([0.640]),
+            target_object_height=0.730,
+            maximum_credit_height=-0.001,
         )
-    rewards.append(
-        discounted_potential_delta(
-            torch.tensor([potentials[-1]]),
-            torch.tensor([potentials[-1]]),
-            gamma,
-            torch.tensor([True]),
-        )
-    )
-
-    discounted_return = sum(
-        gamma**step * reward for step, reward in enumerate(rewards)
-    )
-
-    assert discounted_return.item() == pytest.approx(0.0, abs=1.0e-7)
-
-
-def test_lift_completion_retains_one_bounded_terminal_bonus():
-    gamma = 0.995
-    potentials = [0.0, 0.3, 0.6, 1.0]
-    rewards = [
-        discounted_potential_delta(
-            torch.tensor([current]),
-            torch.tensor([previous]),
-            gamma,
-            torch.tensor([False]),
-        )
-        for previous, current in zip(potentials[:-1], potentials[1:], strict=True)
-    ]
-
-    discounted_return = sum(
-        gamma**step * reward for step, reward in enumerate(rewards)
-    )
-
-    assert (30.0 * discounted_return).item() == pytest.approx(
-        30.0 * gamma ** (len(potentials) - 1),
-        abs=1.0e-5,
-    )
 
 
 def test_low_clearance_cost_is_monotonic_and_local_to_the_basket():

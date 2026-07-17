@@ -153,27 +153,26 @@ def coupled_lift_progress(
     return object_progress, tcp_progress, torch.minimum(object_progress, tcp_progress)
 
 
-def discounted_potential_delta(
-    current_potential: torch.Tensor,
-    previous_potential: torch.Tensor,
-    discount_factor: float,
-    terminal: torch.Tensor,
+def capped_raw_coupled_lift_rise(
+    object_height: torch.Tensor,
+    tcp_height: torch.Tensor,
+    object_origin_height: torch.Tensor,
+    tcp_origin_height: torch.Tensor,
+    target_object_height: float,
+    maximum_credit_height: float,
 ) -> torch.Tensor:
-    """Return gamma-correct shaping with terminal potential closed at zero."""
+    """Return bounded lift distance achieved jointly by the object and TCP."""
 
-    if not 0.0 < discount_factor <= 1.0:
-        raise ValueError("discount factor must be in (0, 1]")
-    terminal = torch.as_tensor(
-        terminal,
-        device=current_potential.device,
-        dtype=torch.bool,
+    if maximum_credit_height < 0.0:
+        raise ValueError("maximum_credit_height must be non-negative")
+    credit_cap = torch.clamp(
+        target_object_height - object_origin_height,
+        min=0.0,
+        max=maximum_credit_height,
     )
-    next_potential = torch.where(
-        terminal,
-        torch.zeros_like(current_potential),
-        current_potential,
-    )
-    return discount_factor * next_potential - previous_potential
+    object_rise = torch.clamp(object_height - object_origin_height, min=0.0)
+    tcp_rise = torch.clamp(tcp_height - tcp_origin_height, min=0.0)
+    return torch.minimum(torch.minimum(object_rise, tcp_rise), credit_cap)
 
 
 def persistent_best_signed_progress(

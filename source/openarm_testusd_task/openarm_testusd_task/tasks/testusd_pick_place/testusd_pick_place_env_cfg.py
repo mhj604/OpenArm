@@ -1048,8 +1048,11 @@ class RewardsCfgV18:
     )
     verified_lift_progress = RewTerm(
         func=mdp.task_verified_paired_lift_progress,
-        params={"discount_factor": 0.995},
-        weight=30.0,
+        params={
+            "target_height": STAGE_CARRY_MIN_HEIGHT_W,
+            "maximum_credit_height": 0.093,
+        },
+        weight=150.0,
     )
     transport_progress = RewTerm(
         func=mdp.task_potential_progress,

@@ -294,14 +294,18 @@ def test_v41_restores_the_verified_dense_pregrasp_learning_contract():
     assert "weight=-1.0" in reward_source
 
 
-def test_v42_repairs_only_verified_post_grasp_lift_economics():
+def test_v43_credits_verified_lift_in_metres_without_terminal_clawback():
     reward_source = ENV_SOURCE.split("class RewardsCfgV18", maxsplit=1)[1].split(
         "class TerminationsCfgV18", maxsplit=1
     )[0]
     assert "func=mdp.task_verified_paired_lift_progress" in reward_source
-    assert 'params={"discount_factor": 0.995}' in reward_source
+    assert '"target_height": STAGE_CARRY_MIN_HEIGHT_W' in reward_source
+    assert '"maximum_credit_height": 0.093' in reward_source
+    assert '"bootstrap_length_scale"' not in reward_source
+    assert '"bootstrap_multiplier"' not in reward_source
+    assert '"discount_factor"' not in reward_source
     assert "gamma=0.995" in PPO_SOURCE
-    assert "weight=30.0" in reward_source
+    assert "weight=150.0" in reward_source
     assert reward_source.count('params={"preassist_multiplier": 1.0}') == 1
     assert reward_source.count('params={"preassist_multiplier": 2.0}') == 1
     assert "self.is_finite_horizon = True" in ENV_SOURCE
@@ -325,10 +329,24 @@ def test_v42_repairs_only_verified_post_grasp_lift_economics():
         keyword = next(item for item in term.keywords if item.arg == keyword_name)
         return ast.literal_eval(keyword.value)
 
+    def parameter_value(term_name: str, parameter_name: str):
+        term = reward_assignments[term_name]
+        params = next(item.value for item in term.keywords if item.arg == "params")
+        value = next(
+            value
+            for key, value in zip(params.keys, params.values, strict=True)
+            if ast.literal_eval(key) == parameter_name
+        )
+        return ast.literal_eval(value)
+
     acquired_event_credit = sum(
         keyword_value(term_name, "weight")
         for term_name in ("grasp_ready", "grasp_candidate", "grasp_acquired")
     )
+    lift_event_credit = keyword_value("lift_completed", "weight")
+    verified_lift_credit_cap = keyword_value(
+        "verified_lift_progress", "weight"
+    ) * parameter_value("verified_lift_progress", "maximum_credit_height")
     failure_cost = abs(keyword_value("failed_place", "weight"))
     failure_multiplier = keyword_value("failed_place", "params")[
         "preassist_multiplier"
@@ -336,18 +354,28 @@ def test_v42_repairs_only_verified_post_grasp_lift_economics():
     timeout_multiplier = keyword_value("incomplete_timeout", "params")[
         "preassist_multiplier"
     ]
-    assert failure_cost * failure_multiplier > acquired_event_credit
+    preassist_delay_weight = keyword_value("preassist_delay", "weight")
+    assert failure_cost * failure_multiplier > (
+        acquired_event_credit + lift_event_credit + verified_lift_credit_cap
+    )
     assert timeout_multiplier == 1.0
+    assert preassist_delay_weight == -15.0
 
     paired_source = MDP_SOURCE.split(
         "class task_verified_paired_lift_progress", maxsplit=1
     )[1].split("class task_preclearance_inward_progress", maxsplit=1)[0]
-    assert "discounted_potential_delta(" in paired_source
+    assert "capped_raw_coupled_lift_rise(" in paired_source
+    assert "saturating_lift_bootstrap_equivalent_rise(" not in paired_source
     assert "state.grasp_acquired" in paired_source
+    assert "state.current_hold" in paired_source
     assert "state.just_lifted" in paired_source
-    assert "closed_terminal" in paired_source
-    assert "one-time lift-completion bonus" in paired_source
-    assert "current_hold" not in paired_source
+    assert "acquired_nonterminal" in paired_source
+    assert "_observed_watermark" in paired_source
+    assert "_credited_cumulative_rise" in paired_source
+    assert "_bootstrap_credited_cumulative_rise" not in paired_source
+    assert "discounted_potential_delta(" not in paired_source
+    assert "closed_terminal" not in paired_source
+    assert "~state.just_grasped" not in paired_source
 
     lift_source = MDP_SOURCE.split('elif mode == "lift":', maxsplit=1)[1].split(
         'elif mode == "transport":', maxsplit=1
@@ -358,8 +386,12 @@ def test_v42_repairs_only_verified_post_grasp_lift_economics():
         "task_verified_lift_object_progress",
         "task_verified_lift_tcp_progress",
         "task_verified_lift_coupled_progress",
+        "task_verified_lift_observed_watermark",
+        "task_verified_lift_credited_rise",
     ):
         assert metric in MDP_SOURCE
+    assert "def capped_raw_coupled_lift_rise" in CONTROLLER_SOURCE
+    assert "def saturating_lift_bootstrap_equivalent_rise" not in CONTROLLER_SOURCE
 
 
 def test_openarm_scenes_fail_closed_with_self_collisions_enabled():

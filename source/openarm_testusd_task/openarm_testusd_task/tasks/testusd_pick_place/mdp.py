@@ -29,11 +29,11 @@ from .controller_math import (
     apply_stopping_speed_envelope,
     automatic_release_ready,
     build_prioritized_dls_solver,
+    capped_raw_coupled_lift_rise,
     carry_clearance_fraction,
     constrain_target_lead,
     coupled_lift_progress,
     damped_pseudoinverse,
-    discounted_potential_delta,
     jerk_limited_cartesian_velocity,
     limit_vector_norm,
     low_clearance_inward_progress_cost,
@@ -114,6 +114,8 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_verified_lift_object_progress",
             "task_verified_lift_tcp_progress",
             "task_verified_lift_coupled_progress",
+            "task_verified_lift_observed_watermark",
+            "task_verified_lift_credited_rise",
             "task_transport_displacement",
             "task_low_clearance_basket_approach_steps",
             "task_assist_engaged",
@@ -326,6 +328,12 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             )
             self.metrics["task_verified_lift_coupled_progress"] = (
                 state.verified_lift_coupled_progress.clone()
+            )
+            self.metrics["task_verified_lift_observed_watermark"] = (
+                state.verified_lift_observed_watermark.clone()
+            )
+            self.metrics["task_verified_lift_credited_rise"] = (
+                state.verified_lift_credited_rise.clone()
             )
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
             low_clearance_approach = (
@@ -3330,6 +3338,7 @@ class TaskStateTracker(ManagerTermBase):
         self.object_xy_speed = torch.zeros_like(self.finger_proximity)
         self.object_vertical_speed = torch.zeros_like(self.finger_proximity)
         self.object_height = torch.zeros_like(self.finger_proximity)
+        self.tcp_height = torch.zeros_like(self.finger_proximity)
         self.centering_height_error = torch.zeros_like(self.finger_proximity)
         self.descent_progress = torch.zeros_like(self.finger_proximity)
         self.descent_target_height = torch.zeros_like(self.finger_proximity)
@@ -3380,6 +3389,12 @@ class TaskStateTracker(ManagerTermBase):
         self.verified_lift_object_progress = torch.zeros(env.num_envs, device=env.device)
         self.verified_lift_tcp_progress = torch.zeros(env.num_envs, device=env.device)
         self.verified_lift_coupled_progress = torch.zeros(env.num_envs, device=env.device)
+        self.verified_lift_observed_watermark = torch.zeros(
+            env.num_envs, device=env.device
+        )
+        self.verified_lift_credited_rise = torch.zeros(
+            env.num_envs, device=env.device
+        )
         self.object_offset_tcp = torch.zeros((env.num_envs, 3), device=env.device)
         params = cfg.params
         self._proximity_std = float(params["proximity_std"])
@@ -4026,6 +4041,7 @@ class TaskStateTracker(ManagerTermBase):
         self.object_xy_speed[:] = torch.norm(obj.data.root_lin_vel_w[:, :2], dim=1)
         self.object_vertical_speed[:] = torch.abs(obj.data.root_lin_vel_w[:, 2])
         self.object_height[:] = obj.data.root_pos_w[:, 2]
+        self.tcp_height[:] = tcp_pos_w[:, 2]
         self.inside_basket_entry_xy[:] = self.distance_xy <= basket_entry_xy_threshold
         self.inside_release_xy[:] = self.distance_xy <= release_xy_threshold
         self.inside_release_safe_xy[:] = self.distance_xy <= success_xy_threshold
@@ -4843,64 +4859,65 @@ class task_potential_progress(ManagerTermBase):
 
 
 class task_verified_paired_lift_progress(ManagerTermBase):
-    """Shape only coupled object/TCP lift after the physical grasp is verified."""
+    """Credit each trustworthy coupled lift height through a smooth watermark."""
 
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
-        self._previous_potential = torch.zeros(env.num_envs, device=env.device)
-        self._was_active = torch.zeros(
-            env.num_envs,
-            dtype=torch.bool,
-            device=env.device,
+        self._observed_watermark = torch.zeros(
+            env.num_envs, device=env.device
+        )
+        self._credited_cumulative_rise = torch.zeros(
+            env.num_envs, device=env.device
         )
 
     def reset(self, env_ids: torch.Tensor | None = None):
         if env_ids is None:
             env_ids = slice(None)
-        self._previous_potential[env_ids] = 0.0
-        self._was_active[env_ids] = False
+        self._observed_watermark[env_ids] = 0.0
+        self._credited_cumulative_rise[env_ids] = 0.0
 
     def __call__(
         self,
         env: ManagerBasedRLEnv,
-        discount_factor: float,
+        target_height: float,
+        maximum_credit_height: float,
     ) -> torch.Tensor:
         state: TaskStateTracker = env._openarm_pick_place_state
         timed_out = env.episode_length_buf >= env.max_episode_length
         terminal = state.failed | state.released | timed_out
-        active = (
-            state.grasp_acquired
+        acquired_nonterminal = state.grasp_acquired & ~terminal
+        coupled_rise = capped_raw_coupled_lift_rise(
+            state.object_height,
+            state.tcp_height,
+            state.grasp_object_origin[:, 2],
+            state.grasp_tcp_origin[:, 2],
+            target_height,
+            maximum_credit_height,
+        )
+        updated_watermark = torch.where(
+            acquired_nonterminal,
+            torch.maximum(self._observed_watermark, coupled_rise),
+            self._observed_watermark,
+        )
+        watermark_increment = torch.clamp(
+            updated_watermark - self._observed_watermark,
+            min=0.0,
+        )
+        reward_eligible = (
+            acquired_nonterminal
+            & state.current_hold
             & (~state.lift_completed | state.just_lifted)
-            & ~terminal
         )
-        continued = active & self._was_active
-        closed_terminal = terminal & self._was_active
-        shaping_delta = discounted_potential_delta(
-            state.verified_lift_coupled_progress,
-            self._previous_potential,
-            discount_factor,
-            terminal,
+        credited_increment = torch.where(
+            reward_eligible,
+            watermark_increment,
+            torch.zeros_like(watermark_increment),
         )
-        reward = torch.where(
-            continued | closed_terminal,
-            shaping_delta / env.step_dt,
-            0.0,
-        )
-
-        first_active = active & ~self._was_active
-        self._previous_potential[:] = torch.where(
-            first_active,
-            state.verified_lift_coupled_progress,
-            torch.where(
-                active,
-                state.verified_lift_coupled_progress,
-                self._previous_potential,
-            ),
-        )
-        self._previous_potential[closed_terminal] = 0.0
-        # Keep the final bounded potential as a one-time lift-completion bonus.
-        self._was_active[:] = active & ~state.just_lifted
-        return reward
+        self._observed_watermark[:] = updated_watermark
+        self._credited_cumulative_rise.add_(credited_increment)
+        state.verified_lift_observed_watermark[:] = self._observed_watermark
+        state.verified_lift_credited_rise[:] = self._credited_cumulative_rise
+        return credited_increment / env.step_dt
 
 
 class task_preclearance_inward_progress(ManagerTermBase):
