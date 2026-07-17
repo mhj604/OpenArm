@@ -31,6 +31,9 @@ automatic_release_ready = controller_math.automatic_release_ready
 build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
 carry_clearance_fraction = controller_math.carry_clearance_fraction
 capped_raw_coupled_lift_rise = controller_math.capped_raw_coupled_lift_rise
+saturating_lift_bootstrap_equivalent_rise = (
+    controller_math.saturating_lift_bootstrap_equivalent_rise
+)
 constrain_target_lead = controller_math.constrain_target_lead
 coupled_lift_progress = controller_math.coupled_lift_progress
 low_clearance_inward_progress_cost = controller_math.low_clearance_inward_progress_cost
@@ -263,6 +266,40 @@ def test_capped_raw_coupled_lift_rise_rejects_a_negative_credit_cap():
             tcp_origin_height=torch.tensor([0.640]),
             target_object_height=0.730,
             maximum_credit_height=-0.001,
+        )
+
+
+def test_saturating_lift_bootstrap_is_smooth_monotonic_and_bounded():
+    rise = torch.tensor([0.0, 1.0e-6, 0.001, 0.010, 0.020, 0.093, 1.0])
+    bonus = saturating_lift_bootstrap_equivalent_rise(
+        rise,
+        length_scale=0.010,
+        multiplier=4.0,
+    )
+
+    assert bonus[0].item() == 0.0
+    assert torch.all(bonus[1:] > bonus[:-1])
+    assert torch.all(bonus < 0.0400001)
+    assert bonus[3].item() == pytest.approx(
+        0.04 * (1.0 - torch.exp(torch.tensor(-1.0)).item())
+    )
+    assert (bonus[1] / rise[1]).item() == pytest.approx(4.0, rel=1.0e-4)
+
+
+@pytest.mark.parametrize(
+    ("length_scale", "multiplier", "message"),
+    [(0.0, 4.0, "positive"), (0.010, -1.0, "non-negative")],
+)
+def test_saturating_lift_bootstrap_rejects_invalid_parameters(
+    length_scale,
+    multiplier,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        saturating_lift_bootstrap_equivalent_rise(
+            torch.tensor([0.01]),
+            length_scale=length_scale,
+            multiplier=multiplier,
         )
 
 

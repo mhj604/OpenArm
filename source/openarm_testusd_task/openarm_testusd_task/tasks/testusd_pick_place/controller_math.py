@@ -175,6 +175,23 @@ def capped_raw_coupled_lift_rise(
     return torch.minimum(torch.minimum(object_rise, tcp_rise), credit_cap)
 
 
+def saturating_lift_bootstrap_equivalent_rise(
+    coupled_rise: torch.Tensor,
+    length_scale: float,
+    multiplier: float,
+) -> torch.Tensor:
+    """Return a smooth bounded equivalent-rise bonus for early lift motion."""
+
+    if not length_scale > 0.0:
+        raise ValueError("length_scale must be positive")
+    if not multiplier >= 0.0:
+        raise ValueError("multiplier must be non-negative")
+    nonnegative_rise = torch.clamp(coupled_rise, min=0.0)
+    return -multiplier * length_scale * torch.expm1(
+        -nonnegative_rise / length_scale
+    )
+
+
 def persistent_best_signed_progress(
     current_quality: torch.Tensor,
     previous_quality: torch.Tensor,

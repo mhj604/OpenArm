@@ -1051,6 +1051,8 @@ class RewardsCfgV18:
         params={
             "target_height": STAGE_CARRY_MIN_HEIGHT_W,
             "maximum_credit_height": 0.093,
+            "bootstrap_length_scale": 0.010,
+            "bootstrap_multiplier": 4.0,
         },
         weight=150.0,
     )
@@ -1112,7 +1114,7 @@ class RewardsCfgV18:
 
     incomplete_timeout = RewTerm(
         func=mdp.task_timeout_without_success,
-        params={"preassist_multiplier": 1.0},
+        params={"preassist_multiplier": 2.0},
         weight=-50.0,
     )
     elapsed_time = RewTerm(func=mdp.constant_penalty, weight=-0.5)
@@ -1121,7 +1123,7 @@ class RewardsCfgV18:
         params={"retry_event_scale": 0.20},
         weight=-7.5,
     )
-    preassist_delay = RewTerm(func=mdp.task_preassist_delay_penalty, weight=-15.0)
+    preassist_delay = RewTerm(func=mdp.task_preassist_delay_penalty, weight=-1.5)
     preclearance_inward_progress = RewTerm(
         func=mdp.task_preclearance_inward_progress,
         params={

@@ -45,6 +45,7 @@ from .controller_math import (
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
+    saturating_lift_bootstrap_equivalent_rise,
     scale_delta_to_joint_limits,
     scale_delta_to_cartesian_bounds,
     select_higher_phase_primary_candidate,
@@ -116,6 +117,7 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_verified_lift_coupled_progress",
             "task_verified_lift_observed_watermark",
             "task_verified_lift_credited_rise",
+            "task_verified_lift_bootstrap_credited_rise",
             "task_transport_displacement",
             "task_low_clearance_basket_approach_steps",
             "task_assist_engaged",
@@ -334,6 +336,9 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             )
             self.metrics["task_verified_lift_credited_rise"] = (
                 state.verified_lift_credited_rise.clone()
+            )
+            self.metrics["task_verified_lift_bootstrap_credited_rise"] = (
+                state.verified_lift_bootstrap_credited_rise.clone()
             )
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
             low_clearance_approach = (
@@ -3395,6 +3400,9 @@ class TaskStateTracker(ManagerTermBase):
         self.verified_lift_credited_rise = torch.zeros(
             env.num_envs, device=env.device
         )
+        self.verified_lift_bootstrap_credited_rise = torch.zeros(
+            env.num_envs, device=env.device
+        )
         self.object_offset_tcp = torch.zeros((env.num_envs, 3), device=env.device)
         params = cfg.params
         self._proximity_std = float(params["proximity_std"])
@@ -4869,18 +4877,24 @@ class task_verified_paired_lift_progress(ManagerTermBase):
         self._credited_cumulative_rise = torch.zeros(
             env.num_envs, device=env.device
         )
+        self._bootstrap_credited_cumulative_rise = torch.zeros(
+            env.num_envs, device=env.device
+        )
 
     def reset(self, env_ids: torch.Tensor | None = None):
         if env_ids is None:
             env_ids = slice(None)
         self._observed_watermark[env_ids] = 0.0
         self._credited_cumulative_rise[env_ids] = 0.0
+        self._bootstrap_credited_cumulative_rise[env_ids] = 0.0
 
     def __call__(
         self,
         env: ManagerBasedRLEnv,
         target_height: float,
         maximum_credit_height: float,
+        bootstrap_length_scale: float,
+        bootstrap_multiplier: float,
     ) -> torch.Tensor:
         state: TaskStateTracker = env._openarm_pick_place_state
         timed_out = env.episode_length_buf >= env.max_episode_length
@@ -4903,6 +4917,20 @@ class task_verified_paired_lift_progress(ManagerTermBase):
             updated_watermark - self._observed_watermark,
             min=0.0,
         )
+        previous_bootstrap_rise = saturating_lift_bootstrap_equivalent_rise(
+            self._observed_watermark,
+            bootstrap_length_scale,
+            bootstrap_multiplier,
+        )
+        updated_bootstrap_rise = saturating_lift_bootstrap_equivalent_rise(
+            updated_watermark,
+            bootstrap_length_scale,
+            bootstrap_multiplier,
+        )
+        bootstrap_increment = torch.clamp(
+            updated_bootstrap_rise - previous_bootstrap_rise,
+            min=0.0,
+        )
         reward_eligible = (
             acquired_nonterminal
             & state.current_hold
@@ -4913,11 +4941,22 @@ class task_verified_paired_lift_progress(ManagerTermBase):
             watermark_increment,
             torch.zeros_like(watermark_increment),
         )
+        bootstrap_credited_increment = torch.where(
+            reward_eligible,
+            bootstrap_increment,
+            torch.zeros_like(bootstrap_increment),
+        )
         self._observed_watermark[:] = updated_watermark
         self._credited_cumulative_rise.add_(credited_increment)
+        self._bootstrap_credited_cumulative_rise.add_(
+            bootstrap_credited_increment
+        )
         state.verified_lift_observed_watermark[:] = self._observed_watermark
         state.verified_lift_credited_rise[:] = self._credited_cumulative_rise
-        return credited_increment / env.step_dt
+        state.verified_lift_bootstrap_credited_rise[:] = (
+            self._bootstrap_credited_cumulative_rise
+        )
+        return (credited_increment + bootstrap_credited_increment) / env.step_dt
 
 
 class task_preclearance_inward_progress(ManagerTermBase):

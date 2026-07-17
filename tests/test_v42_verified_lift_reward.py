@@ -20,6 +20,8 @@ TASK_DIR = (
 TARGET_HEIGHT = 0.730
 MAXIMUM_CREDIT_HEIGHT = 0.093
 REWARD_WEIGHT = 150.0
+BOOTSTRAP_LENGTH_SCALE = 0.010
+BOOTSTRAP_MULTIPLIER = 4.0
 
 
 class _ManagerTermBase:
@@ -42,7 +44,11 @@ def _load_reward_class():
         node
         for node in controller_tree.body
         if isinstance(node, ast.FunctionDef)
-        and node.name == "capped_raw_coupled_lift_rise"
+        and node.name
+        in {
+            "capped_raw_coupled_lift_rise",
+            "saturating_lift_bootstrap_equivalent_rise",
+        }
     ]
     controller_namespace: dict[str, object] = {}
     exec(
@@ -61,6 +67,9 @@ def _load_reward_class():
         "ManagerBasedRLEnv": object,
         "capped_raw_coupled_lift_rise": controller_namespace[
             "capped_raw_coupled_lift_rise"
+        ],
+        "saturating_lift_bootstrap_equivalent_rise": controller_namespace[
+            "saturating_lift_bootstrap_equivalent_rise"
         ],
     }
     exec(
@@ -91,6 +100,7 @@ def _make_env(num_envs: int = 1):
         grasp_tcp_origin=origin.clone(),
         verified_lift_observed_watermark=torch.zeros(num_envs),
         verified_lift_credited_rise=torch.zeros(num_envs),
+        verified_lift_bootstrap_credited_rise=torch.zeros(num_envs),
     )
     return SimpleNamespace(
         num_envs=num_envs,
@@ -107,6 +117,8 @@ def _call(reward, env):
         env,
         target_height=TARGET_HEIGHT,
         maximum_credit_height=MAXIMUM_CREDIT_HEIGHT,
+        bootstrap_length_scale=BOOTSTRAP_LENGTH_SCALE,
+        bootstrap_multiplier=BOOTSTRAP_MULTIPLIER,
     )
 
 
@@ -114,6 +126,19 @@ def _set_coupled_rise(state, rise):
     rise_tensor = torch.as_tensor(rise, dtype=state.object_height.dtype)
     state.object_height[:] = state.grasp_object_origin[:, 2] + rise_tensor
     state.tcp_height[:] = state.grasp_tcp_origin[:, 2] + rise_tensor
+
+
+def _bootstrap_credit(rise: float) -> float:
+    rise_tensor = torch.tensor(rise)
+    return (
+        -BOOTSTRAP_MULTIPLIER
+        * BOOTSTRAP_LENGTH_SCALE
+        * torch.expm1(-rise_tensor / BOOTSTRAP_LENGTH_SCALE)
+    ).item()
+
+
+def _equivalent_credit(rise: float) -> float:
+    return rise + _bootstrap_credit(rise)
 
 
 def test_verified_lift_reward_credits_each_episode_best_height_once():
@@ -130,11 +155,14 @@ def test_verified_lift_reward_credits_each_episode_best_height_once():
 
     weighted_episode_reward = sum(outputs) * env.step_dt * REWARD_WEIGHT
     assert weighted_episode_reward.item() == pytest.approx(
-        REWARD_WEIGHT * 0.03,
+        REWARD_WEIGHT * _equivalent_credit(0.03),
         abs=1.0e-5,
     )
     assert reward._observed_watermark.item() == pytest.approx(0.03)
     assert reward._credited_cumulative_rise.item() == pytest.approx(0.03)
+    assert reward._bootstrap_credited_cumulative_rise.item() == pytest.approx(
+        _bootstrap_credit(0.03)
+    )
 
 
 def test_verified_lift_reward_burns_height_first_seen_without_a_current_hold():
@@ -155,15 +183,27 @@ def test_verified_lift_reward_burns_height_first_seen_without_a_current_hold():
     new_credit = _call(reward, env)
 
     assert (first_credit * env.step_dt).item() == pytest.approx(
-        0.03
+        _equivalent_credit(0.03)
     )
     assert burned.item() == 0.0
     assert recovered.item() == 0.0
-    assert (new_credit * env.step_dt).item() == pytest.approx(0.01)
+    expected_new_credit = 0.01 + _bootstrap_credit(0.06) - _bootstrap_credit(0.05)
+    expected_bootstrap_credit = (
+        _bootstrap_credit(0.03)
+        + _bootstrap_credit(0.06)
+        - _bootstrap_credit(0.05)
+    )
+    assert (new_credit * env.step_dt).item() == pytest.approx(expected_new_credit)
     assert reward._observed_watermark.item() == pytest.approx(0.06)
     assert reward._credited_cumulative_rise.item() == pytest.approx(0.04)
     assert state.verified_lift_observed_watermark.item() == pytest.approx(0.06)
     assert state.verified_lift_credited_rise.item() == pytest.approx(0.04)
+    assert reward._bootstrap_credited_cumulative_rise.item() == pytest.approx(
+        expected_bootstrap_credit
+    )
+    assert state.verified_lift_bootstrap_credited_rise.item() == pytest.approx(
+        expected_bootstrap_credit
+    )
 
 
 @pytest.mark.parametrize("terminal_kind", ["failed", "released", "timeout"])
@@ -189,6 +229,9 @@ def test_verified_lift_reward_gives_terminal_precedence_without_a_clawback(
     assert _call(reward, env).item() == 0.0
     assert reward._observed_watermark.item() == pytest.approx(0.03)
     assert reward._credited_cumulative_rise.item() == pytest.approx(0.03)
+    assert reward._bootstrap_credited_cumulative_rise.item() == pytest.approx(
+        _bootstrap_credit(0.03)
+    )
 
 
 def test_verified_lift_reward_pays_the_nonterminal_completion_increment_once():
@@ -206,9 +249,17 @@ def test_verified_lift_reward_pays_the_nonterminal_completion_increment_once():
     final_increment = _call(reward, env)
     state.just_lifted[:] = False
 
-    assert (final_increment * env.step_dt).item() == pytest.approx(0.053)
+    expected_final_increment = (
+        0.053 + _bootstrap_credit(0.093) - _bootstrap_credit(0.04)
+    )
+    assert (final_increment * env.step_dt).item() == pytest.approx(
+        expected_final_increment
+    )
     assert _call(reward, env).item() == 0.0
     assert reward._credited_cumulative_rise.item() == pytest.approx(0.093)
+    assert reward._bootstrap_credited_cumulative_rise.item() == pytest.approx(
+        _bootstrap_credit(0.093)
+    )
 
 
 def test_verified_lift_reward_starts_at_zero_on_the_origin_latch_step():
@@ -222,6 +273,7 @@ def test_verified_lift_reward_starts_at_zero_on_the_origin_latch_step():
     assert _call(reward, env).item() == 0.0
     assert reward._observed_watermark.item() == 0.0
     assert reward._credited_cumulative_rise.item() == 0.0
+    assert reward._bootstrap_credited_cumulative_rise.item() == 0.0
 
 
 def test_verified_lift_reward_has_a_bounded_total_credit():
@@ -233,9 +285,13 @@ def test_verified_lift_reward_has_a_bounded_total_credit():
     _set_coupled_rise(state, 1.0)
 
     weighted_credit = _call(reward, env) * env.step_dt * REWARD_WEIGHT
-    expected_credit = REWARD_WEIGHT * MAXIMUM_CREDIT_HEIGHT
+    expected_credit = REWARD_WEIGHT * _equivalent_credit(MAXIMUM_CREDIT_HEIGHT)
 
     assert weighted_credit.item() == pytest.approx(expected_credit, abs=1.0e-5)
+    assert weighted_credit.item() < REWARD_WEIGHT * (
+        MAXIMUM_CREDIT_HEIGHT
+        + BOOTSTRAP_LENGTH_SCALE * BOOTSTRAP_MULTIPLIER
+    )
     assert _call(reward, env).item() == 0.0
 
 
@@ -252,3 +308,6 @@ def test_verified_lift_reward_reset_is_selective():
 
     assert reward._observed_watermark.tolist() == pytest.approx([0.0, 0.04])
     assert reward._credited_cumulative_rise.tolist() == pytest.approx([0.0, 0.04])
+    assert reward._bootstrap_credited_cumulative_rise.tolist() == pytest.approx(
+        [0.0, _bootstrap_credit(0.04)]
+    )

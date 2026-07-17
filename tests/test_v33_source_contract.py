@@ -294,20 +294,20 @@ def test_v41_restores_the_verified_dense_pregrasp_learning_contract():
     assert "weight=-1.0" in reward_source
 
 
-def test_v43_credits_verified_lift_in_metres_without_terminal_clawback():
+def test_v44_bridges_verified_lift_without_a_phase_threshold():
     reward_source = ENV_SOURCE.split("class RewardsCfgV18", maxsplit=1)[1].split(
         "class TerminationsCfgV18", maxsplit=1
     )[0]
     assert "func=mdp.task_verified_paired_lift_progress" in reward_source
     assert '"target_height": STAGE_CARRY_MIN_HEIGHT_W' in reward_source
     assert '"maximum_credit_height": 0.093' in reward_source
-    assert '"bootstrap_length_scale"' not in reward_source
-    assert '"bootstrap_multiplier"' not in reward_source
+    assert '"bootstrap_length_scale": 0.010' in reward_source
+    assert '"bootstrap_multiplier": 4.0' in reward_source
     assert '"discount_factor"' not in reward_source
     assert "gamma=0.995" in PPO_SOURCE
     assert "weight=150.0" in reward_source
-    assert reward_source.count('params={"preassist_multiplier": 1.0}') == 1
-    assert reward_source.count('params={"preassist_multiplier": 2.0}') == 1
+    assert 'params={"preassist_multiplier": 1.0}' not in reward_source
+    assert reward_source.count('params={"preassist_multiplier": 2.0}') == 2
     assert "self.is_finite_horizon = True" in ENV_SOURCE
 
     reward_class = next(
@@ -346,7 +346,11 @@ def test_v43_credits_verified_lift_in_metres_without_terminal_clawback():
     lift_event_credit = keyword_value("lift_completed", "weight")
     verified_lift_credit_cap = keyword_value(
         "verified_lift_progress", "weight"
-    ) * parameter_value("verified_lift_progress", "maximum_credit_height")
+    ) * (
+        parameter_value("verified_lift_progress", "maximum_credit_height")
+        + parameter_value("verified_lift_progress", "bootstrap_length_scale")
+        * parameter_value("verified_lift_progress", "bootstrap_multiplier")
+    )
     failure_cost = abs(keyword_value("failed_place", "weight"))
     failure_multiplier = keyword_value("failed_place", "params")[
         "preassist_multiplier"
@@ -358,21 +362,21 @@ def test_v43_credits_verified_lift_in_metres_without_terminal_clawback():
     assert failure_cost * failure_multiplier > (
         acquired_event_credit + lift_event_credit + verified_lift_credit_cap
     )
-    assert timeout_multiplier == 1.0
-    assert preassist_delay_weight == -15.0
+    assert timeout_multiplier == 2.0
+    assert preassist_delay_weight == -1.5
 
     paired_source = MDP_SOURCE.split(
         "class task_verified_paired_lift_progress", maxsplit=1
     )[1].split("class task_preclearance_inward_progress", maxsplit=1)[0]
     assert "capped_raw_coupled_lift_rise(" in paired_source
-    assert "saturating_lift_bootstrap_equivalent_rise(" not in paired_source
+    assert "saturating_lift_bootstrap_equivalent_rise(" in paired_source
     assert "state.grasp_acquired" in paired_source
     assert "state.current_hold" in paired_source
     assert "state.just_lifted" in paired_source
     assert "acquired_nonterminal" in paired_source
     assert "_observed_watermark" in paired_source
     assert "_credited_cumulative_rise" in paired_source
-    assert "_bootstrap_credited_cumulative_rise" not in paired_source
+    assert "_bootstrap_credited_cumulative_rise" in paired_source
     assert "discounted_potential_delta(" not in paired_source
     assert "closed_terminal" not in paired_source
     assert "~state.just_grasped" not in paired_source
@@ -388,10 +392,10 @@ def test_v43_credits_verified_lift_in_metres_without_terminal_clawback():
         "task_verified_lift_coupled_progress",
         "task_verified_lift_observed_watermark",
         "task_verified_lift_credited_rise",
+        "task_verified_lift_bootstrap_credited_rise",
     ):
         assert metric in MDP_SOURCE
-    assert "def capped_raw_coupled_lift_rise" in CONTROLLER_SOURCE
-    assert "def saturating_lift_bootstrap_equivalent_rise" not in CONTROLLER_SOURCE
+    assert "def saturating_lift_bootstrap_equivalent_rise" in CONTROLLER_SOURCE
 
 
 def test_openarm_scenes_fail_closed_with_self_collisions_enabled():
