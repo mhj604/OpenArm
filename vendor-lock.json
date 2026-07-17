@@ -2,6 +2,7 @@
   "repository": "https://github.com/YanjieZe/3D-Diffusion-Policy.git",
   "upstream_commit": "47385d9d6f5bde3f2ebdf2400ecb8261cc9e6b97",
   "local_branch": "openarm-v1-integration",
+  "local_commit": "da3bd791602c241e40ded6c83770ec0f786bf03b",
   "local_patch": "patches/dp3-openarm-v1.patch.gz",
   "policy": "Simple DP3",
   "task": "cube_random_center_box_to_left_red_point"
