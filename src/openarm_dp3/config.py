@@ -122,6 +122,7 @@ class CollectionSettings:
     chest_raw_points: int
     wrist_left_raw_points: int
     training_points: int
+    use_point_color: bool
     voxel_size_m: float
     minimum_valid_depth_points: int
     maximum_camera_skew_ms: float
@@ -150,6 +151,7 @@ class CollectionSettings:
             chest_raw_points=int(points.get("chest", 0)),
             wrist_left_raw_points=int(points.get("wrist_left", 0)),
             training_points=int(pc.get("training_points", 0)),
+            use_point_color=bool(pc.get("use_color", False)),
             voxel_size_m=float(pc.get("voxel_size_m", 0.0)),
             minimum_valid_depth_points=int(raw.get("minimum_valid_depth_points", 0)),
             maximum_camera_skew_ms=float(raw.get("maximum_camera_skew_ms", 0.0)),

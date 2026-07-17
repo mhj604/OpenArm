@@ -86,6 +86,7 @@ class EpisodeWriter:
         wrist_left_points: int,
         preview_height: int,
         preview_width: int,
+        point_channels: int = 3,
     ):
         root.mkdir(parents=True, exist_ok=True)
         self.root_path = root
@@ -119,15 +120,15 @@ class EpisodeWriter:
             ),
             "chest_point_cloud_raw": data.create_dataset(
                 "chest_point_cloud_raw",
-                shape=(0, chest_points, 3),
-                chunks=(1, chest_points, 3),
+                shape=(0, chest_points, point_channels),
+                chunks=(1, chest_points, point_channels),
                 dtype="f4",
                 compressor=fast,
             ),
             "wrist_left_point_cloud_raw": data.create_dataset(
                 "wrist_left_point_cloud_raw",
-                shape=(0, wrist_left_points, 3),
-                chunks=(1, wrist_left_points, 3),
+                shape=(0, wrist_left_points, point_channels),
+                chunks=(1, wrist_left_points, point_channels),
                 dtype="f4",
                 compressor=fast,
             ),

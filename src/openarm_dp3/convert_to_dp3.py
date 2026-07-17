@@ -114,6 +114,7 @@ def convert(settings: CollectionSettings, output: Path, *, overwrite: bool) -> d
     if not episodes:
         raise ConversionError("no accepted, moving demonstrations are available")
     total_frames = sum(episode.selected_frames for episode in episodes)
+    point_channels = 6 if settings.use_point_color else 3
     temporary, backup = prepare_output_path(output, overwrite=overwrite)
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -123,8 +124,8 @@ def convert(settings: CollectionSettings, output: Path, *, overwrite: bool) -> d
     compressor = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
     point_cloud = data.create_dataset(
         "point_cloud",
-        shape=(total_frames, settings.training_points, 3),
-        chunks=(64, settings.training_points, 3),
+        shape=(total_frames, settings.training_points, point_channels),
+        chunks=(64, settings.training_points, point_channels),
         dtype="f4",
         compressor=compressor,
     )
@@ -190,7 +191,9 @@ def convert(settings: CollectionSettings, output: Path, *, overwrite: bool) -> d
             "task_id": settings.task_id,
             "point_cloud_source": "chest",
             "point_cloud_coordinate_frame": "d435_depth_ir",
-            "point_cloud_channels": "xyz_meters",
+            "point_cloud_channels": (
+                "xyz_meters_rgb_unit" if settings.use_point_color else "xyz_meters"
+            ),
             "state_dim": 16,
             "action_dim": 16,
             "state_action_unit": "radian",

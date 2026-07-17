@@ -19,8 +19,8 @@ def validate(path: Path) -> dict[str, object]:
     ends = np.asarray(root["meta/episode_ends"][:], dtype=np.int64)
     if state.shape != action.shape or state.ndim != 2 or state.shape[1] != 16:
         raise ValueError("state and action must both be shaped (T, 16)")
-    if points.shape != (state.shape[0], 1024, 3):
-        raise ValueError("point_cloud must be shaped (T, 1024, 3)")
+    if points.shape != (state.shape[0], 1024, 6):
+        raise ValueError("point_cloud must be shaped (T, 1024, 6)")
     if len(ends) == 0 or np.any(np.diff(ends) <= 0) or ends[-1] != state.shape[0]:
         raise ValueError("episode_ends is invalid")
     for name, array in (("state", state), ("action", action), ("point_cloud", points)):

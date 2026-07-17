@@ -20,7 +20,7 @@ maximum_camera_skew_ms: 80
 point_cloud:
   training_source: chest
   training_points: 1024
-  use_color: false
+  use_color: true
   voxel_size_m: 0.008
   preserve_wrist_left_raw: true
 trim:

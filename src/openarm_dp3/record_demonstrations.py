@@ -117,6 +117,8 @@ def build_episode_frame(
         point_count=collection.chest_raw_points,
         minimum_valid_points=collection.minimum_valid_depth_points,
         seed=seed,
+        rgb=chest.rgb,
+        include_color=collection.use_point_color,
     )
     wrist_points = sample_aligned_vertices(
         wrist_left.vertices_xyz,
@@ -127,6 +129,8 @@ def build_episode_frame(
         point_count=collection.wrist_left_raw_points,
         minimum_valid_points=collection.minimum_valid_depth_points,
         seed=seed ^ 0x5A5A5A5A,
+        rgb=wrist_left.rgb,
+        include_color=collection.use_point_color,
     )
     chest_rgb, chest_depth = resize_preview(
         chest,
@@ -192,6 +196,8 @@ def record_episode(
         "workspace_pixel_roi": list(workspace.pixel_roi),
         "workspace_depth_range_m": list(workspace.depth_range_m),
         "workspace_calibration_source": workspace.calibration_source,
+        "point_cloud_channels": "xyzrgb" if collection.use_point_color else "xyz",
+        "point_cloud_color_range": [0.0, 1.0] if collection.use_point_color else None,
     }
     writer = EpisodeWriter(
         root=collection.dataset_root,
@@ -202,6 +208,7 @@ def record_episode(
         wrist_left_points=collection.wrist_left_raw_points,
         preview_height=collection.preview_height,
         preview_width=collection.preview_width,
+        point_channels=6 if collection.use_point_color else 3,
     )
     start = time.monotonic()
     period = 1.0 / collection.sample_fps

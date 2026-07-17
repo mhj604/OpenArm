@@ -90,8 +90,8 @@ class OpenArmDP3Dataset(BaseDataset):
         point_cloud = sample["point_cloud"].astype(np.float32)
         if state.shape[-1] != 16 or action.shape[-1] != 16:
             raise ValueError("OpenArm state and action must each have 16 channels")
-        if point_cloud.shape[-2:] != (1024, 3):
-            raise ValueError("OpenArm DP3 point cloud must be shaped (..., 1024, 3)")
+        if point_cloud.shape[-2:] != (1024, 6):
+            raise ValueError("OpenArm DP3 point cloud must be shaped (..., 1024, 6)")
         return {
             "obs": {"point_cloud": point_cloud, "agent_pos": state},
             "action": action,

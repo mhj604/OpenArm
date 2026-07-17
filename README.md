@@ -17,7 +17,7 @@ their receive-only telemetry adapter and never opens a transmit CAN socket.
 
 Simple DP3 is trained from:
 
-- `point_cloud`: 1,024 XYZ points in the fixed, wide D435 depth/IR frame.
+- `point_cloud`: 1,024 XYZRGB points in the fixed, wide D435 depth/IR frame.
 - `agent_pos`: 16 OpenArm joint/gripper positions in radians.
 - `action`: 16 outgoing CAN target positions in radians.
 
