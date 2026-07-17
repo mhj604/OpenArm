@@ -1,0 +1,16 @@
+[project]
+name = "openarm-dp3"
+version = "0.1.0"
+description = "Passive RGB-D demonstration capture and Simple DP3 training for bimanual OpenArm-v1"
+requires-python = ">=3.12,<3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

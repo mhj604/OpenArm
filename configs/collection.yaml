@@ -1,0 +1,31 @@
+schema_version: 1
+task_id: cube_random_center_box_to_left_red_point
+task_description: >-
+  Pick the cube from a randomized position inside the center red rectangle and
+  place it centered on the red point on the left.
+dataset_root: /home/mh/openarm_dp3/data/raw/episodes
+sample_fps: 15
+max_episode_seconds: 30
+countdown_seconds: 3
+target_episodes: 40
+minimum_recommended_episodes: 30
+maximum_recommended_episodes: 50
+preview_width: 320
+preview_height: 240
+raw_point_counts:
+  chest: 8192
+  wrist_left: 4096
+minimum_valid_depth_points: 1500
+maximum_camera_skew_ms: 80
+point_cloud:
+  training_source: chest
+  training_points: 1024
+  use_color: false
+  voxel_size_m: 0.008
+  preserve_wrist_left_raw: true
+trim:
+  enabled: true
+  motion_threshold_radian: 0.02
+  step_threshold_radian: 0.004
+  pre_roll_frames: 5
+  post_roll_frames: 10

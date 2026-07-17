@@ -1,0 +1,29 @@
+schema_version: 1
+telemetry:
+  host: 127.0.0.1
+  port: 29502
+  stale_timeout_s: 0.15
+  source_script: /home/mh/openarm_act/scripts/start_can_telemetry.sh
+  receive_only: true
+cameras:
+  chest:
+    model: Intel RealSense D435ICB
+    serial: "261722072049"
+    mount: chest_fixed
+    width: 640
+    height: 480
+    fps: 30
+    use_rgb: true
+    use_depth: true
+  wrist_left:
+    model: Intel RealSense D405
+    serial: "260322271498"
+    mount: left_end_effector
+    width: 640
+    height: 480
+    fps: 30
+    use_rgb: true
+    use_depth: true
+forbidden_cameras:
+  - wrist_right
+  - right_wrist

@@ -1,0 +1,17 @@
+schema_version: 1
+calibrated: false
+camera: chest
+camera_serial: "261722072049"
+pixel_roi: null
+depth_range_m: null
+calibration_source: null
+last_attempt:
+  timestamp: "20260717_114900"
+  status: rejected
+  reason: left_red_target_point_touches_image_boundary
+  preview: /home/mh/openarm_dp3/calibration/chest_workspace_20260717_114900.png
+warning: >-
+  Reframe the chest camera slightly toward the left so the center red rectangle,
+  the entire left red target point, and gripper approach margin are visible.
+  Then run scripts/calibrate_workspace.sh again. Demonstration recording refuses
+  to start while calibrated is false.

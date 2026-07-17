@@ -1,0 +1,26 @@
+schema_version: 1
+task_id: cube_random_center_box_to_left_red_point
+start_region: center_red_rectangle
+goal_region: left_red_point
+object: cube
+demonstration_count:
+  supported_minimum: 3
+  first_training_minimum: 30
+  recommended: 40
+  recommended_maximum: 50
+randomization:
+  start_region_grid: [3, 3]
+  balance_grid_cells: true
+  cube_yaw: random
+  goal_drop_position: center_cube_over_left_red_point
+fixed_conditions:
+  - chest camera pose
+  - center red rectangle pose
+  - left red point pose
+  - robot initial pose
+  - control mapping
+quality_rules:
+  begin_motion_within_seconds: 1.0
+  stop_recording_after_release_seconds: 1.0
+  accepted_only_for_training: true
+  do_not_mix_failed_demonstrations: true
