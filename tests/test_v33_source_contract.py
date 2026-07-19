@@ -73,7 +73,7 @@ def test_v33_keeps_episode_and_policy_contract():
         and isinstance(node.value.func, ast.Name)
         and node.value.func.id == "RewTerm"
     ]
-    assert len(reward_terms) == 22
+    assert len(reward_terms) == 24
 
 
 def test_train_and_play_share_the_low_release_target():
@@ -194,7 +194,7 @@ def test_v38_restores_actor_transport_and_localizes_clearance_cost():
     assert "task_preclearance_inward_progress" in MDP_SOURCE
     assert "pregrasp_opening_quality_factor" not in MDP_SOURCE
     assert "task_low_clearance_basket_approach_steps" in MDP_SOURCE
-    assert MDP_SOURCE.count("actor_owned_carry_phase(") == 2
+    assert MDP_SOURCE.count("actor_owned_carry_phase(") == 3
     assert '"near_basket_xy_threshold": LOW_CLEARANCE_BASKET_APPROACH_XY' in ENV_SOURCE
     assert "previous_local_distance - local_distance" in CONTROLLER_SOURCE
     assert "normalized_offset = offset_error / torch.clamp(gate_span, min=1.0e-6)" in MDP_SOURCE
@@ -240,10 +240,66 @@ def test_v40_decouples_phase_progress_and_accelerates_post_center_descent():
         "task_assist_incremental_z_priority_upgrades",
     ):
         assert metric in MDP_SOURCE
-
     assert "def required_axis_progress_valid" in CONTROLLER_SOURCE
     assert "def phase_primary_axis_progress_valid" in CONTROLLER_SOURCE
     assert "def phase_primary_translation_progress_ratio" in CONTROLLER_SOURCE
+
+
+def test_v46_increases_only_post_center_vertical_tracking_gain():
+    assert "vertical_position_gain=0.16" in ENV_SOURCE
+    assert "post_center_vertical_position_gain=0.20" in ENV_SOURCE
+    assert "post_center_vertical_position_gain: float = 0.12" in MDP_SOURCE
+    assert "vertical_position_gain = torch.where(" in MDP_SOURCE
+    assert "prefer_z_progress[:, None]" in MDP_SOURCE
+    assert "vertical_position_gain * torch.abs(vertical_error)" in MDP_SOURCE
+
+    # The faster phase still passes through every existing motion and release guard.
+    for unchanged_limit in (
+        "max_vertical_step=0.0030",
+        "max_vertical_acceleration=0.45",
+        "max_vertical_jerk=4.5",
+        "vertical_position_deadband=0.0015",
+        '"release_height_above_tolerance": 0.002',
+        '"release_height_below_tolerance": 0.003',
+        '"release_max_speed": 0.06',
+    ):
+        assert unchanged_limit in ENV_SOURCE
+
+
+def test_v47_ranks_safe_progress_before_stale_z_priority_stabilization():
+    assert "select_phase_progress_lead_fallback" in CONTROLLER_SOURCE
+    assert "phase_progress_fallback = prefer_z_progress & selected_required_z" in MDP_SOURCE
+    fallback_source = MDP_SOURCE.split(
+        "phase_progress_fallback = prefer_z_progress & selected_required_z",
+        maxsplit=1,
+    )[1].split("previous_lead_prediction", maxsplit=1)[0]
+    assert "& increment_valid" in fallback_source
+    assert "(~previous_lead_valid | phase_progress_fallback)" in fallback_source
+    assert "previous_lead_ratio = phase_primary_translation_progress_ratio(" in MDP_SOURCE
+    assert "incremental_lead_ratio = phase_primary_translation_progress_ratio(" in MDP_SOURCE
+    assert "lead_progress_upgrade" in MDP_SOURCE
+    assert "& final_lead_safe" in MDP_SOURCE
+    for metric in (
+        "task_assist_lead_z_priority_better_incremental_opportunities",
+        "task_assist_lead_z_priority_progress_upgrades",
+        "task_assist_lead_z_priority_previous_stabilizations",
+        "task_assist_lead_z_priority_hard_holds",
+        "task_assist_lead_z_priority_increment_invalid",
+    ):
+        assert metric in MDP_SOURCE
+
+    # The preferred three-control lead and every physical guard remain unchanged.
+    for unchanged_contract in (
+        "assist_target_lead_steps=3",
+        "preferred_raw_lead = self.cfg.assist_target_lead_steps * delta_joint",
+        "allow_stabilization=True",
+        "target_lead_constraints_valid(",
+        "max_vertical_step=0.0030",
+        '"release_height_above_tolerance": 0.002',
+        '"release_height_below_tolerance": 0.003',
+        '"release_max_speed": 0.06',
+    ):
+        assert unchanged_contract in MDP_SOURCE or unchanged_contract in ENV_SOURCE
 
 
 def test_v41_masks_only_post_grasp_automation_and_keeps_terminal_contract():
@@ -509,7 +565,7 @@ def test_v40_z_fallback_and_proactive_upgrade_metrics_remain_disjoint():
 
 def test_preassist_call_sites_start_only_after_verified_grasp():
     tree = ast.parse(MDP_SOURCE)
-    expected_counts = {"actor_owned_carry_phase": 2}
+    expected_counts = {"actor_owned_carry_phase": 3}
     for function_name, expected_count in expected_counts.items():
         calls = [
             node
@@ -591,6 +647,111 @@ def object_to_transport_goal_position_in_robot_root_frame(
     assert "unlock_start_height" not in policy_source
     assert "unlock_full_height" not in policy_source
     assert "lift_first" not in policy_source
+
+
+def test_v45_fills_only_the_verified_prelift_inward_progress_gap():
+    assert "PRELIFT_INWARD_FREE_TOLERANCE = 0.010" in ENV_SOURCE
+    assert "PRELIFT_INWARD_MAX_CHARGED_EXCURSION = 0.050" in ENV_SOURCE
+    assert "class task_prelift_inward_progress" in MDP_SOURCE
+    assert "prelift_inward_progress_increment" in MDP_SOURCE
+    term_source = MDP_SOURCE.split(
+        "class task_prelift_inward_progress", maxsplit=1
+    )[1].split("def constant_penalty", maxsplit=1)[0]
+    assert "new_grasp = state.just_grasped & finite_distance" in term_source
+    assert "active_at_control_start = self._was_active" in term_source
+    assert "state.current_hold" not in term_source
+    assert "self._was_active[:]" in term_source
+    assert term_source.index("increment, updated_max") < term_source.index(
+        "self._was_active[:]"
+    )
+    assert "maximum_charged_excursion" in ENV_SOURCE
+    assert "weight=-300.0" in ENV_SOURCE
+    for metric in (
+        "task_prelift_lateral_displacement_max",
+        "task_prelift_inward_progress_max",
+        "task_prelift_inward_excursion_charged",
+        "task_prelift_inward_cap_hit",
+    ):
+        assert metric in MDP_SOURCE
+
+    reward_source = ENV_SOURCE.split("class RewardsCfgV18", maxsplit=1)[1].split(
+        "class TerminationsCfgV18", maxsplit=1
+    )[0]
+    assert reward_source.index("preclearance_inward_progress") < reward_source.index(
+        "prelift_inward_progress"
+    )
+
+
+def test_v48_closes_the_poststicky_current_clearance_gap():
+    assert "STAGE_CARRY_MIN_HEIGHT_W = 0.73" in ENV_SOURCE
+    assert "STAGE_CARRY_TARGET_HEIGHT_W = 0.75" in ENV_SOURCE
+    assert "STAGE_CARRY_MAX_HEIGHT_W = 0.79" in ENV_SOURCE
+    assert '"minimum_transport_height": STAGE_CARRY_MIN_HEIGHT_W' in ENV_SOURCE
+    assert "poststicky_low_clearance_exposure = RewTerm(" in ENV_SOURCE
+    assert "func=mdp.task_poststicky_low_clearance_exposure" in ENV_SOURCE
+    assert '"clearance_height": STAGE_CARRY_MIN_HEIGHT_W' in ENV_SOURCE
+    assert '"near_basket_xy_threshold": LOW_CLEARANCE_BASKET_APPROACH_XY' in ENV_SOURCE
+
+    env_tree = ast.parse(ENV_SOURCE)
+    reward_class = next(
+        node
+        for node in env_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RewardsCfgV18"
+    )
+    exposure_assignment = next(
+        node
+        for node in reward_class.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "poststicky_low_clearance_exposure"
+            for target in node.targets
+        )
+    )
+    exposure_weight = next(
+        keyword.value
+        for keyword in exposure_assignment.value.keywords
+        if keyword.arg == "weight"
+    )
+    assert ast.literal_eval(exposure_weight) == -5.0
+
+    transport_source = MDP_SOURCE.split(
+        'elif mode == "transport":', maxsplit=1
+    )[1].split('elif mode == "carry_height":', maxsplit=1)[0]
+    assert "torch.isfinite(state.object_height)" in transport_source
+    assert "state.object_height >= minimum_transport_height" in transport_source
+    carry_height_source = MDP_SOURCE.split(
+        'elif mode == "carry_height":', maxsplit=1
+    )[1].split('else:', maxsplit=1)[0]
+    assert "minimum_transport_height" not in carry_height_source
+
+    tracker_source = MDP_SOURCE.split("class TaskStateTracker", maxsplit=1)[1].split(
+        "def task_state_observation", maxsplit=1
+    )[0]
+    lift_update = tracker_source.index("self.lift_streak[:] = torch.where")
+    current_confirmation = tracker_source.index(
+        "current_clearance_confirmed = self.lift_streak >= lift_confirm_steps"
+    )
+    transport_confirmation = tracker_source.index("transport_confirmed = (")
+    assist_handoff = tracker_source.index("self.assist_engaged |= (")
+    assert lift_update < current_confirmation < transport_confirmation < assist_handoff
+    assert "& current_clearance_confirmed" in tracker_source[
+        transport_confirmation:assist_handoff
+    ]
+    assert "& current_clearance_confirmed" in tracker_source[assist_handoff:]
+    assert "self.object_height >= carry_height" in tracker_source[assist_handoff:]
+    assert '"lift_confirm_steps": 3' in ENV_SOURCE
+
+    for metric in (
+        "task_presticky_low_clearance_basket_approach_steps",
+        "task_poststicky_low_clearance_basket_approach_steps",
+        "task_poststicky_below_clearance_steps",
+        "task_assist_entry_clearance_confirmation_blocked_steps",
+    ):
+        assert metric in MDP_SOURCE
+    assert "poststicky_low_clearance_exposure_cost" in CONTROLLER_SOURCE
+    assert "ContactSensor" not in ENV_SOURCE
+    assert "ContactSensor" not in MDP_SOURCE
 
 
 def test_pregrasp_reward_excludes_every_automatic_pose_hold():

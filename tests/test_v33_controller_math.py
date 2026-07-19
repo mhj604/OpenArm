@@ -37,6 +37,9 @@ saturating_lift_bootstrap_equivalent_rise = (
 constrain_target_lead = controller_math.constrain_target_lead
 coupled_lift_progress = controller_math.coupled_lift_progress
 low_clearance_inward_progress_cost = controller_math.low_clearance_inward_progress_cost
+prelift_inward_progress_increment = (
+    controller_math.prelift_inward_progress_increment
+)
 persistent_best_signed_progress = controller_math.persistent_best_signed_progress
 preserve_safe_goal_directed_step = controller_math.preserve_safe_goal_directed_step
 project_goal_directed_step = controller_math.project_goal_directed_step
@@ -54,6 +57,9 @@ select_higher_phase_primary_candidate = (
     controller_math.select_higher_phase_primary_candidate
 )
 select_phase_axis_fallback = controller_math.select_phase_axis_fallback
+select_phase_progress_lead_fallback = (
+    controller_math.select_phase_progress_lead_fallback
+)
 select_phase_primary_axis = controller_math.select_phase_primary_axis
 solve_prioritized_dls_delta = controller_math.solve_prioritized_dls_delta
 target_lead_constraints_valid = controller_math.target_lead_constraints_valid
@@ -332,6 +338,81 @@ def test_low_clearance_cost_is_monotonic_and_local_to_the_basket():
         cost,
         torch.tensor([0.0, 0.01, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0, 0.0, 0.03]),
     )
+
+
+def test_prelift_inward_progress_charges_only_new_episode_maximum():
+    maximum = torch.zeros(1)
+    increments = []
+    initial_distance = torch.tensor([0.222])
+    for distance in (0.222, 0.217, 0.210, 0.172, 0.192, 0.162):
+        increment, maximum = prelift_inward_progress_increment(
+            initial_distance,
+            torch.tensor([distance]),
+            maximum,
+            torch.tensor([True]),
+            free_tolerance=0.010,
+            maximum_charged_excursion=0.050,
+        )
+        increments.append(increment.item())
+
+    assert increments == pytest.approx(
+        [0.0, 0.0, 0.002, 0.038, 0.0, 0.010], abs=1.0e-7
+    )
+    assert sum(increments) == pytest.approx(0.050, abs=1.0e-7)
+    assert maximum.item() == pytest.approx(0.060, abs=1.0e-7)
+
+
+def test_prelift_inward_progress_ignores_outward_tangential_and_inactive_motion():
+    initial = torch.full((5,), 0.22)
+    current = torch.tensor([0.24, 0.22, 0.18, 0.18, float("nan")])
+    previous = torch.zeros(5)
+    active = torch.tensor([True, True, True, False, True])
+
+    increment, updated = prelift_inward_progress_increment(
+        initial,
+        current,
+        previous,
+        active,
+        free_tolerance=0.010,
+        maximum_charged_excursion=0.050,
+    )
+
+    assert increment.tolist() == pytest.approx([0.0, 0.0, 0.03, 0.0, 0.0])
+    assert updated.tolist() == pytest.approx([0.0, 0.0, 0.04, 0.0, 0.0])
+
+
+def test_prelift_inward_progress_charge_is_bounded_but_raw_max_is_preserved():
+    increment, updated = prelift_inward_progress_increment(
+        torch.tensor([0.22]),
+        torch.tensor([0.10]),
+        torch.tensor([0.0]),
+        torch.tensor([True]),
+        free_tolerance=0.010,
+        maximum_charged_excursion=0.050,
+    )
+
+    assert increment.item() == pytest.approx(0.050)
+    assert updated.item() == pytest.approx(0.120)
+
+
+@pytest.mark.parametrize(
+    ("free_tolerance", "maximum_charged_excursion", "message"),
+    [(-0.001, 0.050, "non-negative"), (0.010, 0.0, "positive")],
+)
+def test_prelift_inward_progress_rejects_invalid_bounds(
+    free_tolerance,
+    maximum_charged_excursion,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        prelift_inward_progress_increment(
+            torch.tensor([0.22]),
+            torch.tensor([0.20]),
+            torch.tensor([0.0]),
+            torch.tensor([True]),
+            free_tolerance,
+            maximum_charged_excursion,
+        )
 
 
 def test_xy_motion_is_not_throttled_by_inactive_z():
@@ -670,6 +751,96 @@ def test_v40_z_priority_upgrade_requires_a_safe_strict_primary_improvement():
         upgrade,
         torch.tensor([True, False, False, False, False]),
     )
+
+
+def test_v47_lead_fallback_upgrades_only_z_priority_to_better_progress():
+    (
+        use_stabilization,
+        use_incremental,
+        use_hold,
+        progress_upgrade,
+    ) = select_phase_progress_lead_fallback(
+        preferred_valid=torch.tensor([True, False, False, False, False, False]),
+        stabilization_valid=torch.tensor([True, True, True, True, False, False]),
+        stabilization_ratio=torch.tensor([0.10, 0.10, 0.10, 0.80, 0.0, 0.0]),
+        incremental_valid=torch.tensor([True, True, True, True, True, False]),
+        incremental_ratio=torch.tensor([0.90, 0.90, 0.90, 0.25, 0.90, 0.0]),
+        prefer_incremental_progress=torch.tensor(
+            [True, False, True, True, True, True]
+        ),
+    )
+
+    assert torch.equal(
+        use_stabilization,
+        torch.tensor([False, True, False, True, False, False]),
+    )
+    assert torch.equal(
+        use_incremental,
+        torch.tensor([False, False, True, False, True, False]),
+    )
+    assert torch.equal(
+        use_hold,
+        torch.tensor([False, False, False, False, False, True]),
+    )
+    assert torch.equal(
+        progress_upgrade,
+        torch.tensor([False, False, True, False, False, False]),
+    )
+
+
+def test_v47_lead_fallback_keeps_stabilization_on_equal_progress():
+    use_stabilization, use_incremental, use_hold, progress_upgrade = (
+        select_phase_progress_lead_fallback(
+            preferred_valid=torch.tensor([False]),
+            stabilization_valid=torch.tensor([True]),
+            stabilization_ratio=torch.tensor([0.50]),
+            incremental_valid=torch.tensor([True]),
+            incremental_ratio=torch.tensor([0.50]),
+            prefer_incremental_progress=torch.tensor([True]),
+        )
+    )
+
+    assert use_stabilization.item()
+    assert not use_incremental.item()
+    assert not use_hold.item()
+    assert not progress_upgrade.item()
+
+
+def test_v47_non_z_lead_fallback_is_identical_to_the_previous_priority():
+    generator = torch.Generator().manual_seed(47)
+    sample_count = 4096
+    preferred_valid = torch.rand(sample_count, generator=generator) > 0.5
+    stabilization_valid = torch.rand(sample_count, generator=generator) > 0.5
+    incremental_valid = torch.rand(sample_count, generator=generator) > 0.5
+    stabilization_ratio = torch.rand(sample_count, generator=generator)
+    incremental_ratio = torch.rand(sample_count, generator=generator)
+
+    use_stabilization, use_incremental, use_hold, progress_upgrade = (
+        select_phase_progress_lead_fallback(
+            preferred_valid,
+            stabilization_valid,
+            stabilization_ratio,
+            incremental_valid,
+            incremental_ratio,
+            prefer_incremental_progress=torch.zeros(
+                sample_count, dtype=torch.bool
+            ),
+        )
+    )
+
+    unresolved = ~preferred_valid
+    assert torch.equal(
+        use_stabilization, unresolved & stabilization_valid
+    )
+    assert torch.equal(
+        use_incremental,
+        unresolved & ~stabilization_valid & incremental_valid,
+    )
+    assert torch.equal(
+        use_hold,
+        unresolved & ~stabilization_valid & ~incremental_valid,
+    )
+    assert not torch.any(progress_upgrade)
 
 
 def test_v39_single_axis_still_requires_the_full_primary_floor():

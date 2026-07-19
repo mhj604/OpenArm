@@ -42,6 +42,8 @@ from .controller_math import (
     phase_primary_translation_progress_ratio,
     post_grasp_actor_authority,
     post_center_descent_readiness,
+    poststicky_low_clearance_exposure_cost,
+    prelift_inward_progress_increment,
     preserve_safe_goal_directed_step,
     quintic_smoothstep,
     realized_translation_progress,
@@ -50,6 +52,7 @@ from .controller_math import (
     scale_delta_to_cartesian_bounds,
     select_higher_phase_primary_candidate,
     select_phase_axis_fallback,
+    select_phase_progress_lead_fallback,
     select_phase_primary_axis,
     solve_primary_dls_delta,
     solve_prioritized_dls_delta,
@@ -119,7 +122,14 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_verified_lift_credited_rise",
             "task_verified_lift_bootstrap_credited_rise",
             "task_transport_displacement",
+            "task_prelift_lateral_displacement_max",
+            "task_prelift_inward_progress_max",
+            "task_prelift_inward_excursion_charged",
+            "task_prelift_inward_cap_hit",
             "task_low_clearance_basket_approach_steps",
+            "task_presticky_low_clearance_basket_approach_steps",
+            "task_poststicky_low_clearance_basket_approach_steps",
+            "task_poststicky_below_clearance_steps",
             "task_assist_engaged",
             "task_assist_active",
             "task_assist_owns_arm",
@@ -159,6 +169,7 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_entry_object_height",
             "task_assist_entry_object_speed",
             "task_assist_entry_height_blocked_steps",
+            "task_assist_entry_clearance_confirmation_blocked_steps",
             "task_assist_entry_height_shortfall_max",
             "task_assist_control_steps",
             "task_assist_requested_vertical_step",
@@ -205,6 +216,11 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_assist_lead_fallbacks",
             "task_assist_lead_previous_fallbacks",
             "task_assist_lead_incremental_fallbacks",
+            "task_assist_lead_z_priority_better_incremental_opportunities",
+            "task_assist_lead_z_priority_progress_upgrades",
+            "task_assist_lead_z_priority_previous_stabilizations",
+            "task_assist_lead_z_priority_hard_holds",
+            "task_assist_lead_z_priority_increment_invalid",
             "task_assist_lead_safety_stops",
             "task_assist_lead_constraint_rebases",
             "task_assist_target_backlog",
@@ -341,18 +357,45 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 state.verified_lift_bootstrap_credited_rise.clone()
             )
             self.metrics["task_transport_displacement"] = state.transport_displacement.clone()
-            low_clearance_approach = (
-                actor_owned_carry_phase(
-                    state.grasp_acquired,
-                    state.assist_owns_arm,
-                    state.released,
-                    state.failed,
-                )
-                & (state.distance_xy <= self.cfg.near_basket_xy_threshold)
-                & (state.object_height < self.cfg.low_clearance_height)
+            self.metrics["task_prelift_lateral_displacement_max"] = (
+                state.prelift_lateral_displacement_max.clone()
             )
+            self.metrics["task_prelift_inward_progress_max"] = (
+                state.prelift_inward_progress_max.clone()
+            )
+            self.metrics["task_prelift_inward_excursion_charged"] = (
+                state.prelift_inward_excursion_charged.clone()
+            )
+            self.metrics["task_prelift_inward_cap_hit"] = (
+                state.prelift_inward_cap_hit.float()
+            )
+            actor_owned_carry = actor_owned_carry_phase(
+                state.grasp_acquired,
+                state.assist_owns_arm,
+                state.released,
+                state.failed,
+            )
+            below_clearance = state.object_height < self.cfg.low_clearance_height
+            near_basket = state.distance_xy <= self.cfg.near_basket_xy_threshold
+            low_clearance_approach = actor_owned_carry & near_basket & below_clearance
             self.metrics["task_low_clearance_basket_approach_steps"].add_(
                 low_clearance_approach.float()
+            )
+            self.metrics[
+                "task_presticky_low_clearance_basket_approach_steps"
+            ].add_(
+                (low_clearance_approach & ~state.lift_completed).float()
+            )
+            poststicky_held_carry = (
+                actor_owned_carry & state.current_hold & state.lift_completed
+            )
+            self.metrics[
+                "task_poststicky_low_clearance_basket_approach_steps"
+            ].add_(
+                (poststicky_held_carry & near_basket & below_clearance).float()
+            )
+            self.metrics["task_poststicky_below_clearance_steps"].add_(
+                (poststicky_held_carry & below_clearance).float()
             )
             self.metrics["task_assist_engaged"] = state.assist_engaged.float()
             self.metrics["task_assist_active"] = state.assist_active.float()
@@ -422,6 +465,9 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_assist_entry_height_blocked_steps"] = (
                 state.assist_entry_height_blocked_steps.float()
             )
+            self.metrics[
+                "task_assist_entry_clearance_confirmation_blocked_steps"
+            ] = state.assist_entry_clearance_confirmation_blocked_steps.float()
             self.metrics["task_assist_entry_height_shortfall_max"] = (
                 state.assist_entry_height_shortfall_max.clone()
             )
@@ -568,6 +614,23 @@ class StagedObjectPoseCommand(UniformPoseCommand):
                 self.metrics["task_assist_lead_incremental_fallbacks"].add_(
                     arm_action.assist_lead_incremental_fallback
                 )
+                self.metrics[
+                    "task_assist_lead_z_priority_better_incremental_opportunities"
+                ].add_(
+                    arm_action.assist_lead_z_priority_better_incremental_opportunity
+                )
+                self.metrics[
+                    "task_assist_lead_z_priority_progress_upgrades"
+                ].add_(arm_action.assist_lead_z_priority_progress_upgrade)
+                self.metrics[
+                    "task_assist_lead_z_priority_previous_stabilizations"
+                ].add_(arm_action.assist_lead_z_priority_previous_stabilization)
+                self.metrics["task_assist_lead_z_priority_hard_holds"].add_(
+                    arm_action.assist_lead_z_priority_hard_hold
+                )
+                self.metrics["task_assist_lead_z_priority_increment_invalid"].add_(
+                    arm_action.assist_lead_z_priority_increment_invalid
+                )
                 self.metrics["task_assist_lead_safety_stops"].add_(
                     arm_action.assist_lead_safety_stop
                 )
@@ -654,6 +717,10 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             (
                 "task_assist_entry_height_blocked_steps",
                 "assist_entry_height_blocked_steps",
+            ),
+            (
+                "task_assist_entry_clearance_confirmation_blocked_steps",
+                "assist_entry_clearance_confirmation_blocked_steps",
             ),
             (
                 "task_assist_entry_height_shortfall_max",
@@ -823,6 +890,12 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             cfg.vertical_position_deadband,
         ) <= 0.0:
             raise ValueError("assist position deadbands must be positive")
+        if min(
+            cfg.horizontal_position_gain,
+            cfg.vertical_position_gain,
+            cfg.post_center_vertical_position_gain,
+        ) <= 0.0:
+            raise ValueError("assist position gains must be positive")
         if min(
             cfg.max_horizontal_acceleration,
             cfg.max_vertical_acceleration,
@@ -998,6 +1071,21 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_lead_incremental_fallback = torch.zeros(
             self._env.num_envs, device=self.device
         )
+        self.assist_lead_z_priority_better_incremental_opportunity = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_z_priority_progress_upgrade = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_z_priority_previous_stabilization = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_z_priority_hard_hold = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
+        self.assist_lead_z_priority_increment_invalid = torch.zeros(
+            self._env.num_envs, device=self.device
+        )
         self.assist_lead_safety_stop = torch.zeros(
             self._env.num_envs, device=self.device
         )
@@ -1088,6 +1176,15 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_lead_fallback[resolved_env_ids] = 0.0
         self.assist_lead_previous_fallback[resolved_env_ids] = 0.0
         self.assist_lead_incremental_fallback[resolved_env_ids] = 0.0
+        self.assist_lead_z_priority_better_incremental_opportunity[
+            resolved_env_ids
+        ] = 0.0
+        self.assist_lead_z_priority_progress_upgrade[resolved_env_ids] = 0.0
+        self.assist_lead_z_priority_previous_stabilization[
+            resolved_env_ids
+        ] = 0.0
+        self.assist_lead_z_priority_hard_hold[resolved_env_ids] = 0.0
+        self.assist_lead_z_priority_increment_invalid[resolved_env_ids] = 0.0
         self.assist_lead_safety_stop[resolved_env_ids] = 0.0
         self.assist_lead_constraint_rebase[resolved_env_ids] = 0.0
         self.assist_target_backlog[resolved_env_ids] = 0.0
@@ -1263,6 +1360,11 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         self.assist_lead_fallback[:] = 0.0
         self.assist_lead_previous_fallback[:] = 0.0
         self.assist_lead_incremental_fallback[:] = 0.0
+        self.assist_lead_z_priority_better_incremental_opportunity[:] = 0.0
+        self.assist_lead_z_priority_progress_upgrade[:] = 0.0
+        self.assist_lead_z_priority_previous_stabilization[:] = 0.0
+        self.assist_lead_z_priority_hard_hold[:] = 0.0
+        self.assist_lead_z_priority_increment_invalid[:] = 0.0
         self.assist_lead_safety_stop[:] = 0.0
         self.assist_lead_constraint_rebase[:] = 0.0
         self.assist_target_backlog[:] = 0.0
@@ -1572,6 +1674,14 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             self.cfg.horizontal_position_deadband,
         )
         vertical_error = object_error[:, 2:3]
+        prefer_z_progress = state.post_center_descent_z_priority[assist_ids]
+        vertical_position_gain = torch.where(
+            prefer_z_progress[:, None],
+            torch.full_like(
+                vertical_error, self.cfg.post_center_vertical_position_gain
+            ),
+            torch.full_like(vertical_error, self.cfg.vertical_position_gain),
+        )
         vertical_limit = torch.where(
             vertical_error >= 0.0,
             self.cfg.max_upward_step,
@@ -1580,7 +1690,7 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         vertical_direction = torch.sign(vertical_error)
         vertical_velocity_toward_target = filtered_velocity[:, 2:3] * vertical_direction
         vertical_magnitude = (
-            self.cfg.vertical_position_gain * torch.abs(vertical_error)
+            vertical_position_gain * torch.abs(vertical_error)
             - self.cfg.vertical_velocity_damping * vertical_velocity_toward_target * self._env.step_dt
         )
         vertical_magnitude = torch.clamp(vertical_magnitude, min=0.0)
@@ -1717,7 +1827,6 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         requested_xy_active = requested_xy_norm > 1.0e-9
         requested_z_active = requested_z > 1.0e-9
         requested_motion = requested_xy_active | requested_z_active
-        prefer_z_progress = state.post_center_descent_z_priority[assist_ids]
 
         delta_twist = torch.zeros((assist_ids.numel(), 6), device=self.device)
         delta_twist[:, :3] = delta_position
@@ -2599,22 +2708,60 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             no_progress_required,
             allow_stabilization=True,
         )
+        phase_progress_fallback = prefer_z_progress & selected_required_z
         incremental_lead, incremental_lead_valid = repair_lead(
             delta_joint,
             steady_assist
             & increment_valid
             & ~new_lead_valid
-            & ~previous_lead_valid,
+            & (~previous_lead_valid | phase_progress_fallback),
             selected_required_xy,
             selected_required_z,
         )
 
+        previous_lead_prediction = (
+            task_jacobian @ previous_lead.unsqueeze(-1)
+        ).squeeze(-1)
+        incremental_lead_prediction = (
+            task_jacobian @ incremental_lead.unsqueeze(-1)
+        ).squeeze(-1)
+        previous_lead_ratio = phase_primary_translation_progress_ratio(
+            previous_lead_prediction[:, :3],
+            delta_position,
+            selected_required_xy,
+            selected_required_z,
+            prefer_z_progress,
+        )
+        incremental_lead_ratio = phase_primary_translation_progress_ratio(
+            incremental_lead_prediction[:, :3],
+            delta_position,
+            selected_required_xy,
+            selected_required_z,
+            prefer_z_progress,
+        )
+        (
+            used_previous,
+            used_incremental,
+            used_hold,
+            lead_progress_upgrade,
+        ) = select_phase_progress_lead_fallback(
+            new_lead_valid,
+            previous_lead_valid,
+            previous_lead_ratio,
+            incremental_lead_valid,
+            incremental_lead_ratio,
+            phase_progress_fallback,
+        )
+        used_previous &= ~fresh_local
+        used_incremental &= ~fresh_local
+        used_hold &= ~fresh_local
+
         selected_lead = torch.zeros_like(new_lead)
         selected_lead = torch.where(
-            incremental_lead_valid[:, None], incremental_lead, selected_lead
+            used_previous[:, None], previous_lead, selected_lead
         )
         selected_lead = torch.where(
-            previous_lead_valid[:, None], previous_lead, selected_lead
+            used_incremental[:, None], incremental_lead, selected_lead
         )
         selected_lead = torch.where(
             new_lead_valid[:, None], new_lead, selected_lead
@@ -2622,15 +2769,6 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         entry_seed_lead = previous_target - assist_current
         selected_lead = torch.where(
             fresh_local[:, None], entry_seed_lead, selected_lead
-        )
-        used_previous = ~new_lead_valid & previous_lead_valid
-        used_incremental = (
-            ~new_lead_valid & ~previous_lead_valid & incremental_lead_valid
-        )
-        used_previous &= ~fresh_local
-        used_incremental &= ~fresh_local
-        used_hold = ~fresh_local & (
-            ~new_lead_valid & ~previous_lead_valid & ~incremental_lead_valid
         )
         assisted_target = current_joint_pos[assist_ids] + selected_lead
         final_twist = (task_jacobian @ selected_lead.unsqueeze(-1)).squeeze(-1)
@@ -2677,6 +2815,28 @@ class PlaceAssistJointPositionAction(JointPositionAction):
         ).float()
         self.assist_lead_previous_fallback[assist_ids] = used_previous.float()
         self.assist_lead_incremental_fallback[assist_ids] = used_incremental.float()
+        lead_progress_opportunity = lead_progress_upgrade & ~fresh_local
+        lead_progress_applied = (
+            lead_progress_opportunity & final_lead_safe & ~constraint_rebase
+        )
+        self.assist_lead_z_priority_better_incremental_opportunity[assist_ids] = (
+            lead_progress_opportunity.float()
+        )
+        self.assist_lead_z_priority_progress_upgrade[assist_ids] = (
+            lead_progress_applied.float()
+        )
+        self.assist_lead_z_priority_previous_stabilization[assist_ids] = (
+            phase_progress_fallback
+            & used_previous
+            & final_lead_safe
+            & ~constraint_rebase
+        ).float()
+        self.assist_lead_z_priority_hard_hold[assist_ids] = (
+            phase_progress_fallback & used_hold
+        ).float()
+        self.assist_lead_z_priority_increment_invalid[assist_ids] = (
+            phase_progress_fallback & ~increment_valid & ~fresh_local
+        ).float()
         self.assist_lead_safety_stop[assist_ids] = used_hold.float()
         self._assist_joint_target[assist_ids] = assisted_target
         applied_delta = assisted_target - current_joint_pos[assist_ids]
@@ -2715,6 +2875,7 @@ class PlaceAssistJointPositionActionCfg(JointPositionActionCfg):
     horizontal_position_gain: float = 0.12
     horizontal_velocity_damping: float = 0.25
     vertical_position_gain: float = 0.12
+    post_center_vertical_position_gain: float = 0.12
     vertical_velocity_damping: float = 0.30
     max_horizontal_step: float = 0.0020
     max_vertical_step: float = 0.0030
@@ -3338,6 +3499,18 @@ class TaskStateTracker(ManagerTermBase):
         self.grasp_coupling_error = torch.zeros_like(self.finger_proximity)
         self.grasp_offset_error = torch.zeros_like(self.finger_proximity)
         self.transport_displacement = torch.zeros_like(self.finger_proximity)
+        self.prelift_lateral_displacement_max = torch.zeros_like(
+            self.finger_proximity
+        )
+        self.prelift_inward_progress_max = torch.zeros_like(
+            self.finger_proximity
+        )
+        self.prelift_inward_excursion_charged = torch.zeros_like(
+            self.finger_proximity
+        )
+        self.prelift_inward_cap_hit = torch.zeros_like(
+            self.grasp_candidate
+        )
         self.distance_xy = torch.zeros_like(self.finger_proximity)
         self.object_speed = torch.zeros_like(self.finger_proximity)
         self.object_xy_speed = torch.zeros_like(self.finger_proximity)
@@ -3368,6 +3541,9 @@ class TaskStateTracker(ManagerTermBase):
         self.assist_entry_object_height = torch.zeros_like(self.finger_proximity)
         self.assist_entry_object_speed = torch.zeros_like(self.finger_proximity)
         self.assist_entry_height_blocked_steps = torch.zeros_like(
+            self.grasp_streak
+        )
+        self.assist_entry_clearance_confirmation_blocked_steps = torch.zeros_like(
             self.grasp_streak
         )
         self.assist_entry_height_shortfall_max = torch.zeros_like(
@@ -4152,7 +4328,8 @@ class TaskStateTracker(ManagerTermBase):
             torch.clamp(self.lift_streak + 1, max=lift_confirm_steps),
             0,
         )
-        self.lift_completed |= self.lift_streak >= lift_confirm_steps
+        current_clearance_confirmed = self.lift_streak >= lift_confirm_steps
+        self.lift_completed |= current_clearance_confirmed
         self.just_lifted[:] = self.lift_completed & ~previous_lift
 
         transport_displacement = torch.norm(
@@ -4167,6 +4344,7 @@ class TaskStateTracker(ManagerTermBase):
             self.grasp_acquired
             & self.current_hold
             & self.lift_completed
+            & current_clearance_confirmed
             & (self.transport_displacement >= transport_min_displacement)
         )
         self.transport_streak[:] = torch.where(
@@ -4193,8 +4371,16 @@ class TaskStateTracker(ManagerTermBase):
         assist_entry_height_blocked = assist_entry_candidate & (
             assist_entry_height_shortfall > 0.0
         )
+        assist_entry_clearance_confirmation_blocked = (
+            assist_entry_candidate
+            & ~assist_entry_height_blocked
+            & ~current_clearance_confirmed
+        )
         self.assist_entry_height_blocked_steps.add_(
             assist_entry_height_blocked.long()
+        )
+        self.assist_entry_clearance_confirmation_blocked_steps.add_(
+            assist_entry_clearance_confirmation_blocked.long()
         )
         self.assist_entry_height_shortfall_max[:] = torch.maximum(
             self.assist_entry_height_shortfall_max,
@@ -4204,8 +4390,10 @@ class TaskStateTracker(ManagerTermBase):
                 torch.zeros_like(assist_entry_height_shortfall),
             ),
         )
-        self.assist_engaged |= assist_entry_candidate & (
-            self.object_height >= carry_height
+        self.assist_engaged |= (
+            assist_entry_candidate
+            & current_clearance_confirmed
+            & (self.object_height >= carry_height)
         )
         self.just_assist_engaged[:] = self.assist_engaged & ~previous_assist
         self.assist_entry_object_height[self.just_assist_engaged] = self.object_height[
@@ -4793,6 +4981,7 @@ class task_potential_progress(ManagerTermBase):
         mode: str,
         max_step_change: float,
         target_height: float = 0.75,
+        minimum_transport_height: float = 0.0,
         object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ) -> torch.Tensor:
         state: TaskStateTracker = env._openarm_pick_place_state
@@ -4816,6 +5005,8 @@ class task_potential_progress(ManagerTermBase):
                 state.grasp_acquired
                 & state.current_hold
                 & state.lift_completed
+                & torch.isfinite(state.object_height)
+                & (state.object_height >= minimum_transport_height)
                 & ~state.assist_active
                 & ~state.released
             )
@@ -5014,6 +5205,114 @@ class task_preclearance_inward_progress(ManagerTermBase):
         )
         self._was_active[:] = actor_carry_active & finite_distance
         return cost / env.step_dt
+
+
+def task_poststicky_low_clearance_exposure(
+    env: ManagerBasedRLEnv,
+    clearance_height: float,
+    near_basket_xy_threshold: float,
+) -> torch.Tensor:
+    """Charge each actor-owned second spent below carry clearance near the basket."""
+
+    state: TaskStateTracker = env._openarm_pick_place_state
+    actor_carry_active = actor_owned_carry_phase(
+        state.grasp_acquired,
+        state.assist_owns_arm,
+        state.released,
+        state.failed,
+    )
+    return poststicky_low_clearance_exposure_cost(
+        state.object_height,
+        state.distance_xy,
+        actor_carry_active,
+        state.current_hold,
+        state.lift_completed,
+        clearance_height,
+        near_basket_xy_threshold,
+    )
+
+
+class task_prelift_inward_progress(ManagerTermBase):
+    """Charge new basket-directed progress between verified grasp and safe lift."""
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._initial_distance_xy = torch.zeros(env.num_envs, device=env.device)
+        self._maximum_lateral_displacement = torch.zeros(
+            env.num_envs, device=env.device
+        )
+        self._maximum_inward_progress = torch.zeros(
+            env.num_envs, device=env.device
+        )
+        self._charged_excursion = torch.zeros(env.num_envs, device=env.device)
+        self._was_active = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if env_ids is None:
+            env_ids = slice(None)
+        self._initial_distance_xy[env_ids] = 0.0
+        self._maximum_lateral_displacement[env_ids] = 0.0
+        self._maximum_inward_progress[env_ids] = 0.0
+        self._charged_excursion[env_ids] = 0.0
+        self._was_active[env_ids] = False
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        free_tolerance: float,
+        maximum_charged_excursion: float,
+    ) -> torch.Tensor:
+        state: TaskStateTracker = env._openarm_pick_place_state
+        timed_out = env.episode_length_buf >= env.max_episode_length
+        finite_distance = torch.isfinite(state.distance_xy)
+        new_grasp = state.just_grasped & finite_distance
+        self._initial_distance_xy[new_grasp] = state.distance_xy[new_grasp]
+        self._maximum_lateral_displacement[new_grasp] = 0.0
+        self._maximum_inward_progress[new_grasp] = 0.0
+        self._charged_excursion[new_grasp] = 0.0
+
+        active_at_control_start = self._was_active.clone()
+        finite_lateral_displacement = torch.isfinite(
+            state.transport_displacement
+        )
+        lateral_candidate = torch.where(
+            active_at_control_start & finite_lateral_displacement,
+            torch.clamp(state.transport_displacement, min=0.0),
+            self._maximum_lateral_displacement,
+        )
+        self._maximum_lateral_displacement[:] = torch.maximum(
+            self._maximum_lateral_displacement,
+            lateral_candidate,
+        )
+        increment, updated_max = prelift_inward_progress_increment(
+            self._initial_distance_xy,
+            state.distance_xy,
+            self._maximum_inward_progress,
+            active_at_control_start,
+            free_tolerance,
+            maximum_charged_excursion,
+        )
+        self._maximum_inward_progress[:] = updated_max
+        self._charged_excursion.add_(increment)
+
+        self._was_active[:] = (
+            state.grasp_acquired
+            & ~state.lift_completed
+            & ~state.released
+            & ~state.failed
+            & ~timed_out
+        )
+        state.prelift_lateral_displacement_max[:] = (
+            self._maximum_lateral_displacement
+        )
+        state.prelift_inward_progress_max[:] = self._maximum_inward_progress
+        state.prelift_inward_excursion_charged[:] = self._charged_excursion
+        state.prelift_inward_cap_hit[:] = self._charged_excursion >= (
+            maximum_charged_excursion - 1.0e-6
+        )
+        return increment / env.step_dt
 
 
 def constant_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:

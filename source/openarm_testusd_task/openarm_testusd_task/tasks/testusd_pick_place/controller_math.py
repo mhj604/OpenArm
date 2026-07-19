@@ -257,6 +257,73 @@ def low_clearance_inward_progress_cost(
     )
 
 
+def poststicky_low_clearance_exposure_cost(
+    object_height: torch.Tensor,
+    distance_xy: torch.Tensor,
+    actor_carry_active: torch.Tensor,
+    current_hold: torch.Tensor,
+    lift_completed: torch.Tensor,
+    clearance_height: float,
+    near_basket_xy_threshold: float,
+) -> torch.Tensor:
+    """Return one while a verified carry remains below clearance near the basket."""
+
+    if near_basket_xy_threshold <= 0.0:
+        raise ValueError("near_basket_xy_threshold must be positive")
+
+    finite = torch.isfinite(object_height) & torch.isfinite(distance_xy)
+    exposed = (
+        finite
+        & actor_carry_active
+        & current_hold
+        & lift_completed
+        & (distance_xy <= near_basket_xy_threshold)
+        & (object_height < clearance_height)
+    )
+    return exposed.to(dtype=object_height.dtype)
+
+
+def prelift_inward_progress_increment(
+    initial_distance_xy: torch.Tensor,
+    distance_xy: torch.Tensor,
+    previous_max_inward_progress: torch.Tensor,
+    active: torch.Tensor,
+    free_tolerance: float,
+    maximum_charged_excursion: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return newly observed basket-directed pre-lift progress beyond tolerance."""
+
+    if free_tolerance < 0.0:
+        raise ValueError("free_tolerance must be non-negative")
+    if maximum_charged_excursion <= 0.0:
+        raise ValueError("maximum_charged_excursion must be positive")
+
+    finite = (
+        torch.isfinite(initial_distance_xy)
+        & torch.isfinite(distance_xy)
+        & torch.isfinite(previous_max_inward_progress)
+    )
+    inward_progress = torch.clamp(initial_distance_xy - distance_xy, min=0.0)
+    candidate_max = torch.where(
+        finite & active,
+        inward_progress,
+        previous_max_inward_progress,
+    )
+    updated_max = torch.maximum(previous_max_inward_progress, candidate_max)
+    previous_excursion = torch.clamp(
+        previous_max_inward_progress - free_tolerance,
+        min=0.0,
+        max=maximum_charged_excursion,
+    )
+    updated_excursion = torch.clamp(
+        updated_max - free_tolerance,
+        min=0.0,
+        max=maximum_charged_excursion,
+    )
+    increment = torch.clamp(updated_excursion - previous_excursion, min=0.0)
+    return increment, updated_max
+
+
 def required_axis_progress_valid(
     predicted_translation: torch.Tensor,
     requested_translation: torch.Tensor,
@@ -435,6 +502,45 @@ def select_higher_phase_primary_candidate(
         & finite
         & (candidate_ratio > current_ratio + minimum_improvement)
     )
+
+
+def select_phase_progress_lead_fallback(
+    preferred_valid: torch.Tensor,
+    stabilization_valid: torch.Tensor,
+    stabilization_ratio: torch.Tensor,
+    incremental_valid: torch.Tensor,
+    incremental_ratio: torch.Tensor,
+    prefer_incremental_progress: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Rank safe lead fallbacks without displacing useful stabilization."""
+
+    unresolved = ~torch.as_tensor(
+        preferred_valid, device=stabilization_ratio.device, dtype=torch.bool
+    )
+    stabilization_valid = torch.as_tensor(
+        stabilization_valid, device=stabilization_ratio.device, dtype=torch.bool
+    )
+    incremental_valid = torch.as_tensor(
+        incremental_valid, device=stabilization_ratio.device, dtype=torch.bool
+    )
+    prefer_incremental_progress = torch.as_tensor(
+        prefer_incremental_progress,
+        device=stabilization_ratio.device,
+        dtype=torch.bool,
+    )
+    progress_upgrade = select_higher_phase_primary_candidate(
+        stabilization_valid,
+        stabilization_ratio,
+        incremental_valid,
+        incremental_ratio,
+        unresolved & prefer_incremental_progress,
+    )
+    use_incremental = unresolved & incremental_valid & (
+        ~stabilization_valid | progress_upgrade
+    )
+    use_stabilization = unresolved & stabilization_valid & ~use_incremental
+    use_hold = unresolved & ~use_stabilization & ~use_incremental
+    return use_stabilization, use_incremental, use_hold, progress_upgrade
 
 
 def advance_post_center_descent_progress(

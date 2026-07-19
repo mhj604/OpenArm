@@ -66,6 +66,9 @@ STAGE_CARRY_MAX_HEIGHT_W = 0.79
 LOW_CLEARANCE_PENALTY_START_HEIGHT_W = 0.710
 LOW_CLEARANCE_PENALTY_FULL_HEIGHT_W = STAGE_CARRY_MIN_HEIGHT_W
 LOW_CLEARANCE_BASKET_APPROACH_XY = 0.17
+# Cover the 52 mm pre-rim gap with 10 mm free motion and 8 mm overlap.
+PRELIFT_INWARD_FREE_TOLERANCE = 0.010
+PRELIFT_INWARD_MAX_CHARGED_EXCURSION = 0.050
 STAGE_RELEASE_TARGET_HEIGHT_W = 0.670
 STAGE_ASSIST_ENTRY_XY_THRESHOLD = 0.14
 STAGE_ASSIST_OUTER_XY_THRESHOLD = 0.24
@@ -1058,7 +1061,11 @@ class RewardsCfgV18:
     )
     transport_progress = RewTerm(
         func=mdp.task_potential_progress,
-        params={"mode": "transport", "max_step_change": 0.03},
+        params={
+            "mode": "transport",
+            "max_step_change": 0.03,
+            "minimum_transport_height": STAGE_CARRY_MIN_HEIGHT_W,
+        },
         weight=150.0,
     )
     carry_height_progress = RewTerm(
@@ -1133,6 +1140,22 @@ class RewardsCfgV18:
             "max_step_change": 0.03,
         },
         weight=-200.0,
+    )
+    poststicky_low_clearance_exposure = RewTerm(
+        func=mdp.task_poststicky_low_clearance_exposure,
+        params={
+            "clearance_height": STAGE_CARRY_MIN_HEIGHT_W,
+            "near_basket_xy_threshold": LOW_CLEARANCE_BASKET_APPROACH_XY,
+        },
+        weight=-5.0,
+    )
+    prelift_inward_progress = RewTerm(
+        func=mdp.task_prelift_inward_progress,
+        params={
+            "free_tolerance": PRELIFT_INWARD_FREE_TOLERANCE,
+            "maximum_charged_excursion": PRELIFT_INWARD_MAX_CHARGED_EXCURSION,
+        },
+        weight=-300.0,
     )
     gripper_action_phase_error = RewTerm(func=mdp.task_gripper_action_phase_error, weight=-1.0)
     carry_height_band = RewTerm(
@@ -1343,6 +1366,7 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             horizontal_position_gain=0.20,
             horizontal_velocity_damping=0.25,
             vertical_position_gain=0.16,
+            post_center_vertical_position_gain=0.20,
             vertical_velocity_damping=0.30,
             max_horizontal_step=0.0025,
             max_vertical_step=0.0030,
