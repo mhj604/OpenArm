@@ -1369,6 +1369,8 @@ class OpenArmTestUsdPickPlaceEnvCfg_STAGE(OpenArmTestUsdPickPlaceEnvCfg):
             post_center_vertical_position_gain=0.20,
             vertical_velocity_damping=0.30,
             max_horizontal_step=0.0025,
+            center_brake_xy_threshold=0.045,
+            center_brake_max_xy_speed=0.045,
             max_vertical_step=0.0030,
             max_upward_step=0.0025,
             max_joint_step=0.03,

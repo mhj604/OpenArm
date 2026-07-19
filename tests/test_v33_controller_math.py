@@ -26,6 +26,9 @@ advance_post_center_descent_progress = (
     controller_math.advance_post_center_descent_progress
 )
 actor_owned_carry_phase = controller_math.actor_owned_carry_phase
+apply_center_brake_xy_speed_limit = (
+    controller_math.apply_center_brake_xy_speed_limit
+)
 apply_stopping_speed_envelope = controller_math.apply_stopping_speed_envelope
 automatic_release_ready = controller_math.automatic_release_ready
 build_prioritized_dls_solver = controller_math.build_prioritized_dls_solver
@@ -52,6 +55,7 @@ phase_primary_translation_progress_ratio = (
 )
 post_grasp_actor_authority = controller_math.post_grasp_actor_authority
 post_center_descent_readiness = controller_math.post_center_descent_readiness
+precenter_speed_pause_mask = controller_math.precenter_speed_pause_mask
 scale_delta_to_cartesian_bounds = controller_math.scale_delta_to_cartesian_bounds
 select_higher_phase_primary_candidate = (
     controller_math.select_higher_phase_primary_candidate
@@ -1051,6 +1055,22 @@ def test_v39_post_center_descent_waits_for_stability_and_target_tracking():
     assert not tracking_pause.item()
 
 
+def test_precenter_speed_pause_excludes_confirmation_sticky_and_nonfinite_cases():
+    pause = precenter_speed_pause_mask(
+        candidate=torch.tensor([False, True, True, True, True, True]),
+        place_centered=torch.tensor([False, False, False, False, True, True]),
+        object_xy_speed=torch.tensor(
+            [0.06, 0.06, 0.05, float("nan"), 0.06, 0.04]
+        ),
+        maximum_xy_speed=0.05,
+    )
+
+    assert torch.equal(
+        pause,
+        torch.tensor([False, True, False, False, False, False]),
+    )
+
+
 def test_cartesian_scaling_allows_zero_prediction_on_the_other_active_axis():
     joint_delta = torch.tensor([[0.020, 0.010], [-0.020, 0.010]])
     predicted = torch.tensor([[0.002, 0.0, 0.0], [0.0, 0.0, -0.002]])
@@ -1267,6 +1287,111 @@ def test_stopping_envelope_starts_before_the_deadband():
 
     assert torch.norm(bounded[:, :2], dim=1).item() < 0.075
     assert torch.abs(bounded[:, 2]).item() < 0.090
+
+
+def test_center_brake_limits_only_xy_inside_the_inclusive_threshold():
+    velocity = torch.tensor(
+        [
+            [0.060, 0.080, -0.020],
+            [0.060, 0.080, 0.030],
+            [0.018, 0.024, -0.040],
+            [0.060, 0.080, 0.050],
+        ]
+    )
+    error = torch.tensor(
+        [
+            [0.045, 0.0, -0.010],
+            [0.04501, 0.0, -0.010],
+            [0.030, 0.0, -0.010],
+            [float("nan"), 0.0, -0.010],
+        ]
+    )
+
+    limited = apply_center_brake_xy_speed_limit(
+        velocity,
+        error,
+        maximum_xy_distance=0.045,
+        maximum_xy_speed=0.045,
+    )
+
+    assert torch.allclose(torch.norm(limited[0, :2]), torch.tensor(0.045))
+    assert torch.equal(limited[1, :2], velocity[1, :2])
+    assert torch.equal(limited[2, :2], velocity[2, :2])
+    assert torch.equal(limited[3, :2], velocity[3, :2])
+    assert torch.equal(limited[:, 2], velocity[:, 2])
+
+
+@pytest.mark.parametrize(
+    ("maximum_xy_distance", "maximum_xy_speed"),
+    [(0.0, 0.045), (-0.01, 0.045), (0.045, 0.0), (0.045, -0.01)],
+)
+def test_center_brake_rejects_nonpositive_limits(
+    maximum_xy_distance: float,
+    maximum_xy_speed: float,
+):
+    with pytest.raises(ValueError):
+        apply_center_brake_xy_speed_limit(
+            torch.zeros((1, 3)),
+            torch.zeros((1, 3)),
+            maximum_xy_distance,
+            maximum_xy_speed,
+        )
+
+
+def test_center_brake_reaches_the_centering_gate_before_descent_candidate():
+    step_dt = 1.0 / 30.0
+    distance = 0.045
+    velocity = torch.tensor([[0.075, 0.0, 0.0]])
+    acceleration = torch.zeros_like(velocity)
+    centered_streak = 0
+
+    for _ in range(12):
+        error = torch.tensor([[distance, 0.0, 0.0]])
+        desired = apply_center_brake_xy_speed_limit(
+            torch.tensor([[0.075, 0.0, 0.0]]),
+            error,
+            maximum_xy_distance=0.045,
+            maximum_xy_speed=0.045,
+        )
+        desired = apply_stopping_speed_envelope(
+            desired,
+            error,
+            horizontal_deadband=0.005,
+            vertical_deadband=0.0015,
+            maximum_horizontal_acceleration=0.60,
+            maximum_vertical_acceleration=0.45,
+            maximum_horizontal_jerk=6.0,
+            maximum_vertical_jerk=4.5,
+        )
+        previous_acceleration = acceleration.clone()
+        velocity, acceleration = jerk_limited_cartesian_velocity(
+            velocity,
+            acceleration,
+            desired,
+            step_dt,
+            maximum_horizontal_acceleration=0.60,
+            maximum_vertical_acceleration=0.45,
+            maximum_horizontal_jerk=6.0,
+            maximum_vertical_jerk=4.5,
+        )
+        distance -= velocity[0, 0].item() * step_dt
+        centered = (
+            distance <= 0.040
+            and torch.norm(velocity[0, :2]).item() <= 0.050
+        )
+        centered_streak = centered_streak + 1 if centered else 0
+
+        assert torch.norm(velocity[0, :2]).item() * step_dt <= 0.0025 + 1.0e-7
+        assert torch.norm(acceleration[0, :2]).item() <= 0.60 + 1.0e-7
+        assert (
+            torch.norm(acceleration[0, :2] - previous_acceleration[0, :2]).item()
+            <= 6.0 * step_dt + 1.0e-7
+        )
+        if centered_streak == 3:
+            break
+
+    assert centered_streak == 3
+    assert distance > 0.030
 
 
 def test_target_lead_applies_previous_target_continuity_last():

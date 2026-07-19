@@ -245,6 +245,33 @@ def test_v40_decouples_phase_progress_and_accelerates_post_center_descent():
     assert "def phase_primary_translation_progress_ratio" in CONTROLLER_SOURCE
 
 
+def test_v49_brakes_before_centering_without_changing_descent_guards():
+    assert "center_brake_xy_threshold=0.045" in ENV_SOURCE
+    assert "center_brake_max_xy_speed=0.045" in ENV_SOURCE
+    assert "center_brake_xy_threshold: float = 0.0" in MDP_SOURCE
+    assert "center_brake_max_xy_speed: float = 0.0" in MDP_SOURCE
+    assert "def apply_center_brake_xy_speed_limit" in CONTROLLER_SOURCE
+    assert "task_post_center_descent_start_progress" in MDP_SOURCE
+    assert "task_post_center_descent_precenter_speed_pause_steps" in MDP_SOURCE
+
+    blend_index = MDP_SOURCE.index("desired_velocity = torch.where(")
+    brake_index = MDP_SOURCE.index(
+        "desired_velocity = apply_center_brake_xy_speed_limit("
+    )
+    envelope_index = MDP_SOURCE.index(
+        "desired_velocity = apply_stopping_speed_envelope(", brake_index
+    )
+    jerk_index = MDP_SOURCE.index(
+        "limited_velocity, limited_acceleration = ", envelope_index
+    )
+    assert blend_index < brake_index < envelope_index < jerk_index
+
+    assert '"post_center_descent_xy_threshold": 0.030' in ENV_SOURCE
+    assert '"post_center_descent_steps": 12' in ENV_SOURCE
+    assert '"place_center_max_xy_speed": 0.05' in ENV_SOURCE
+    assert "ramp_started | ramp_candidate" in CONTROLLER_SOURCE
+
+
 def test_v46_increases_only_post_center_vertical_tracking_gain():
     assert "vertical_position_gain=0.16" in ENV_SOURCE
     assert "post_center_vertical_position_gain=0.20" in ENV_SOURCE

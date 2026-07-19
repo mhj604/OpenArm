@@ -638,6 +638,30 @@ def post_center_descent_readiness(
     return candidate, ready, stability_pause, tracking_pause
 
 
+def precenter_speed_pause_mask(
+    candidate: torch.Tensor,
+    place_centered: torch.Tensor,
+    object_xy_speed: torch.Tensor,
+    maximum_xy_speed: float,
+) -> torch.Tensor:
+    """Identify candidate controls blocked specifically by pre-center XY speed."""
+
+    if maximum_xy_speed <= 0.0:
+        raise ValueError("maximum XY speed must be positive")
+    candidate = torch.as_tensor(
+        candidate, device=object_xy_speed.device, dtype=torch.bool
+    )
+    place_centered = torch.as_tensor(
+        place_centered, device=object_xy_speed.device, dtype=torch.bool
+    )
+    return (
+        candidate
+        & ~place_centered
+        & torch.isfinite(object_xy_speed)
+        & (object_xy_speed > maximum_xy_speed)
+    )
+
+
 def scale_delta_to_cartesian_bounds(
     joint_delta: torch.Tensor,
     predicted_translation: torch.Tensor,
@@ -1079,6 +1103,31 @@ def apply_stopping_speed_envelope(
         bounded[:, 2], min=-z_stopping_speed, max=z_stopping_speed
     )
     return bounded
+
+
+def apply_center_brake_xy_speed_limit(
+    velocity: torch.Tensor,
+    position_error: torch.Tensor,
+    maximum_xy_distance: float,
+    maximum_xy_speed: float,
+) -> torch.Tensor:
+    """Limit only XY speed inside the final centering approach."""
+
+    if maximum_xy_distance <= 0.0:
+        raise ValueError("center-brake XY distance must be positive")
+    if maximum_xy_speed <= 0.0:
+        raise ValueError("center-brake XY speed must be positive")
+
+    distance_xy = torch.norm(position_error[:, :2], dim=1)
+    active = torch.isfinite(distance_xy) & (distance_xy <= maximum_xy_distance)
+    limited_xy = limit_vector_norm(velocity[:, :2], maximum_xy_speed)
+    result = velocity.clone()
+    result[:, :2] = torch.where(
+        active[:, None],
+        limited_xy,
+        velocity[:, :2],
+    )
+    return result
 
 
 def damped_pseudoinverse(

@@ -26,6 +26,7 @@ from isaaclab_tasks.manager_based.manipulation.lift.mdp import *  # noqa: F401, 
 from .controller_math import (
     advance_post_center_descent_progress,
     actor_owned_carry_phase,
+    apply_center_brake_xy_speed_limit,
     apply_stopping_speed_envelope,
     automatic_release_ready,
     build_prioritized_dls_solver,
@@ -42,6 +43,7 @@ from .controller_math import (
     phase_primary_translation_progress_ratio,
     post_grasp_actor_authority,
     post_center_descent_readiness,
+    precenter_speed_pause_mask,
     poststicky_low_clearance_exposure_cost,
     prelift_inward_progress_increment,
     preserve_safe_goal_directed_step,
@@ -160,11 +162,13 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             "task_descent_progress",
             "task_descent_target_height",
             "task_post_center_descent_started",
+            "task_post_center_descent_start_progress",
             "task_post_center_descent_elapsed_fraction",
             "task_post_center_descent_steps",
             "task_post_center_descent_tracking_pause_steps",
             "task_post_center_descent_stability_pause_steps",
             "task_post_center_descent_centering_pause_steps",
+            "task_post_center_descent_precenter_speed_pause_steps",
             "task_post_center_descent_basin_pause_steps",
             "task_assist_entry_object_height",
             "task_assist_entry_object_speed",
@@ -437,6 +441,9 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_post_center_descent_started"] = (
                 state.post_center_descent_started.float()
             )
+            self.metrics["task_post_center_descent_start_progress"] = (
+                state.post_center_descent_start_progress.clone()
+            )
             self.metrics["task_post_center_descent_elapsed_fraction"] = (
                 state.post_center_descent_elapsed_steps.float()
                 / max(state._post_center_descent_steps, 1)
@@ -453,6 +460,9 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             self.metrics["task_post_center_descent_centering_pause_steps"] = (
                 state.post_center_descent_centering_pause_steps.float()
             )
+            self.metrics[
+                "task_post_center_descent_precenter_speed_pause_steps"
+            ] = state.post_center_descent_precenter_speed_pause_steps.float()
             self.metrics["task_post_center_descent_basin_pause_steps"] = (
                 state.post_center_descent_basin_pause_steps.float()
             )
@@ -690,6 +700,9 @@ class StagedObjectPoseCommand(UniformPoseCommand):
         self.metrics["task_post_center_descent_started"] = (
             state.post_center_descent_started.float()
         )
+        self.metrics["task_post_center_descent_start_progress"] = (
+            state.post_center_descent_start_progress.clone()
+        )
         self.metrics["task_post_center_descent_elapsed_fraction"] = (
             state.post_center_descent_elapsed_steps.float()
             / max(state._post_center_descent_steps, 1)
@@ -707,6 +720,10 @@ class StagedObjectPoseCommand(UniformPoseCommand):
             (
                 "task_post_center_descent_centering_pause_steps",
                 "post_center_descent_centering_pause_steps",
+            ),
+            (
+                "task_post_center_descent_precenter_speed_pause_steps",
+                "post_center_descent_precenter_speed_pause_steps",
             ),
             (
                 "task_post_center_descent_basin_pause_steps",
@@ -913,6 +930,30 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             raise ValueError("hard Cartesian leak tolerance must not be stricter than telemetry")
         if cfg.slip_recovery_hold_steps < 0:
             raise ValueError("slip recovery hold steps must be non-negative")
+        center_brake_enabled = (
+            cfg.center_brake_xy_threshold > 0.0
+            or cfg.center_brake_max_xy_speed > 0.0
+        )
+        if (
+            cfg.center_brake_xy_threshold < 0.0
+            or cfg.center_brake_max_xy_speed < 0.0
+        ):
+            raise ValueError("center-brake limits must be non-negative")
+        if center_brake_enabled:
+            if (
+                cfg.center_brake_xy_threshold <= 0.0
+                or cfg.center_brake_max_xy_speed <= 0.0
+            ):
+                raise ValueError("center-brake distance and speed must be enabled together")
+            if cfg.center_brake_xy_threshold <= cfg.horizontal_position_deadband:
+                raise ValueError("center-brake distance must exceed the horizontal deadband")
+            if cfg.center_brake_xy_threshold >= cfg.outer_xy_threshold:
+                raise ValueError("center-brake distance must remain inside assist range")
+            if (
+                cfg.center_brake_max_xy_speed * self._env.step_dt
+                > cfg.max_horizontal_step
+            ):
+                raise ValueError("center-brake speed must respect the horizontal step limit")
         body_ids, body_names = self._asset.find_bodies(cfg.body_name)
         if len(body_ids) != 1:
             raise ValueError(f"Expected one body for place assist, found {body_names}")
@@ -1753,6 +1794,13 @@ class PlaceAssistJointPositionAction(JointPositionAction):
             + blend_alpha[:, None] * nominal_velocity,
             nominal_velocity,
         )
+        if self.cfg.center_brake_xy_threshold > 0.0:
+            desired_velocity = apply_center_brake_xy_speed_limit(
+                desired_velocity,
+                object_error,
+                self.cfg.center_brake_xy_threshold,
+                self.cfg.center_brake_max_xy_speed,
+            )
         desired_velocity = apply_stopping_speed_envelope(
             desired_velocity,
             object_error,
@@ -2878,6 +2926,8 @@ class PlaceAssistJointPositionActionCfg(JointPositionActionCfg):
     post_center_vertical_position_gain: float = 0.12
     vertical_velocity_damping: float = 0.30
     max_horizontal_step: float = 0.0020
+    center_brake_xy_threshold: float = 0.0
+    center_brake_max_xy_speed: float = 0.0
     max_vertical_step: float = 0.0030
     max_upward_step: float = 0.0025
     max_joint_step: float = 0.03
@@ -3533,6 +3583,9 @@ class TaskStateTracker(ManagerTermBase):
             self.grasp_streak
         )
         self.post_center_descent_centering_pause_steps = torch.zeros_like(
+            self.grasp_streak
+        )
+        self.post_center_descent_precenter_speed_pause_steps = torch.zeros_like(
             self.grasp_streak
         )
         self.post_center_descent_basin_pause_steps = torch.zeros_like(
@@ -4445,6 +4498,14 @@ class TaskStateTracker(ManagerTermBase):
         )
         self.post_center_descent_centering_pause_steps.add_(
             (post_center_descent_candidate & ~self.place_centered).long()
+        )
+        self.post_center_descent_precenter_speed_pause_steps.add_(
+            precenter_speed_pause_mask(
+                post_center_descent_candidate,
+                self.place_centered,
+                self.object_xy_speed,
+                place_center_max_xy_speed,
+            ).long()
         )
         self.post_center_descent_basin_pause_steps.add_(
             (
