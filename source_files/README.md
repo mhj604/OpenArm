@@ -6,6 +6,9 @@ IEEE Access study.
 ## Hardware
 
 - `ROMO-B_manual_complete_compressed.pdf`: complete 38-page derivative of the 368.6 MB scan.
+- `ROMO-B_manual_verified_complete.md`: exact copy of the user-provided verified text revision used
+  as the machine-readable numeric source for the Isaac Sim model. It is not represented as a
+  manufacturer-issued official specification.
 - `Livox_Mid-360_quick_start_guide_ko.pdf`: original user-provided Livox guide.
 - `OpenArm_drive_commands_jeongmin.pdf`: original user-provided OpenArm command summary.
 - `OpenArm_drive_summary_janghyun.pdf`: original user-provided OpenArm operation summary.

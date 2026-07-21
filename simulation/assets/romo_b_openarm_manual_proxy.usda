@@ -1,0 +1,467 @@
+#usda 1.0
+(
+    "Generated from simulation/config/romo_b_openarm_spec.json; do not hand-edit."
+    defaultPrim = "World"
+    framesPerSecond = 60
+    metersPerUnit = 1
+    timeCodesPerSecond = 60
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def Cube "Ground" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        bool physics:collisionEnabled = 1
+        color3f[] primvars:displayColor = [(0.18, 0.18, 0.18)]
+        custom string romoB:role = "static_ground"
+        double size = 1
+        float3 xformOp:scale = (10, 10, 0.02)
+        double3 xformOp:translate = (0, 0, -0.01)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+
+    def Xform "ROMOBOpenArm" (
+        prepend apiSchemas = ["PhysicsArticulationRootAPI", "PhysxArticulationAPI"]
+        customData = {
+            string modelScope = "manual-constrained simulation proxy"
+        }
+    )
+    {
+        bool physxArticulation:enabledSelfCollisions = 0
+        int physxArticulation:solverPositionIterationCount = 32
+        int physxArticulation:solverVelocityIterationCount = 1
+        custom double romoB:allocatedPlatformMass = 55
+        custom double romoB:allowedPayload = 100
+        custom string romoB:coordinateFrame = "+X forward, +Y left, +Z up"
+        custom double romoB:manualPlatformMass = 55
+        custom double romoB:manualSteeringCommandToUsdMultiplier = -1
+        custom double romoB:platformLinearSpeedLimit = 1.5
+        custom asset romoB:sourceSpec = @../config/romo_b_openarm_spec.json@
+
+        def Xform "Chassis" (
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsFilteredPairsAPI"]
+        )
+        {
+            rel physics:filteredPairs = </World/ROMOBOpenArm/OpenArm/openarm_body_link>
+            float physics:mass = 35.94
+            custom string romoB:massAllocationQuality = "simulation_allocation_preserves_total_but_not_measured_mass_distribution"
+            double3 xformOp:translate = (0, 0, 0.202)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Body" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                bool physics:collisionEnabled = 1
+                color3f[] primvars:displayColor = [(0.08, 0.24, 0.52)]
+                double size = 1
+                float3 xformOp:scale = (0.756, 0.45, 0.28)
+                uniform token[] xformOpOrder = ["xformOp:scale"]
+            }
+        }
+
+        def Scope "Joints"
+        {
+            custom string romoB:jointOrder = "front_left, front_right, rear_left, rear_right"
+
+            def PhysicsRevoluteJoint "front_left_steering_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 40
+                float drive:angular:physics:maxForce = 39.2266
+                float drive:angular:physics:stiffness = 400
+                float drive:angular:physics:targetPosition = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Z"
+                rel physics:body0 = </World/ROMOBOpenArm/Chassis>
+                rel physics:body1 = </World/ROMOBOpenArm/FrontLeft/Knuckle>
+                point3f physics:localPos0 = (0.1615, 0.195, -0.099)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physics:lowerLimit = -30
+                float physics:upperLimit = 30
+                float physxJoint:maxJointVelocity = 162.16216
+                custom double romoB:approxNoLoadSpeedRadS = 2.8302636518826967
+                custom double romoB:manualCommandToUsdMultiplier = -1
+                custom double romoB:manualPivotPresetDeg = 30
+                custom double romoB:usdPivotTargetDeg = -30
+            }
+
+            def PhysicsRevoluteJoint "front_left_wheel_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 10
+                float drive:angular:physics:maxForce = 16
+                float drive:angular:physics:stiffness = 0
+                float drive:angular:physics:targetVelocity = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Y"
+                rel physics:body0 = </World/ROMOBOpenArm/FrontLeft/Knuckle>
+                rel physics:body1 = </World/ROMOBOpenArm/FrontLeft/Wheel>
+                point3f physics:localPos0 = (0, 0.0695, 0)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physxJoint:maxJointVelocity = 834.40454
+                custom double romoB:manualMotorMaxSpeedRpm = 300
+                custom double romoB:manualMotorRatedSpeedRpm = 200
+                custom double romoB:nominalNoSlipLinearSpeedLimit = 1.5
+            }
+
+            def PhysicsRevoluteJoint "front_right_steering_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 40
+                float drive:angular:physics:maxForce = 39.2266
+                float drive:angular:physics:stiffness = 400
+                float drive:angular:physics:targetPosition = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Z"
+                rel physics:body0 = </World/ROMOBOpenArm/Chassis>
+                rel physics:body1 = </World/ROMOBOpenArm/FrontRight/Knuckle>
+                point3f physics:localPos0 = (0.1615, -0.195, -0.099)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physics:lowerLimit = -30
+                float physics:upperLimit = 30
+                float physxJoint:maxJointVelocity = 162.16216
+                custom double romoB:approxNoLoadSpeedRadS = 2.8302636518826967
+                custom double romoB:manualCommandToUsdMultiplier = -1
+                custom double romoB:manualPivotPresetDeg = -30
+                custom double romoB:usdPivotTargetDeg = 30
+            }
+
+            def PhysicsRevoluteJoint "front_right_wheel_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 10
+                float drive:angular:physics:maxForce = 16
+                float drive:angular:physics:stiffness = 0
+                float drive:angular:physics:targetVelocity = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Y"
+                rel physics:body0 = </World/ROMOBOpenArm/FrontRight/Knuckle>
+                rel physics:body1 = </World/ROMOBOpenArm/FrontRight/Wheel>
+                point3f physics:localPos0 = (0, -0.0695, 0)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physxJoint:maxJointVelocity = 834.40454
+                custom double romoB:manualMotorMaxSpeedRpm = 300
+                custom double romoB:manualMotorRatedSpeedRpm = 200
+                custom double romoB:nominalNoSlipLinearSpeedLimit = 1.5
+            }
+
+            def PhysicsRevoluteJoint "rear_left_steering_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 40
+                float drive:angular:physics:maxForce = 39.2266
+                float drive:angular:physics:stiffness = 400
+                float drive:angular:physics:targetPosition = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Z"
+                rel physics:body0 = </World/ROMOBOpenArm/Chassis>
+                rel physics:body1 = </World/ROMOBOpenArm/RearLeft/Knuckle>
+                point3f physics:localPos0 = (-0.1615, 0.195, -0.099)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physics:lowerLimit = -30
+                float physics:upperLimit = 30
+                float physxJoint:maxJointVelocity = 162.16216
+                custom double romoB:approxNoLoadSpeedRadS = 2.8302636518826967
+                custom double romoB:manualCommandToUsdMultiplier = -1
+                custom double romoB:manualPivotPresetDeg = -30
+                custom double romoB:usdPivotTargetDeg = 30
+            }
+
+            def PhysicsRevoluteJoint "rear_left_wheel_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 10
+                float drive:angular:physics:maxForce = 16
+                float drive:angular:physics:stiffness = 0
+                float drive:angular:physics:targetVelocity = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Y"
+                rel physics:body0 = </World/ROMOBOpenArm/RearLeft/Knuckle>
+                rel physics:body1 = </World/ROMOBOpenArm/RearLeft/Wheel>
+                point3f physics:localPos0 = (0, 0.0695, 0)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physxJoint:maxJointVelocity = 834.40454
+                custom double romoB:manualMotorMaxSpeedRpm = 300
+                custom double romoB:manualMotorRatedSpeedRpm = 200
+                custom double romoB:nominalNoSlipLinearSpeedLimit = 1.5
+            }
+
+            def PhysicsRevoluteJoint "rear_right_steering_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 40
+                float drive:angular:physics:maxForce = 39.2266
+                float drive:angular:physics:stiffness = 400
+                float drive:angular:physics:targetPosition = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Z"
+                rel physics:body0 = </World/ROMOBOpenArm/Chassis>
+                rel physics:body1 = </World/ROMOBOpenArm/RearRight/Knuckle>
+                point3f physics:localPos0 = (-0.1615, -0.195, -0.099)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physics:lowerLimit = -30
+                float physics:upperLimit = 30
+                float physxJoint:maxJointVelocity = 162.16216
+                custom double romoB:approxNoLoadSpeedRadS = 2.8302636518826967
+                custom double romoB:manualCommandToUsdMultiplier = -1
+                custom double romoB:manualPivotPresetDeg = 30
+                custom double romoB:usdPivotTargetDeg = -30
+            }
+
+            def PhysicsRevoluteJoint "rear_right_wheel_joint" (
+                prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+            )
+            {
+                float drive:angular:physics:damping = 10
+                float drive:angular:physics:maxForce = 16
+                float drive:angular:physics:stiffness = 0
+                float drive:angular:physics:targetVelocity = 0
+                uniform token drive:angular:physics:type = "force"
+                uniform token physics:axis = "Y"
+                rel physics:body0 = </World/ROMOBOpenArm/RearRight/Knuckle>
+                rel physics:body1 = </World/ROMOBOpenArm/RearRight/Wheel>
+                point3f physics:localPos0 = (0, -0.0695, 0)
+                point3f physics:localPos1 = (0, 0, 0)
+                float physxJoint:maxJointVelocity = 834.40454
+                custom double romoB:manualMotorMaxSpeedRpm = 300
+                custom double romoB:manualMotorRatedSpeedRpm = 200
+                custom double romoB:nominalNoSlipLinearSpeedLimit = 1.5
+            }
+
+            def PhysicsFixedJoint "openarm_mount_joint"
+            {
+                rel physics:body0 = </World/ROMOBOpenArm/Chassis>
+                rel physics:body1 = </World/ROMOBOpenArm/OpenArm/openarm_body_link>
+                uniform bool physics:excludeFromArticulation = 0
+                point3f physics:localPos0 = (0.17, 0, 0.14)
+                point3f physics:localPos1 = (0, 0, 0)
+                quatf physics:localRot0 = (1, 0, 0, 0)
+                quatf physics:localRot1 = (1, 0, 0, 0)
+                custom string romoB:mountOffsetSource = "user_supplied_approximately_17_cm"
+            }
+        }
+
+        def Xform "FrontLeft"
+        {
+            def Xform "Knuckle" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 0.765
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (0.1615, 0.195, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cube "Visual" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.75, 0.58, 0.12)]
+                    custom string romoB:geometryQuality = "unverified_collision_and_visual_simulation_proxy_not_from_manual"
+                    double size = 1
+                    float3 xformOp:scale = (0.045, 0.045, 0.07)
+                    uniform token[] xformOpOrder = ["xformOp:scale"]
+                }
+            }
+
+            def Xform "Wheel" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 4
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (0.1615, 0.2645, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cylinder "Collision" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    uniform token axis = "Y"
+                    double height = 0.068
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.025, 0.025, 0.025)]
+                    double radius = 0.103
+                }
+            }
+        }
+
+        def Xform "FrontRight"
+        {
+            def Xform "Knuckle" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 0.765
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (0.1615, -0.195, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cube "Visual" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.75, 0.58, 0.12)]
+                    custom string romoB:geometryQuality = "unverified_collision_and_visual_simulation_proxy_not_from_manual"
+                    double size = 1
+                    float3 xformOp:scale = (0.045, 0.045, 0.07)
+                    uniform token[] xformOpOrder = ["xformOp:scale"]
+                }
+            }
+
+            def Xform "Wheel" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 4
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (0.1615, -0.2645, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cylinder "Collision" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    uniform token axis = "Y"
+                    double height = 0.068
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.025, 0.025, 0.025)]
+                    double radius = 0.103
+                }
+            }
+        }
+
+        def Xform "RearLeft"
+        {
+            def Xform "Knuckle" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 0.765
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (-0.1615, 0.195, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cube "Visual" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.75, 0.58, 0.12)]
+                    custom string romoB:geometryQuality = "unverified_collision_and_visual_simulation_proxy_not_from_manual"
+                    double size = 1
+                    float3 xformOp:scale = (0.045, 0.045, 0.07)
+                    uniform token[] xformOpOrder = ["xformOp:scale"]
+                }
+            }
+
+            def Xform "Wheel" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 4
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (-0.1615, 0.2645, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cylinder "Collision" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    uniform token axis = "Y"
+                    double height = 0.068
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.025, 0.025, 0.025)]
+                    double radius = 0.103
+                }
+            }
+        }
+
+        def Xform "RearRight"
+        {
+            def Xform "Knuckle" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 0.765
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (-0.1615, -0.195, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cube "Visual" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.75, 0.58, 0.12)]
+                    custom string romoB:geometryQuality = "unverified_collision_and_visual_simulation_proxy_not_from_manual"
+                    double size = 1
+                    float3 xformOp:scale = (0.045, 0.045, 0.07)
+                    uniform token[] xformOpOrder = ["xformOp:scale"]
+                }
+            }
+
+            def Xform "Wheel" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+            )
+            {
+                float physics:mass = 4
+                custom string romoB:massQuality = "manual_approximate_allocation"
+                double3 xformOp:translate = (-0.1615, -0.2645, 0.103)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+
+                def Cylinder "Collision" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    uniform token axis = "Y"
+                    double height = 0.068
+                    bool physics:collisionEnabled = 1
+                    color3f[] primvars:displayColor = [(0.025, 0.025, 0.025)]
+                    double radius = 0.103
+                }
+            }
+        }
+
+        def Xform "OpenArm" (
+            prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Robots/OpenArm/openarm_bimanual/openarm_bimanual.usd@
+            variants = {
+                string Physics = "PhysX"
+                string Sensor = "None"
+            }
+        )
+        {
+            custom double romoB:alternateFrontEdgeSetbackX = 0.208
+            custom string romoB:mountQuality = "user_supplied_approximate_offset_plus_documented_placement_assumption"
+            custom string romoB:mountReference = "ROMO-B geometric centre; +X is forward; Z uses the stated overall height as the top mounting plane"
+            quatf xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0.17, 0, 0.342)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+
+            over "root_joint" (
+                active = false
+            )
+            {
+            }
+        }
+    }
+}

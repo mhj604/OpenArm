@@ -5,6 +5,7 @@
 | Stored file | Use in the audit |
 |---|---|
 | [ROMO-B complete compressed manual](../source_files/hardware/ROMO-B_manual_complete_compressed.pdf) | geometry, steering limits, control modes, interface and feedback |
+| [ROMO-B verified text revision](../source_files/hardware/ROMO-B_manual_verified_complete.md) | machine-readable numeric source for the Isaac Sim model; the file itself is not a manufacturer-issued official specification |
 | [Livox Mid-360 guide](../source_files/hardware/Livox_Mid-360_quick_start_guide_ko.pdf) | KALO-H perception hardware context; not used to infer slip |
 | [OpenArm drive commands](../source_files/hardware/OpenArm_drive_commands_jeongmin.pdf) | executable arm-command context |
 | [OpenArm drive summary](../source_files/hardware/OpenArm_drive_summary_janghyun.pdf) | arm-operation context |
@@ -12,6 +13,11 @@
 | [OpenArm command poster](../source_files/hardware/OpenArm_v1_ExoArm_command_poster.png) | arm-command reference |
 | [OpenArm USD](../source_files/simulation/openarm_test.usd) | simulation asset context |
 | [OpenArm USD v2](../source_files/simulation/openarm_test_v2.usd) | v2 simulation asset context |
+
+The generated ROMO-B/OpenArm scene additionally references the NVIDIA Isaac Sim 5.1 OpenArm
+bimanual asset at
+`Assets/Isaac/5.1/Isaac/Robots/OpenArm/openarm_bimanual/openarm_bimanual.usd`. The exact URL and
+attachment-body names are pinned in `simulation/config/romo_b_openarm_spec.json`.
 
 Original filenames, local paths, byte sizes and SHA-256 values are recorded in
 `source_manifest.tsv` and `SHA256SUMS`.

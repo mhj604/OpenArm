@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
 from pathlib import Path
 
-from pypdf import PdfReader
+try:
+    from pypdf import PdfReader
+except ModuleNotFoundError:
+    PdfReader = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +24,16 @@ REQUIRED = [
     ROOT / "references" / "SOURCES.md",
     ROOT / "references" / "SHA256SUMS",
     ROOT / "source_files" / "hardware" / "ROMO-B_manual_complete_compressed.pdf",
+    ROOT / "source_files" / "hardware" / "ROMO-B_manual_verified_complete.md",
+    ROOT / "simulation" / "config" / "romo_b_openarm_spec.json",
+    ROOT / "simulation" / "assets" / "romo_b_openarm_manual_proxy.usda",
+    ROOT / "simulation" / "README.md",
+    ROOT / "simulation" / "scripts" / "build_romo_b_openarm_usda.py",
+    ROOT / "simulation" / "scripts" / "run_isaacsim_smoke.py",
+    ROOT / "simulation" / "scripts" / "run_usd_tool.sh",
+    ROOT / "simulation" / "scripts" / "validate_isaacsim_model.py",
+    ROOT / "simulation" / "tests" / "test_model_contract.py",
+    ROOT / "docs" / "ISAAC_SIM_ROMOB_OPENARM_KO.md",
 ]
 DOIS = [
     "10.1017/S0263574798000873",
@@ -43,6 +57,24 @@ def validate_checksums(path: Path) -> None:
             raise RuntimeError(f"Checksum mismatch: {relative}")
 
 
+def pdf_page_count(path: Path) -> int:
+    if PdfReader is not None:
+        return len(PdfReader(str(path)).pages)
+    try:
+        result = subprocess.run(
+            ["pdfinfo", str(path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("Install pypdf or Poppler pdfinfo to validate the manual page count") from error
+    match = re.search(r"^Pages:\s+(\d+)$", result.stdout, flags=re.MULTILINE)
+    if not match:
+        raise RuntimeError(f"Could not read page count from pdfinfo output for {path}")
+    return int(match.group(1))
+
+
 def main() -> None:
     missing = [str(path.relative_to(ROOT)) for path in REQUIRED if not path.is_file()]
     if missing:
@@ -57,7 +89,7 @@ def main() -> None:
         raise RuntimeError(f"Files exceed GitHub's 100 MB limit: {oversized}")
 
     manual = ROOT / "source_files" / "hardware" / "ROMO-B_manual_complete_compressed.pdf"
-    page_count = len(PdfReader(str(manual)).pages)
+    page_count = pdf_page_count(manual)
     if page_count != 38:
         raise RuntimeError(f"Compressed ROMO-B manual has {page_count} pages, expected 38")
 

@@ -18,6 +18,8 @@
 - [문헌과 공식 링크](references/SOURCES.md)
 - [BibTeX](references/references.bib)
 - [원본 자료 목록](source_files/README.md)
+- [ROMO-B/OpenArm Isaac Sim 5.1 모델](simulation/README.md)
+- [Isaac Sim 구현 명세와 정확도 경계](docs/ISAAC_SIM_ROMOB_OPENARM_KO.md)
 - [ROMO-B 핵심 근거 페이지](evidence/manual_pages/README.md)
 - [Oracle/Web ChatGPT 자문 기록](evidence/oracle/README.md)
 
@@ -26,6 +28,8 @@
 포함된 항목:
 
 - 사용자가 제공한 ROMO-B, Livox, OpenArm 하드웨어 문서와 OpenArm USD 파일
+- ROMO-B 4WID-4WIS 베이스와 전방 OpenArm을 결합한 검증 가능한 Isaac Sim 5.1 USDA
+- 매뉴얼 명시값·근삿값·파생값·미확정값을 분리한 기계 판독형 수치 명세와 테스트
 - 368.6 MB ROMO-B 원본의 38쪽 전체 압축본과 원본 SHA-256
 - ROMO-B 매뉴얼 3, 26, 31, 38쪽 고해상도 근거 이미지
 - 수식, 확정 사실/가설 분리, 선행연구 충돌, 실험·통계 설계, Go/No-Go 기준
@@ -57,3 +61,7 @@ python OpenArm_IEEE-ACCESS/scripts/validate_research_bundle.py
 ```
 
 `references/SHA256SUMS`는 저장된 자료와 분석 증거의 무결성을 확인합니다.
+
+Isaac Sim 모델의 생성·검증 방법은 [`simulation/README.md`](simulation/README.md)를
+참고하십시오. 현재 17 cm 장착 조건은 차체 기하 중심에서 전방 `+0.170 m`로 해석해
+적용했으며, 기준점이 전면 끝이라면 사용할 `+0.208 m`도 설정에 별도로 보존했습니다.
