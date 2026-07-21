@@ -38,6 +38,28 @@ joints. The fixed-base `root_joint` from the OpenArm payload is disabled, and
 `openarm_body_link` is connected to the ROMO-B chassis by `openarm_mount_joint`. This avoids leaving
 the arm fixed to the world or creating two nested articulations.
 
+The maximum effective collision mode supported by the Isaac Sim 5.1 articulation is enabled: all
+29 colliders and all 32 rigid bodies are explicitly active, articulation self-collision is on, and
+no USD filtered-pair or collision-group exclusion is retained. This enables external contacts and
+non-adjacent ROMO-B/OpenArm self-collision. PhysX always filters directly joint-connected
+parent-child articulation links and ignores per-joint `collisionEnabled` settings; enabling those
+warning-only flags would not change contact behavior. Direct-neighbour collision would require
+restructuring the model without the current single articulation.
+
+The unmeasured 0.450 m chassis visual proxy is retained, but its central collision core is 0.320 m.
+The narrower collision proxy clears the wheel sweep and knuckle proxy through the manual's +/-30
+degree steering limit; it is not a measured chassis dimension and should be replaced by measured
+wheel-well/compound collision geometry. Re-run the integration smoke test after changing any mount,
+collision proxy, or joint pose.
+
+The NVIDIA bimanual zero pose penetrates a non-adjacent base/link collider when unfiltered
+self-collision is enabled. The generated stage therefore starts from a PhysX-validated symmetric
+pose: left/right joint2 at `-90/+90 deg` and both grippers open at `0.044 m`. The shoulder angles
+are simulation start-pose choices, not an official or measured hardware home pose; `0.044 m` is the
+payload's driven finger-joint upper limit. A 120-step hold produced no negative OpenArm separation
+and no OpenArm contact impulse. Two base/link2 contact-offset pairs remain at positive separation
+with zero impulse.
+
 ## Generate and validate
 
 Run the builder and USD validator with an Isaac Sim 5.1 Python environment that exposes `pxr`:
@@ -78,10 +100,12 @@ Pure-Python source/value contract tests do not require Isaac Sim:
 python -m unittest discover -s simulation/tests -v
 ```
 
-Run a 120-step integration smoke test with Isaac Sim 5.1:
+Run a 240-step integration smoke test with Isaac Sim 5.1. Add `--steering-sweep` to exercise all
+four steering joints through +30, -30, and 0 degrees, verify that each target is reached within
+1 degree, and check wheel/chassis clearance plus every-step contact reports:
 
 ```bash
-python simulation/scripts/run_isaacsim_smoke.py --steps 120
+python simulation/scripts/run_isaacsim_smoke.py --steps 240 --steering-sweep
 ```
 
 Add `--gui` to inspect the model interactively. The smoke test intentionally fails if the NVIDIA

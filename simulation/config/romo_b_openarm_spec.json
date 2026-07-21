@@ -20,7 +20,103 @@
       "status": "NVIDIA Isaac Sim 5.1 robot asset",
       "default_prim": "openarm",
       "base_body": "openarm_body_link",
-      "world_root_joint": "root_joint"
+      "world_root_joint": "root_joint",
+      "active_collider_paths": [
+        "openarm_body_link/collisions",
+        "openarm_left_link1/collisions",
+        "openarm_left_link2/collisions",
+        "openarm_left_link3/collisions",
+        "openarm_left_link4/collisions",
+        "openarm_left_link5/collisions",
+        "openarm_left_link6/collisions",
+        "openarm_left_link7/collisions",
+        "openarm_left_right_finger/collisions",
+        "openarm_left_left_finger/collisions",
+        "openarm_right_link1/collisions",
+        "openarm_right_link2/collisions",
+        "openarm_right_link3/collisions",
+        "openarm_right_link4/collisions",
+        "openarm_right_link5/collisions",
+        "openarm_right_link6/collisions",
+        "openarm_right_link7/collisions",
+        "openarm_right_right_finger/collisions",
+        "openarm_right_left_finger/collisions"
+      ],
+      "active_rigid_body_paths": [
+        "openarm_body_link",
+        "openarm_left_link1",
+        "openarm_left_link2",
+        "openarm_left_link3",
+        "openarm_left_link4",
+        "openarm_left_link5",
+        "openarm_left_link6",
+        "openarm_left_link7",
+        "openarm_left_right_finger",
+        "openarm_left_left_finger",
+        "openarm_left_hand",
+        "openarm_left_ee_tcp",
+        "openarm_right_link1",
+        "openarm_right_link2",
+        "openarm_right_link3",
+        "openarm_right_link4",
+        "openarm_right_link5",
+        "openarm_right_link6",
+        "openarm_right_link7",
+        "openarm_right_right_finger",
+        "openarm_right_left_finger",
+        "openarm_right_hand",
+        "openarm_right_ee_tcp"
+      ],
+      "collision_safe_initial_joint_state": {
+        "positions": [
+          {
+            "path": "joints/openarm_left_joint2",
+            "instance": "angular",
+            "value": -90.0,
+            "unit": "degree",
+            "drive_target": true
+          },
+          {
+            "path": "joints/openarm_right_joint2",
+            "instance": "angular",
+            "value": 90.0,
+            "unit": "degree",
+            "drive_target": true
+          },
+          {
+            "path": "joints/openarm_left_finger_joint1",
+            "instance": "linear",
+            "value": 0.044,
+            "unit": "metre",
+            "drive_target": true
+          },
+          {
+            "path": "joints/openarm_left_finger_joint2",
+            "instance": "linear",
+            "value": 0.044,
+            "unit": "metre",
+            "drive_target": false
+          },
+          {
+            "path": "joints/openarm_right_finger_joint1",
+            "instance": "linear",
+            "value": 0.044,
+            "unit": "metre",
+            "drive_target": true
+          },
+          {
+            "path": "joints/openarm_right_finger_joint2",
+            "instance": "linear",
+            "value": 0.044,
+            "unit": "metre",
+            "drive_target": false
+          }
+        ],
+        "quality": "runtime_collision_validated_simulation_start_pose_not_hardware_home",
+        "derivation": "Symmetric joint2 values are inside the NVIDIA payload limits; 0.044 m is the payload's driven finger-joint upper limit. State and drive targets were tested with PhysX self-collision enabled and no collision filters.",
+        "validation": "At the initial pose, the only non-ground contact-offset pairs have positive separation and zero impulse; no OpenArm self-penetration remains.",
+        "warning": "This is a collision-safe simulation start pose, not a measured ROMO-B/OpenArm hardware home pose."
+      }
     }
   },
   "romo_b": {
@@ -194,9 +290,15 @@
       "derivation": "0.597 - 0.529",
       "quality": "derived_visual_proxy_not_measured"
     },
-    "chassis_collision_width_m": {
+    "chassis_visual_width_m": {
       "value": 0.45,
-      "quality": "unverified_clearance_proxy"
+      "quality": "unverified_visual_proxy"
+    },
+    "chassis_collision_width_m": {
+      "value": 0.32,
+      "derivation": "Conservative core below both the 30 degree wheel-sweep bound 2*(0.195 + (0.0695-0.034)*cos(30 deg) - 0.103*sin(30 deg)) = 0.348488 m and the rotated-knuckle bound 2*(0.195 - 0.0225*(cos(30 deg)+sin(30 deg))) = 0.328529 m",
+      "quality": "derived_unverified_collision_clearance_proxy_not_measured",
+      "warning": "The manual does not specify chassis-body or wheel-well geometry. The 0.320 m collision core prevents the unverified wheel and knuckle proxies from intersecting it through the stated +/-30 degree steering sweep; replace it with measured compound collision geometry for collision-critical work."
     },
     "knuckle_body_size_m": {
       "value": [0.045, 0.045, 0.070],
@@ -237,11 +339,25 @@
       "warning": "Retune against measured step responses before using dynamic results."
     },
     "articulation_solver": {
-      "enabled_self_collisions": false,
+      "enabled_self_collisions": true,
       "position_iteration_count": 32,
       "velocity_iteration_count": 1,
-      "quality": "copied_from_nvidia_isaac_sim_5_1_openarm_root_joint",
-      "reason": "The OpenArm root joint is disabled during mobile-base assembly, so its PhysX articulation settings are transferred to the combined root."
+      "quality": "nvidia_solver_iterations_with_user_requested_self_collision_override",
+      "reason": "The OpenArm solver iteration counts are transferred to the combined root, while self-collision is explicitly enabled across the combined ROMO-B/OpenArm articulation at the user's request."
+    },
+    "collision_policy": {
+      "all_authored_colliders_enabled": true,
+      "all_active_rigid_bodies_enabled": true,
+      "allow_filtered_pairs": false,
+      "expected_active_counts_with_openarm": {
+        "colliders": 29,
+        "rigid_bodies": 32,
+        "joints": 31
+      },
+      "scope": "ground, ROMO-B chassis, knuckles, wheels, OpenArm links, all active rigid bodies, ROMO-B-to-OpenArm, and every non-adjacent self-collision pair supported by PhysX articulations",
+      "quality": "user_requested_full_collision_policy",
+      "runtime_limitation": "Isaac Sim 5.1 PhysX ignores per-joint collision settings inside articulations and always internally filters direct parent-child pairs. The maximum effective collision policy retains the articulation, enables every collider and rigid body, enables articulation self-collision, and removes authored pair/group filters.",
+      "warning": "Non-adjacent self-collision and unfiltered collider contacts may generate contact forces; validate stability for each control pose."
     },
     "omitted_unmeasured_properties": [
       "suspension link geometry and travel",

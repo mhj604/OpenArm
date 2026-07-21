@@ -50,7 +50,7 @@ def custom_attr(prim: Usd.Prim, name: str, type_name: Sdf.ValueTypeName, attr_va
 
 
 def add_mass(prim: Usd.Prim, mass_kg: float) -> None:
-    UsdPhysics.RigidBodyAPI.Apply(prim)
+    UsdPhysics.RigidBodyAPI.Apply(prim).CreateRigidBodyEnabledAttr(True)
     UsdPhysics.MassAPI.Apply(prim).CreateMassAttr(mass_kg)
 
 
@@ -145,6 +145,7 @@ def build(spec_path: Path, output_path: Path) -> None:
     robot = UsdGeom.Xform.Define(stage, "/World/ROMOBOpenArm")
     UsdPhysics.ArticulationRootAPI.Apply(robot.GetPrim())
     solver = spec["simulation_proxy"]["articulation_solver"]
+    collision_policy = spec["simulation_proxy"]["collision_policy"]
     physx_articulation = PhysxSchema.PhysxArticulationAPI.Apply(robot.GetPrim())
     physx_articulation.CreateEnabledSelfCollisionsAttr(bool(solver["enabled_self_collisions"]))
     physx_articulation.CreateSolverPositionIterationCountAttr(int(solver["position_iteration_count"]))
@@ -152,6 +153,30 @@ def build(spec_path: Path, output_path: Path) -> None:
     robot.GetPrim().SetCustomDataByKey("modelScope", spec["model_scope"])
     custom_attr(robot.GetPrim(), "romoB:coordinateFrame", Sdf.ValueTypeNames.String, "+X forward, +Y left, +Z up")
     custom_attr(robot.GetPrim(), "romoB:sourceSpec", Sdf.ValueTypeNames.Asset, Sdf.AssetPath("../config/romo_b_openarm_spec.json"))
+    custom_attr(
+        robot.GetPrim(),
+        "romoB:allAuthoredCollidersEnabled",
+        Sdf.ValueTypeNames.Bool,
+        bool(collision_policy["all_authored_colliders_enabled"]),
+    )
+    custom_attr(
+        robot.GetPrim(),
+        "romoB:filteredPairsAllowed",
+        Sdf.ValueTypeNames.Bool,
+        bool(collision_policy["allow_filtered_pairs"]),
+    )
+    custom_attr(
+        robot.GetPrim(),
+        "romoB:allActiveRigidBodiesEnabled",
+        Sdf.ValueTypeNames.Bool,
+        bool(collision_policy["all_active_rigid_bodies_enabled"]),
+    )
+    custom_attr(
+        robot.GetPrim(),
+        "romoB:collisionRuntimeLimitation",
+        Sdf.ValueTypeNames.String,
+        collision_policy["runtime_limitation"],
+    )
     custom_attr(
         robot.GetPrim(),
         "romoB:manualSteeringCommandToUsdMultiplier",
@@ -184,9 +209,22 @@ def build(spec_path: Path, output_path: Path) -> None:
     add_box(
         stage,
         f"{chassis_path}/Body",
+        dimensions=(length, float(proxy["chassis_visual_width_m"]["value"]), chassis_height),
+        color=(0.08, 0.24, 0.52),
+    )
+    chassis_collision = add_box(
+        stage,
+        f"{chassis_path}/Collision",
         dimensions=(length, float(proxy["chassis_collision_width_m"]["value"]), chassis_height),
         color=(0.08, 0.24, 0.52),
         collision=True,
+    )
+    chassis_collision.CreatePurposeAttr(UsdGeom.Tokens.guide)
+    custom_attr(
+        chassis_collision.GetPrim(),
+        "romoB:geometryQuality",
+        Sdf.ValueTypeNames.String,
+        proxy["chassis_collision_width_m"]["quality"],
     )
 
     joints_root = UsdGeom.Scope.Define(stage, "/World/ROMOBOpenArm/Joints")
@@ -358,6 +396,50 @@ def build(spec_path: Path, output_path: Path) -> None:
         float(spec["openarm_mount"]["alternate_x_if_17_cm_means_setback_from_front_edge_m"]),
     )
 
+    # Pin every collision-relevant enable switch from the Isaac Sim 5.1 OpenArm
+    # payload in this stronger layer. The relative paths are audited in the JSON
+    # spec so the generated stage remains deterministic while the payload stays
+    # unloaded/offline during authoring.
+    openarm_source = spec["sources"]["openarm_asset"]
+    for relative_path in openarm_source["active_collider_paths"]:
+        stage.OverridePrim(f"{arm_path}/{relative_path}").CreateAttribute(
+            "physics:collisionEnabled", Sdf.ValueTypeNames.Bool, custom=False
+        ).Set(True)
+    for relative_path in openarm_source["active_rigid_body_paths"]:
+        stage.OverridePrim(f"{arm_path}/{relative_path}").CreateAttribute(
+            "physics:rigidBodyEnabled", Sdf.ValueTypeNames.Bool, custom=False
+        ).Set(True)
+
+    # The payload's all-zero pose contains non-adjacent collider penetration once
+    # articulation self-collision is enabled. Seed and hold the audited symmetric
+    # shoulder/open-gripper pose without changing NVIDIA's collision geometry.
+    initial_state = openarm_source["collision_safe_initial_joint_state"]
+    for joint_state in initial_state["positions"]:
+        joint_override = stage.OverridePrim(f"{arm_path}/{joint_state['path']}")
+        instance = joint_state["instance"]
+        position = float(joint_state["value"])
+        joint_override.CreateAttribute(
+            f"state:{instance}:physics:position",
+            Sdf.ValueTypeNames.Float,
+            custom=False,
+        ).Set(position)
+        joint_override.CreateAttribute(
+            f"state:{instance}:physics:velocity",
+            Sdf.ValueTypeNames.Float,
+            custom=False,
+        ).Set(0.0)
+        if joint_state["drive_target"]:
+            joint_override.CreateAttribute(
+                f"drive:{instance}:physics:targetPosition",
+                Sdf.ValueTypeNames.Float,
+                custom=False,
+            ).Set(position)
+            joint_override.CreateAttribute(
+                f"drive:{instance}:physics:targetVelocity",
+                Sdf.ValueTypeNames.Float,
+                custom=False,
+            ).Set(0.0)
+
     # The NVIDIA asset is a fixed-base articulation. Disable its world root joint,
     # then connect the physical base body to the mobile chassis. This makes the arm
     # links part of the ROMO-B articulation instead of leaving a nested fixed robot.
@@ -386,12 +468,6 @@ def build(spec_path: Path, output_path: Path) -> None:
     fixed_joint.CreateLocalRot1Attr(Gf.Quatf(1.0, 0.0, 0.0, 0.0))
     fixed_joint.CreateExcludeFromArticulationAttr(False)
     custom_attr(fixed_joint.GetPrim(), "romoB:mountOffsetSource", Sdf.ValueTypeNames.String, "user_supplied_approximately_17_cm")
-
-    # Avoid collisions between the chassis proxy and the arm at their bolted interface.
-    filtered_pairs = UsdPhysics.FilteredPairsAPI.Apply(chassis.GetPrim()).CreateFilteredPairsRel()
-    filtered_pairs.SetTargets(
-        [Sdf.Path(f"{arm_path}/{spec['sources']['openarm_asset']['base_body']}")]
-    )
 
     stage.GetRootLayer().Save()
     generated_text = Path(temporary_name).read_text(encoding="utf-8").rstrip() + "\n"

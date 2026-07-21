@@ -75,6 +75,27 @@ class ModelContractTest(unittest.TestCase):
         self.assertIn("collision_and_visual", knuckle_size["quality"])
         self.assertIn("not provide", knuckle_size["source"])
 
+        self.assertClose(float(proxy["chassis_visual_width_m"]["value"]), 0.45)
+        chassis_collision_width = float(proxy["chassis_collision_width_m"]["value"])
+        self.assertClose(chassis_collision_width, 0.32)
+        steering_limit_rad = math.radians(
+            float(self.spec["romo_b"]["limits"]["individual_steering_deg"]["value"])
+        )
+        wheel_sweep_bound = 2.0 * (
+            0.195
+            + (0.0695 - float(proxy["wheel_width_m"]["value"]) / 2.0)
+            * math.cos(steering_limit_rad)
+            - float(proxy["wheel_radius_m"]["value"]) * math.sin(steering_limit_rad)
+        )
+        rotated_knuckle_bound = 2.0 * (
+            0.195
+            - 0.0225
+            * (math.cos(steering_limit_rad) + math.sin(steering_limit_rad))
+        )
+        self.assertLess(chassis_collision_width, wheel_sweep_bound)
+        self.assertLess(chassis_collision_width, rotated_knuckle_bound)
+        self.assertIn("not_measured", proxy["chassis_collision_width_m"]["quality"])
+
     def test_manual_steering_sign_is_mapped_to_usd_positive_z(self) -> None:
         convention = self.spec["romo_b"]["steering_command_convention"]
         self.assertEqual(convention["manual_negative"], "left steering")
@@ -117,6 +138,23 @@ class ModelContractTest(unittest.TestCase):
         self.assertClose(alternate, float(mount["alternate_x_if_17_cm_means_setback_from_front_edge_m"]))
         self.assertIn("user_supplied_approximate", mount["quality"])
 
+    def test_openarm_start_pose_avoids_unfiltered_self_penetration(self) -> None:
+        initial_state = self.spec["sources"]["openarm_asset"][
+            "collision_safe_initial_joint_state"
+        ]
+        positions = {item["path"]: item for item in initial_state["positions"]}
+        self.assertEqual(positions["joints/openarm_left_joint2"]["value"], -90.0)
+        self.assertEqual(positions["joints/openarm_right_joint2"]["value"], 90.0)
+        for side in ("left", "right"):
+            reference = positions[f"joints/openarm_{side}_finger_joint1"]
+            follower = positions[f"joints/openarm_{side}_finger_joint2"]
+            self.assertClose(float(reference["value"]), 0.044)
+            self.assertClose(float(follower["value"]), 0.044)
+            self.assertTrue(reference["drive_target"])
+            self.assertFalse(follower["drive_target"])
+        self.assertIn("not_hardware_home", initial_state["quality"])
+        self.assertIn("no OpenArm self-penetration", initial_state["validation"])
+
     def test_manual_and_proxy_values_are_explicitly_separated(self) -> None:
         proxy = self.spec["simulation_proxy"]
         self.assertIn("unverified", proxy["chassis_collision_width_m"]["quality"])
@@ -125,7 +163,12 @@ class ModelContractTest(unittest.TestCase):
         self.assertIn("unverified", proxy["drive_gains"]["quality"])
         self.assertEqual(proxy["articulation_solver"]["position_iteration_count"], 32)
         self.assertEqual(proxy["articulation_solver"]["velocity_iteration_count"], 1)
-        self.assertFalse(proxy["articulation_solver"]["enabled_self_collisions"])
+        self.assertTrue(proxy["articulation_solver"]["enabled_self_collisions"])
+        self.assertTrue(proxy["collision_policy"]["all_authored_colliders_enabled"])
+        self.assertTrue(proxy["collision_policy"]["all_active_rigid_bodies_enabled"])
+        self.assertFalse(proxy["collision_policy"]["allow_filtered_pairs"])
+        self.assertIn("user_requested", proxy["collision_policy"]["quality"])
+        self.assertIn("ignores per-joint collision settings", proxy["collision_policy"]["runtime_limitation"])
         self.assertGreaterEqual(len(proxy["omitted_unmeasured_properties"]), 6)
         self.assertEqual(self.spec["model_scope"], "manual-constrained simulation proxy")
 
@@ -142,11 +185,23 @@ class ModelContractTest(unittest.TestCase):
             'def PhysicsFixedJoint "openarm_mount_joint"',
             'over "root_joint" (',
             'active = false',
+            'bool physxArticulation:enabledSelfCollisions = 1',
             'int physxArticulation:solverPositionIterationCount = 32',
+            'custom bool romoB:allAuthoredCollidersEnabled = 1',
+            'custom bool romoB:allActiveRigidBodiesEnabled = 1',
+            'custom bool romoB:filteredPairsAllowed = 0',
+            'custom string romoB:collisionRuntimeLimitation = "Isaac Sim 5.1 PhysX ignores per-joint collision settings',
+            'float state:angular:physics:position = -90',
+            'float state:angular:physics:position = 90',
+            'float state:linear:physics:position = 0.044',
             self.spec["sources"]["openarm_asset"]["url"],
         ]
         for token in required_tokens:
             self.assertIn(token, self.asset_text)
+        self.assertNotIn("PhysicsFilteredPairsAPI", self.asset_text)
+        self.assertNotIn("physics:filteredPairs", self.asset_text)
+        self.assertEqual(self.asset_text.count("bool physics:collisionEnabled = 1"), 29)
+        self.assertEqual(self.asset_text.count("bool physics:rigidBodyEnabled = 1"), 32)
 
 
 if __name__ == "__main__":

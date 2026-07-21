@@ -92,13 +92,47 @@ NVIDIA OpenArm 자산의 원래 `root_joint`는 팔을 월드에 고정하므로
 `OpenArm/openarm_body_link`를 연결한다. 따라서 AMR가 움직일 때 팔도 함께 움직이며,
 별도의 nested articulation으로 남지 않는다.
 
-원래 OpenArm `root_joint`에 있던 PhysX 설정도 결합 root로 옮겼다. self-collision은
-`false`, solver position iteration은 32, velocity iteration은 1이다. root joint만 끄고
-이 값을 버릴 때 생기는 팔 안정성 차이를 방지한다. 새 fixed joint에는
-`excludeFromArticulation=false`를 명시했다. 여기서 `self-collision=false`는 OpenArm 내부에만
-한정되지 않고 **결합 articulation 전체**에 적용되므로 팔↔AMR 및 ROMO-B 자체 링크 사이의
-self-collision도 자동 검사하지 않는다. 실제 간섭·안전 검증용 모델에서는 collision filtering과
-self-collision 정책을 별도로 설계하고 검증해야 한다.
+원래 OpenArm `root_joint`의 solver position iteration 32와 velocity iteration 1은 결합
+root로 옮겼다. 사용자 요청에 따라 Isaac Sim 5.1 articulation에서 실제로 적용되는 충돌
+옵션을 최대 범위로 켰다.
+
+- 결합 articulation의 `enabledSelfCollisions=true`
+- 합성 stage의 collider 29개 모두 `collisionEnabled=true`
+- 활성 rigid body 32개 모두 `rigidBodyEnabled=true`
+- USD filtered pair와 collision group 제외 관계 0개
+
+새 fixed joint에는 `excludeFromArticulation=false`를 명시했고, 이전에 볼트 체결면 보호
+목적으로 두었던 Chassis↔`openarm_body_link`의 `FilteredPairsAPI`도 제거했다. 따라서
+외부 물체와의 충돌, ROMO-B↔OpenArm 및 OpenArm 내부의 **비인접 링크** self-collision은
+활성화된다.
+
+단, PhysX articulation은 직접 parent–child 링크 pair를 항상 내부 필터링한다. Isaac Sim
+5.1에서는 joint별 `physics:collisionEnabled=true`도 “Per-joint collision setting is ignored
+for articulations” 경고와 함께 무시된다. 그러므로 Chassis↔각 knuckle,
+knuckle↔wheel, Chassis↔OpenArm base 및 OpenArm의 직결 링크끼리의 충돌까지 켜려면
+articulation을 해체·재구성해야 한다. 이는 현재 단일 mobile-manipulator articulation과
+OpenArm 제어 계약을 깨는 별도 구조 변경이므로, 효과 없는 joint 플래그를 쓰지 않았다.
+
+비인접 링크의 명목 접촉면에서는 접촉력이 생길 수 있다. 따라서 새 pose나 제어기를
+적용할 때 초기 collider 겹침, 접촉력 급증 및 articulation 안정성을 다시 검증해야 한다.
+
+NVIDIA payload의 bimanual 기본 0° pose는 self-collision이 꺼진 상태를 전제로 하며,
+필터 없는 self-collision을 켜면 base↔left link2가 약 1.24 mm 침투하고 초기 impulse가
+약 160까지 발생했다. 이를 collider 삭제나 filter 추가 없이 해소하기 위해 시작 pose를
+다음처럼 설정했다.
+
+```text
+openarm_left_joint2          = -90 deg
+openarm_right_joint2         = +90 deg
+left/right finger joint1/2   = 0.044 m
+```
+
+`±90°` shoulder 값은 양쪽 joint limit 안에서 선택해 PhysX contact sweep으로 검증한 대칭
+시뮬레이션 pose이며 공식 home 값이나 실측값이 아니다. `0.044 m`는 payload의 driven
+finger joint 상한을 사용한 open 값이다. 초기 state와 drive target을 같게 기록하되 mimic
+follower인 각 `finger_joint2`에는 별도 drive를 만들지 않았다. 120 step 유지 검사에서
+OpenArm 내부의 음수 separation과 nonzero impulse는 0이었다. base↔link2 두 pair는 contact
+offset 범위에 남지만 최소 separation이 각각 약 +0.00042 m, +0.00954 m이고 impulse는 0이다.
 
 플랫폼 총질량 55 kg을 중복 계상하지 않기 위해 시뮬레이션 질량을 다음처럼 배분했다.
 
@@ -122,8 +156,15 @@ payload의 링크별 질량을 그대로 사용하며 ROMO-B의 55 kg에 포함�
 - 실물 모터 배선과 FL/FR/RL/RR 채널 대응
 - 조향 position drive와 휠 velocity drive의 제어 gain
 
-chassis 폭 0.450 m와 휠 폭 0.068 m는 충돌 형상을 만들기 위한 proxy다. 특히 휠 폭은
-`0.597-0.529`에서 유도한 값이지 실측값이 아니다. 조향 knuckle body의
+chassis 외형 폭 0.450 m와 휠 폭 0.068 m는 시뮬레이션 proxy다. 특히 휠 폭은
+`0.597-0.529`에서 유도한 값이지 실측값이 아니다. full self-collision에서 기존 0.450 m
+단일 chassis box를 그대로 collision에 쓰면, 비인접 pair인 chassis와 wheel이 약 3.03°
+조향부터 겹친다. ±30° wheel sweep의 충돌 없는 폭 상한은 0.348488 m이고 회전한 45 mm
+knuckle proxy까지 고려한 상한은 0.328529 m이므로, 보수적으로 0.320 m 중앙 collision
+core를 사용했다. 화면의 chassis 외형은 0.450 m로 유지된다. 이 0.320 m 역시 매뉴얼
+실측값이 아니며, 실제 wheel-well CAD 또는 실측 compound collider로 교체해야 한다.
+
+조향 knuckle body의
 `0.045 × 0.045 × 0.070 m` 크기(X×Y×Z)도 매뉴얼이나 실측에서 얻은 값이 아니라,
 형상을 보이기 위한 **unverified simulation proxy**다. 현재 builder에서는
 knuckle의 시각 형상과 collision 치수에 함께 사용한다. 이 값은
@@ -151,7 +192,9 @@ USD는 `build_romo_b_openarm_usda.py`로 재생성하고, 다음 세 단계로 �
 
 1. 표준 Python 계약 테스트: 원문 보존, 치수, 파생식, 질량 합계, 17 cm 해석
 2. pxr 정적 검사: stage 단위, prim, articulation, joint 축·한계·body 관계, payload와 mount
-3. Isaac Sim smoke test: OpenArm payload 해석 후 120 physics step 동안 stage 유지
+3. Isaac Sim smoke test: OpenArm payload 해석 후 240 fixed physics step 전체의 contact
+   report와 ±30° 조향 sweep에서 self-penetration, impulse, 유한 pose, 과도한 변위,
+   조향 목표 1° 이내 도달 및 chassis-frame wheel↔chassis AABB 간섭 여부 확인
 
 정적 검사는 payload를 불러오지 않아 오프라인으로 수행할 수 있다. payload 해석 검사와
 smoke test에는 Isaac Sim 5.1 자산 캐시 또는 네트워크가 필요하다.

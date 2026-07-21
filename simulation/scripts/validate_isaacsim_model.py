@@ -72,6 +72,162 @@ def validate_mass_shape(stage: Usd.Stage, path: str) -> None:
     )
 
 
+def validate_collision_policy(stage: Usd.Stage, spec: dict, openarm_resolved: bool) -> None:
+    """Require every authored collider and inter-body collision path to remain enabled."""
+
+    policy = spec["simulation_proxy"]["collision_policy"]
+    robot_prim = stage.GetPrimAtPath(ROBOT)
+    require(
+        bool(robot_prim.GetAttribute("romoB:allAuthoredCollidersEnabled").Get())
+        == bool(policy["all_authored_colliders_enabled"]),
+        "Root collider policy metadata mismatch",
+    )
+    require(
+        bool(robot_prim.GetAttribute("romoB:filteredPairsAllowed").Get())
+        == bool(policy["allow_filtered_pairs"]),
+        "Root filtered-pair policy metadata mismatch",
+    )
+    require(
+        bool(robot_prim.GetAttribute("romoB:allActiveRigidBodiesEnabled").Get())
+        == bool(policy["all_active_rigid_bodies_enabled"]),
+        "Root rigid-body policy metadata mismatch",
+    )
+    require(
+        robot_prim.GetAttribute("romoB:collisionRuntimeLimitation").Get()
+        == policy["runtime_limitation"],
+        "Root collision runtime-limitation metadata mismatch",
+    )
+
+    active_prims = [prim for prim in stage.TraverseAll() if prim.IsActive()]
+    colliders = [prim for prim in active_prims if prim.HasAPI(UsdPhysics.CollisionAPI)]
+    rigid_bodies = [prim for prim in active_prims if prim.HasAPI(UsdPhysics.RigidBodyAPI)]
+    joints = [prim for prim in active_prims if bool(UsdPhysics.Joint(prim))]
+    expected = policy["expected_active_counts_with_openarm"]
+    minimum_colliders = int(expected["colliders"]) if openarm_resolved else 10
+    minimum_rigid_bodies = int(expected["rigid_bodies"]) if openarm_resolved else 9
+    minimum_joints = int(expected["joints"]) if openarm_resolved else 9
+    require(
+        len(colliders) >= minimum_colliders,
+        f"Expected at least {minimum_colliders} active colliders, got {len(colliders)}",
+    )
+    require(
+        len(rigid_bodies) >= minimum_rigid_bodies,
+        f"Expected at least {minimum_rigid_bodies} active rigid bodies, got {len(rigid_bodies)}",
+    )
+    require(
+        len(joints) >= minimum_joints,
+        f"Expected at least {minimum_joints} active joints, got {len(joints)}",
+    )
+    ignored_true_joint_flags = [
+        prim.GetPath().pathString
+        for prim in joints
+        if UsdPhysics.Joint(prim).GetCollisionEnabledAttr().Get() is True
+    ]
+    require(
+        not ignored_true_joint_flags,
+        "PhysX ignores per-joint collisionEnabled inside articulations; remove warning-only true flags: "
+        f"{ignored_true_joint_flags}",
+    )
+    if bool(policy["all_authored_colliders_enabled"]):
+        disabled_colliders = [
+            prim.GetPath().pathString
+            for prim in colliders
+            if UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get() is not True
+        ]
+        require(not disabled_colliders, f"Disabled colliders found: {disabled_colliders}")
+    if bool(policy["all_active_rigid_bodies_enabled"]):
+        disabled_rigid_bodies = [
+            prim.GetPath().pathString
+            for prim in rigid_bodies
+            if UsdPhysics.RigidBodyAPI(prim).GetRigidBodyEnabledAttr().Get() is not True
+        ]
+        require(
+            not disabled_rigid_bodies,
+            f"Disabled rigid bodies found: {disabled_rigid_bodies}",
+        )
+    if openarm_resolved:
+        openarm_source = spec["sources"]["openarm_asset"]
+        for relative_path in openarm_source["active_collider_paths"]:
+            path = f"{ARM}/{relative_path}"
+            prim = stage.GetPrimAtPath(path)
+            require(
+                bool(prim) and prim.IsActive() and prim.HasAPI(UsdPhysics.CollisionAPI),
+                f"Missing configured OpenArm collider: {path}",
+            )
+        for relative_path in openarm_source["active_rigid_body_paths"]:
+            path = f"{ARM}/{relative_path}"
+            prim = stage.GetPrimAtPath(path)
+            require(
+                bool(prim) and prim.IsActive() and prim.HasAPI(UsdPhysics.RigidBodyAPI),
+                f"Missing configured OpenArm rigid body: {path}",
+            )
+    if not bool(policy["allow_filtered_pairs"]):
+        filtered_pairs = []
+        filtered_groups = []
+        for prim in active_prims:
+            if prim.HasAPI(UsdPhysics.FilteredPairsAPI):
+                targets = UsdPhysics.FilteredPairsAPI(prim).GetFilteredPairsRel().GetTargets()
+                if targets:
+                    filtered_pairs.append(
+                        (prim.GetPath().pathString, [target.pathString for target in targets])
+                    )
+            group = UsdPhysics.CollisionGroup(prim)
+            if group:
+                targets = group.GetFilteredGroupsRel().GetTargets()
+                inverted = bool(group.GetInvertFilteredGroupsAttr().Get())
+                if targets or inverted:
+                    filtered_groups.append(
+                        (
+                            prim.GetPath().pathString,
+                            inverted,
+                            [target.pathString for target in targets],
+                        )
+                    )
+        require(not filtered_pairs, f"Filtered collision pairs found: {filtered_pairs}")
+        require(not filtered_groups, f"Filtered collision groups found: {filtered_groups}")
+
+
+def validate_openarm_initial_state(stage: Usd.Stage, spec: dict, openarm_resolved: bool) -> None:
+    """Validate the self-collision-safe OpenArm start state and matching drive targets."""
+
+    initial_state = spec["sources"]["openarm_asset"]["collision_safe_initial_joint_state"]
+    for joint_state in initial_state["positions"]:
+        path = f"{ARM}/{joint_state['path']}"
+        prim = stage.GetPrimAtPath(path)
+        require(bool(prim), f"Missing OpenArm initial-state override prim: {path}")
+        instance = joint_state["instance"]
+        position = float(joint_state["value"])
+        expected_unit = "degree" if instance == "angular" else "metre"
+        require(joint_state["unit"] == expected_unit, f"Initial-state unit mismatch: {path}")
+        position_attr = prim.GetAttribute(f"state:{instance}:physics:position")
+        velocity_attr = prim.GetAttribute(f"state:{instance}:physics:velocity")
+        require(bool(position_attr), f"Missing initial joint position: {path}")
+        require(bool(velocity_attr), f"Missing initial joint velocity: {path}")
+        close(float(position_attr.Get()), position, f"initial joint position {path}")
+        close(float(velocity_attr.Get()), 0.0, f"initial joint velocity {path}")
+        if joint_state["drive_target"]:
+            target_position = prim.GetAttribute(f"drive:{instance}:physics:targetPosition")
+            target_velocity = prim.GetAttribute(f"drive:{instance}:physics:targetVelocity")
+            require(bool(target_position), f"Missing initial drive target: {path}")
+            require(bool(target_velocity), f"Missing initial drive velocity target: {path}")
+            close(float(target_position.Get()), position, f"initial drive target {path}")
+            close(float(target_velocity.Get()), 0.0, f"initial drive velocity {path}")
+
+        if openarm_resolved:
+            require(prim.IsActive() and bool(UsdPhysics.Joint(prim)), f"Invalid OpenArm joint: {path}")
+            if instance == "angular":
+                typed_joint = UsdPhysics.RevoluteJoint(prim)
+            else:
+                typed_joint = UsdPhysics.PrismaticJoint(prim)
+            require(bool(typed_joint), f"OpenArm joint/state type mismatch: {path}")
+            lower = float(typed_joint.GetLowerLimitAttr().Get())
+            upper = float(typed_joint.GetUpperLimitAttr().Get())
+            require(
+                lower - 1e-6 <= position <= upper + 1e-6,
+                f"Initial position outside joint limits: {path}",
+            )
+
+
 def validate_articulation_graph(stage: Usd.Stage) -> None:
     active_prims = [prim for prim in stage.TraverseAll() if prim.IsActive()]
     articulation_roots = [
@@ -301,12 +457,6 @@ def validate(
     expected_arm_body = f"{ARM}/{spec['sources']['openarm_asset']['base_body']}"
     require(relation_targets(mount_joint, 1) == [expected_arm_body], "OpenArm mount body1 mismatch")
     require(mount_joint.GetExcludeFromArticulationAttr().Get() is False, "OpenArm mount must remain inside articulation")
-    filtered_targets = [
-        path.pathString
-        for path in UsdPhysics.FilteredPairsAPI(stage.GetPrimAtPath(CHASSIS)).GetFilteredPairsRel().GetTargets()
-    ]
-    require(filtered_targets == [expected_arm_body], "Chassis collision filter must target OpenArm base body")
-
     if resolve_openarm:
         if openarm_asset_override:
             stage.SetEditTarget(stage.GetSessionLayer())
@@ -321,6 +471,8 @@ def validate(
         ]
         require(len(arm_joints) >= 14, f"Expected at least 14 active OpenArm revolute joints, got {len(arm_joints)}")
 
+    validate_openarm_initial_state(stage, spec, resolve_openarm)
+    validate_collision_policy(stage, spec, resolve_openarm)
     validate_articulation_graph(stage)
 
     print("Isaac Sim model validation: PASS")
