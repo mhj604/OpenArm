@@ -42,6 +42,13 @@ assets/openarm_test.usd
 현재 작업 인계서는 `docs/OPENARM_HANDOFF.md`에 있습니다. 과거 장면을 한 번만 구성할 때 사용한
 스크립트는 `scripts/scene_authoring/legacy/`에 보존하며, 실행 중인 작업 코드에는 포함되지 않습니다.
 
+## IEEE Access 연구 자료
+
+ROMO-B의 2WIS/Ackermann 궤적 residual, Pivot 조향 한계 및 양팔 하중이동 authority에
+대한 엄격한 분석과 원본 자료는 [`OpenArm_IEEE-ACCESS/`](OpenArm_IEEE-ACCESS/README.md)에
+보존합니다. 이 패키지에는 전체 하드웨어 문서, 검산 수식, 실험 프로토콜, DOI/BibTeX,
+Oracle 자문 기록과 무결성 해시가 포함됩니다.
+
 ## 실행
 
 ```bash

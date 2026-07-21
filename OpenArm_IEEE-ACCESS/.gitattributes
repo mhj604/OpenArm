@@ -1,0 +1,6 @@
+**/*.pdf binary
+**/*.png binary
+
+# Preserve second-model transcripts byte-for-byte while preventing equation
+# separators from being misidentified as Git conflict markers.
+evidence/oracle/*_raw.md -diff -merge
