@@ -283,16 +283,31 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
             f"{end_name} bumper upper Z",
         )
 
-    fender_outer_y = float(geometry["wheel_fender_arch"]["outer_side_face_y_m"])
+    fender_spec = geometry["wheel_fender_arch"]
+    fender_inner_y = float(fender_spec["inner_side_face_y_m"])
+    fender_outer_y = float(fender_spec["outer_side_face_y_m"])
+    close(
+        2.0 * fender_inner_y,
+        float(proxy["chassis_visual_width_m"]["value"]),
+        "fender-to-shell attachment plane",
+    )
+    close(
+        fender_outer_y - fender_inner_y,
+        float(fender_spec["side_band_depth_m"]),
+        "fender side-band depth",
+    )
     for corner in CORNERS:
         camel = "".join(part.title() for part in corner.split("_"))
         fender_minimum, fender_maximum = mesh_range(
             f"{visual_root}/{camel}FenderArch"
         )
-        actual_outer_y = (
-            fender_maximum[1]
-            if proxy["wheel_center_positions_m"][corner][1] > 0.0
-            else fender_minimum[1]
+        positive_side = proxy["wheel_center_positions_m"][corner][1] > 0.0
+        actual_inner_y = fender_minimum[1] if positive_side else fender_maximum[1]
+        actual_outer_y = fender_maximum[1] if positive_side else fender_minimum[1]
+        close(
+            abs(actual_inner_y),
+            fender_inner_y,
+            f"{corner} fender attached inner side",
         )
         close(
             abs(actual_outer_y),

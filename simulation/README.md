@@ -53,7 +53,9 @@ restructuring the model without the current single articulation.
 
 The previous arbitrary 0.450 m blue box has been removed. The visible shell now uses the page 5
 outline at a 0.529 m side-plane envelope, so the derived 0.068 m tires extend only 0.034 m per side
-and the complete wheel span remains exactly 0.597 m. A four-part compound chassis collider covers
+and the complete wheel span remains exactly 0.597 m. Each blue fender arch starts on that shell
+side plane and extends 0.008 m outward; it is attached to the shell instead of being placed at the
+tire's outer face. A four-part compound chassis collider covers
 the 0.320 m steering-clear core, full-width deck above the tire envelope, and lower front/rear end
 members. The wheel-well profile and panel thickness are not dimensioned in the manual, so those
 collision pieces remain conservative proxies and must not be treated as production CAD. Re-run the

@@ -351,10 +351,12 @@
         "inner_radius_m": 0.112,
         "outer_radius_m": 0.126,
         "side_band_depth_m": 0.008,
-        "outer_side_face_y_m": 0.2985,
+        "inner_side_face_y_m": 0.2645,
+        "outer_side_face_y_m": 0.2725,
         "segments": 24,
-        "derivation": "Arch centres use the manual wheel centres. Radii and band thickness are scaled from the page 5 side view; the outer face is constrained to the manual 597 mm overall-width envelope.",
-        "quality": "manual_stated_envelope_plus_drawing_traced_profile"
+        "derivation": "Arch centres use the manual wheel centres. The inner face is fixed to the page-5-traced 529 mm shell side plane and the 8 mm outward trim depth is scaled from the side view. The separate tire outer faces, not the fender trim, retain the manual 597 mm overall-width envelope.",
+        "quality": "manual_shell_attached_plus_drawing_traced_profile",
+        "warning": "The manual does not dimension fender depth; attachment to the shell and the visible 8 mm trim depth reproduce pages 5-6 without claiming manufacturing coordinates."
       },
       "wheel_hub_visual": {
         "hub_radius_m": 0.064,

@@ -636,13 +636,13 @@ def build(spec_path: Path, output_path: Path) -> None:
     fender = manual_geometry["wheel_fender_arch"]
     fender_inner_radius = float(fender["inner_radius_m"])
     fender_outer_radius = float(fender["outer_radius_m"])
+    fender_inner_y = float(fender["inner_side_face_y_m"])
     fender_outer_y = float(fender["outer_side_face_y_m"])
-    fender_depth = float(fender["side_band_depth_m"])
     for corner in ("front_left", "front_right", "rear_left", "rear_right"):
         wheel_xyz = tuple(float(item) for item in proxy["wheel_center_positions_m"][corner])
         side_sign = 1.0 if wheel_xyz[1] > 0.0 else -1.0
         outer_y = side_sign * fender_outer_y
-        inner_y = outer_y - side_sign * fender_depth
+        inner_y = side_sign * fender_inner_y
         add_arch_band_mesh(
             stage,
             f"{visual_root}/{''.join(part.title() for part in corner.split('_'))}FenderArch",

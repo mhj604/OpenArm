@@ -109,8 +109,18 @@ class ModelContractTest(unittest.TestCase):
         sections = manual_geometry["body_sections_world_z_m"]
         self.assertClose(float(sections["side_shell"][0]), float(dims["ground_clearance"]["value"]))
         self.assertClose(float(sections["top_rim"][1]), float(dims["overall_height"]["value"]))
+        fender = manual_geometry["wheel_fender_arch"]
         self.assertClose(
-            2.0 * float(manual_geometry["wheel_fender_arch"]["outer_side_face_y_m"]),
+            2.0 * float(fender["inner_side_face_y_m"]),
+            float(proxy["chassis_visual_width_m"]["value"]),
+        )
+        self.assertClose(
+            float(fender["outer_side_face_y_m"])
+            - float(fender["inner_side_face_y_m"]),
+            float(fender["side_band_depth_m"]),
+        )
+        self.assertLess(
+            2.0 * float(fender["outer_side_face_y_m"]),
             float(dims["overall_width"]["value"]),
         )
 
