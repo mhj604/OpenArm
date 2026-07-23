@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "model_scope": "manual-constrained simulation proxy",
   "coordinate_frame": {
     "convention": "REP-103-like body frame",
@@ -12,8 +12,10 @@
   "sources": {
     "romo_b_manual": {
       "path": "../../source_files/hardware/ROMO-B_manual_verified_complete.md",
+      "drawing_pdf_path": "../../source_files/hardware/ROMO-B_manual_complete_compressed.pdf",
+      "external_geometry_pages": [5, 6],
       "status": "user-provided verified text revision; not a manufacturer-issued official specification",
-      "warning": "The source itself requires dimensions, wheel centres, wiring, and feedback signs to be checked on the physical platform."
+      "warning": "Printed dimensions are copied exactly. Undimensioned external contours are scale-traced from the page 5 orthographic drawing and checked against the page 6 photograph; the source itself still requires wheel centres, wiring, and feedback signs to be checked on the physical platform."
     },
     "openarm_asset": {
       "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Robots/OpenArm/openarm_bimanual/openarm_bimanual.usd",
@@ -291,14 +293,111 @@
       "quality": "derived_visual_proxy_not_measured"
     },
     "chassis_visual_width_m": {
-      "value": 0.45,
-      "quality": "unverified_visual_proxy"
+      "value": 0.529,
+      "derivation": "The page 5 bottom/front orthographic views place the shell side plane on the 529 mm wheel-centre track line. This replaces the previous arbitrary 450 mm box and leaves 34 mm of the derived 68 mm tire width outside each side, reproducing the drawing.",
+      "quality": "manual_drawing_traced_and_scaled_not_separately_dimensioned",
+      "source_pages": [5, 6]
+    },
+    "manual_external_geometry": {
+      "body_outline_normalized_xy": {
+        "value": [
+          [1.0, 0.48],
+          [0.86, 0.78],
+          [0.65, 1.0],
+          [-0.65, 1.0],
+          [-0.86, 0.78],
+          [-1.0, 0.48],
+          [-1.0, -0.48],
+          [-0.86, -0.78],
+          [-0.65, -1.0],
+          [0.65, -1.0],
+          [0.86, -0.78],
+          [1.0, -0.48]
+        ],
+        "axis_scale_m": [0.378, 0.2645],
+        "derivation": "Twelve-vertex symmetric trace of the page 5 top-view outer contour, scaled to the manual's 756 mm length and the drawing-aligned 529 mm shell envelope.",
+        "quality": "manual_drawing_traced_and_scaled_not_manufacturer_coordinate_data"
+      },
+      "body_sections_world_z_m": {
+        "side_shell": [0.062, 0.322],
+        "top_rim": [0.322, 0.342],
+        "recessed_top_plate": [0.336, 0.340],
+        "derivation": "The 62 mm lower and 342 mm upper limits are manual-stated. The 20 mm rim and 2 mm top recess are scaled from the page 5 side/front drawings.",
+        "quality": "manual_stated_envelope_plus_drawing_traced_section_breaks"
+      },
+      "top_plate_scale_xy": {
+        "value": [0.82, 0.74],
+        "quality": "manual_drawing_traced_and_scaled"
+      },
+      "mounting_hole_marker_grid": {
+        "columns": 11,
+        "rows": 7,
+        "spacing_m": [0.050, 0.044],
+        "marker_radius_m": 0.003,
+        "quality": "visual_only_manual_drawing_pattern_not_dimensioned",
+        "warning": "Markers reproduce the visible regular pattern but are not manufacturing hole coordinates."
+      },
+      "top_service_covers": {
+        "centres_xy_m": [
+          [0.270, 0.160],
+          [0.270, -0.160],
+          [-0.270, 0.160],
+          [-0.270, -0.160]
+        ],
+        "radius_m": 0.038,
+        "quality": "visual_only_manual_drawing_traced_and_scaled"
+      },
+      "wheel_fender_arch": {
+        "inner_radius_m": 0.112,
+        "outer_radius_m": 0.126,
+        "side_band_depth_m": 0.008,
+        "outer_side_face_y_m": 0.2985,
+        "segments": 24,
+        "derivation": "Arch centres use the manual wheel centres. Radii and band thickness are scaled from the page 5 side view; the outer face is constrained to the manual 597 mm overall-width envelope.",
+        "quality": "manual_stated_envelope_plus_drawing_traced_profile"
+      },
+      "wheel_hub_visual": {
+        "hub_radius_m": 0.064,
+        "cap_radius_m": 0.026,
+        "depth_m": 0.006,
+        "quality": "visual_only_manual_drawing_traced_and_scaled"
+      },
+      "quality": "manual_stated_envelope_with_scale_traced_external_contours",
+      "source_pages": [5, 6],
+      "warning": "This reconstructs the documented external appearance. The scanned manual does not provide production CAD, panel thicknesses, fillet radii, or manufacturing hole coordinates."
     },
     "chassis_collision_width_m": {
       "value": 0.32,
       "derivation": "Conservative core below both the 30 degree wheel-sweep bound 2*(0.195 + (0.0695-0.034)*cos(30 deg) - 0.103*sin(30 deg)) = 0.348488 m and the rotated-knuckle bound 2*(0.195 - 0.0225*(cos(30 deg)+sin(30 deg))) = 0.328529 m",
       "quality": "derived_unverified_collision_clearance_proxy_not_measured",
-      "warning": "The manual does not specify chassis-body or wheel-well geometry. The 0.320 m collision core prevents the unverified wheel and knuckle proxies from intersecting it through the stated +/-30 degree steering sweep; replace it with measured compound collision geometry for collision-critical work."
+      "warning": "This is the central member of the compound chassis collider. It prevents the unverified wheel and knuckle proxies from intersecting the chassis through the stated +/-30 degree steering sweep."
+    },
+    "chassis_compound_collision": {
+      "parts": [
+        {
+          "name": "Core",
+          "centre_world_m": [0.0, 0.0, 0.202],
+          "dimensions_m": [0.756, 0.320, 0.280]
+        },
+        {
+          "name": "TopDeck",
+          "centre_world_m": [0.0, 0.0, 0.280],
+          "dimensions_m": [0.756, 0.529, 0.124]
+        },
+        {
+          "name": "FrontLower",
+          "centre_world_m": [0.339, 0.0, 0.140],
+          "dimensions_m": [0.078, 0.240, 0.156]
+        },
+        {
+          "name": "RearLower",
+          "centre_world_m": [-0.339, 0.0, 0.140],
+          "dimensions_m": [0.078, 0.240, 0.156]
+        }
+      ],
+      "derivation": "The top deck begins 12 mm above the approximate 206 mm tire envelope; lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The central core retains the audited wheel/knuckle lateral clearance.",
+      "quality": "manual_envelope_constrained_compound_collision_proxy",
+      "warning": "Wheel-well depth and panel thickness are not dimensioned. These enabled boxes conservatively cover the documented shell without claiming production CAD accuracy."
     },
     "knuckle_body_size_m": {
       "value": [0.045, 0.045, 0.070],
@@ -350,9 +449,14 @@
       "all_active_rigid_bodies_enabled": true,
       "allow_filtered_pairs": false,
       "expected_active_counts_with_openarm": {
-        "colliders": 29,
+        "colliders": 32,
         "rigid_bodies": 32,
         "joints": 31
+      },
+      "expected_active_counts_without_openarm_payload": {
+        "colliders": 13,
+        "rigid_bodies": 9,
+        "joints": 9
       },
       "scope": "ground, ROMO-B chassis, knuckles, wheels, OpenArm links, all active rigid bodies, ROMO-B-to-OpenArm, and every non-adjacent self-collision pair supported by PhysX articulations",
       "quality": "user_requested_full_collision_policy",

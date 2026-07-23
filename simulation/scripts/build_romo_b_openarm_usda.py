@@ -70,6 +70,176 @@ def add_box(
     return cube
 
 
+def add_translated_box(
+    stage: Usd.Stage,
+    path: str,
+    dimensions: tuple[float, float, float],
+    centre: tuple[float, float, float],
+    color: tuple[float, float, float],
+    collision: bool = False,
+) -> UsdGeom.Cube:
+    """Create a unit cube with an unscaled translation followed by scale."""
+
+    cube = UsdGeom.Cube.Define(stage, path)
+    cube.CreateSizeAttr(1.0)
+    set_translate(cube.GetPrim(), centre)
+    set_scale(cube.GetPrim(), dimensions)
+    cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    if collision:
+        UsdPhysics.CollisionAPI.Apply(cube.GetPrim()).CreateCollisionEnabledAttr(True)
+    return cube
+
+
+def add_cylinder(
+    stage: Usd.Stage,
+    path: str,
+    axis: str,
+    radius: float,
+    height: float,
+    centre: tuple[float, float, float],
+    color: tuple[float, float, float],
+) -> UsdGeom.Cylinder:
+    cylinder = UsdGeom.Cylinder.Define(stage, path)
+    cylinder.CreateAxisAttr(axis)
+    cylinder.CreateRadiusAttr(radius)
+    cylinder.CreateHeightAttr(height)
+    set_translate(cylinder.GetPrim(), centre)
+    cylinder.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return cylinder
+
+
+def add_extruded_polygon_mesh(
+    stage: Usd.Stage,
+    path: str,
+    xy_points: list[tuple[float, float]],
+    z_min: float,
+    z_max: float,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Extrude a counter-clockwise XY polygon into a deterministic visual mesh."""
+
+    if len(xy_points) < 3:
+        raise ValueError("An extruded polygon needs at least three XY points")
+    count = len(xy_points)
+    points = [
+        Gf.Vec3f(float(x), float(y), float(z))
+        for z in (z_min, z_max)
+        for x, y in xy_points
+    ]
+    face_counts = [count, count] + [4] * count
+    face_indices = list(reversed(range(count))) + list(range(count, 2 * count))
+    for index in range(count):
+        following = (index + 1) % count
+        face_indices.extend(
+            [index, following, count + following, count + index]
+        )
+
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(face_counts)
+    mesh.CreateFaceVertexIndicesAttr(face_indices)
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
+def add_arch_band_mesh(
+    stage: Usd.Stage,
+    path: str,
+    centre_x: float,
+    centre_z: float,
+    y_inner: float,
+    y_outer: float,
+    inner_radius: float,
+    outer_radius: float,
+    segments: int,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Create the upper-half wheel-fender band visible in the manual side view."""
+
+    if segments < 3:
+        raise ValueError("A fender arch needs at least three segments")
+    y_planes = (min(y_inner, y_outer), max(y_inner, y_outer))
+    points: list[Gf.Vec3f] = []
+    for y in y_planes:
+        for radius in (outer_radius, inner_radius):
+            for index in range(segments + 1):
+                angle = math.pi * index / segments
+                points.append(
+                    Gf.Vec3f(
+                        centre_x + radius * math.cos(angle),
+                        y,
+                        centre_z + radius * math.sin(angle),
+                    )
+                )
+
+    stride = segments + 1
+
+    def vertex(y_index: int, radius_index: int, arc_index: int) -> int:
+        return y_index * 2 * stride + radius_index * stride + arc_index
+
+    face_counts: list[int] = []
+    face_indices: list[int] = []
+
+    def quad(indices: tuple[int, int, int, int]) -> None:
+        face_counts.append(4)
+        face_indices.extend(indices)
+
+    for index in range(segments):
+        following = index + 1
+        quad(
+            (
+                vertex(0, 0, index),
+                vertex(0, 0, following),
+                vertex(0, 1, following),
+                vertex(0, 1, index),
+            )
+        )
+        quad(
+            (
+                vertex(1, 1, index),
+                vertex(1, 1, following),
+                vertex(1, 0, following),
+                vertex(1, 0, index),
+            )
+        )
+        quad(
+            (
+                vertex(0, 0, index),
+                vertex(1, 0, index),
+                vertex(1, 0, following),
+                vertex(0, 0, following),
+            )
+        )
+        quad(
+            (
+                vertex(0, 1, following),
+                vertex(1, 1, following),
+                vertex(1, 1, index),
+                vertex(0, 1, index),
+            )
+        )
+    for arc_index in (0, segments):
+        quad(
+            (
+                vertex(0, 0, arc_index),
+                vertex(0, 1, arc_index),
+                vertex(1, 1, arc_index),
+                vertex(1, 0, arc_index),
+            )
+        )
+
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(face_counts)
+    mesh.CreateFaceVertexIndicesAttr(face_indices)
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
 def add_revolute_joint(
     stage: Usd.Stage,
     path: str,
@@ -197,6 +367,7 @@ def build(spec_path: Path, output_path: Path) -> None:
     )
 
     length = value(dims["overall_length"])
+    overall_width = value(dims["overall_width"])
     height = value(dims["overall_height"])
     clearance = value(dims["ground_clearance"])
     chassis_height = height - clearance
@@ -206,26 +377,165 @@ def build(spec_path: Path, output_path: Path) -> None:
     set_translate(chassis.GetPrim(), (0.0, 0.0, chassis_center_z))
     add_mass(chassis.GetPrim(), float(masses["chassis"]))
     custom_attr(chassis.GetPrim(), "romoB:massAllocationQuality", Sdf.ValueTypeNames.String, masses["quality"])
-    add_box(
-        stage,
-        f"{chassis_path}/Body",
-        dimensions=(length, float(proxy["chassis_visual_width_m"]["value"]), chassis_height),
-        color=(0.08, 0.24, 0.52),
+    custom_attr(chassis.GetPrim(), "romoB:manualOverallLength", Sdf.ValueTypeNames.Double, length)
+    custom_attr(chassis.GetPrim(), "romoB:manualOverallWidth", Sdf.ValueTypeNames.Double, overall_width)
+    custom_attr(chassis.GetPrim(), "romoB:manualOverallHeight", Sdf.ValueTypeNames.Double, height)
+    custom_attr(chassis.GetPrim(), "romoB:manualGroundClearance", Sdf.ValueTypeNames.Double, clearance)
+
+    manual_geometry = proxy["manual_external_geometry"]
+    body_width = float(proxy["chassis_visual_width_m"]["value"])
+    outline_spec = manual_geometry["body_outline_normalized_xy"]
+    outline_scale = tuple(float(item) for item in outline_spec["axis_scale_m"])
+    outline = [
+        (float(point[0]) * outline_scale[0], float(point[1]) * outline_scale[1])
+        for point in outline_spec["value"]
+    ]
+    sections = manual_geometry["body_sections_world_z_m"]
+    side_shell_z = tuple(float(item) - chassis_center_z for item in sections["side_shell"])
+    rim_z = tuple(float(item) - chassis_center_z for item in sections["top_rim"])
+    plate_z = tuple(
+        float(item) - chassis_center_z for item in sections["recessed_top_plate"]
     )
-    chassis_collision = add_box(
+    aluminium = (0.66, 0.69, 0.72)
+    romo_blue = (0.02, 0.36, 0.72)
+    dark_detail = (0.055, 0.065, 0.075)
+    visual_root = f"{chassis_path}/Visuals"
+    UsdGeom.Scope.Define(stage, visual_root)
+    side_shell = add_extruded_polygon_mesh(
         stage,
-        f"{chassis_path}/Collision",
-        dimensions=(length, float(proxy["chassis_collision_width_m"]["value"]), chassis_height),
-        color=(0.08, 0.24, 0.52),
-        collision=True,
+        f"{visual_root}/SideShell",
+        outline,
+        side_shell_z[0],
+        side_shell_z[1],
+        aluminium,
     )
-    chassis_collision.CreatePurposeAttr(UsdGeom.Tokens.guide)
     custom_attr(
-        chassis_collision.GetPrim(),
+        side_shell.GetPrim(),
         "romoB:geometryQuality",
         Sdf.ValueTypeNames.String,
-        proxy["chassis_collision_width_m"]["quality"],
+        manual_geometry["quality"],
     )
+    add_extruded_polygon_mesh(
+        stage,
+        f"{visual_root}/TopRim",
+        outline,
+        rim_z[0],
+        rim_z[1],
+        romo_blue,
+    )
+    plate_scale = tuple(float(item) for item in manual_geometry["top_plate_scale_xy"]["value"])
+    plate_outline = [
+        (point[0] * plate_scale[0], point[1] * plate_scale[1])
+        for point in outline
+    ]
+    add_extruded_polygon_mesh(
+        stage,
+        f"{visual_root}/RecessedTopPlate",
+        plate_outline,
+        plate_z[0],
+        plate_z[1],
+        aluminium,
+    )
+
+    grid = manual_geometry["mounting_hole_marker_grid"]
+    columns = int(grid["columns"])
+    rows = int(grid["rows"])
+    spacing_x, spacing_y = (float(item) for item in grid["spacing_m"])
+    marker_z = plate_z[1] + 0.0006
+    for row in range(rows):
+        y = (row - (rows - 1) / 2.0) * spacing_y
+        for column in range(columns):
+            x = (column - (columns - 1) / 2.0) * spacing_x
+            add_cylinder(
+                stage,
+                f"{visual_root}/TopHoleMarker_r{row:02d}_c{column:02d}",
+                UsdGeom.Tokens.z,
+                float(grid["marker_radius_m"]),
+                0.0012,
+                (x, y, marker_z),
+                dark_detail,
+            )
+
+    service_covers = manual_geometry["top_service_covers"]
+    for index, centre_xy in enumerate(service_covers["centres_xy_m"]):
+        add_cylinder(
+            stage,
+            f"{visual_root}/TopServiceCover_{index + 1}",
+            UsdGeom.Tokens.z,
+            float(service_covers["radius_m"]),
+            0.0016,
+            (float(centre_xy[0]), float(centre_xy[1]), plate_z[1] + 0.0008),
+            romo_blue,
+        )
+
+    for end_name, end_sign in (("Front", 1.0), ("Rear", -1.0)):
+        add_translated_box(
+            stage,
+            f"{visual_root}/{end_name}LowerBumper",
+            dimensions=(0.010, 0.200, 0.065),
+            centre=(
+                end_sign * (length / 2.0 - 0.005),
+                0.0,
+                0.096 - chassis_center_z,
+            ),
+            color=romo_blue,
+        )
+    add_translated_box(
+        stage,
+        f"{visual_root}/RightControlPanel",
+        dimensions=(0.105, 0.004, 0.043),
+        centre=(0.0, -body_width / 2.0 + 0.002, 0.268 - chassis_center_z),
+        color=dark_detail,
+    )
+
+    fender = manual_geometry["wheel_fender_arch"]
+    fender_inner_radius = float(fender["inner_radius_m"])
+    fender_outer_radius = float(fender["outer_radius_m"])
+    fender_outer_y = float(fender["outer_side_face_y_m"])
+    fender_depth = float(fender["side_band_depth_m"])
+    for corner in ("front_left", "front_right", "rear_left", "rear_right"):
+        wheel_xyz = tuple(float(item) for item in proxy["wheel_center_positions_m"][corner])
+        side_sign = 1.0 if wheel_xyz[1] > 0.0 else -1.0
+        outer_y = side_sign * fender_outer_y
+        inner_y = outer_y - side_sign * fender_depth
+        add_arch_band_mesh(
+            stage,
+            f"{visual_root}/{''.join(part.title() for part in corner.split('_'))}FenderArch",
+            centre_x=wheel_xyz[0],
+            centre_z=wheel_xyz[2] - chassis_center_z,
+            y_inner=inner_y,
+            y_outer=outer_y,
+            inner_radius=fender_inner_radius,
+            outer_radius=fender_outer_radius,
+            segments=int(fender["segments"]),
+            color=romo_blue,
+        )
+
+    collision_root = f"{chassis_path}/Collision"
+    UsdGeom.Scope.Define(stage, collision_root)
+    compound_collision = proxy["chassis_compound_collision"]
+    for part in compound_collision["parts"]:
+        centre_world = tuple(float(item) for item in part["centre_world_m"])
+        centre_local = (
+            centre_world[0],
+            centre_world[1],
+            centre_world[2] - chassis_center_z,
+        )
+        collider = add_translated_box(
+            stage,
+            f"{collision_root}/{part['name']}",
+            dimensions=tuple(float(item) for item in part["dimensions_m"]),
+            centre=centre_local,
+            color=(0.18, 0.32, 0.52),
+            collision=True,
+        )
+        collider.CreatePurposeAttr(UsdGeom.Tokens.guide)
+        custom_attr(
+            collider.GetPrim(),
+            "romoB:geometryQuality",
+            Sdf.ValueTypeNames.String,
+            compound_collision["quality"],
+        )
 
     joints_root = UsdGeom.Scope.Define(stage, "/World/ROMOBOpenArm/Joints")
     custom_attr(joints_root.GetPrim(), "romoB:jointOrder", Sdf.ValueTypeNames.String, "front_left, front_right, rear_left, rear_right")
@@ -260,13 +570,14 @@ def build(spec_path: Path, output_path: Path) -> None:
         set_translate(knuckle.GetPrim(), steering_xyz)
         add_mass(knuckle.GetPrim(), float(masses["each_knuckle"]))
         custom_attr(knuckle.GetPrim(), "romoB:massQuality", Sdf.ValueTypeNames.String, "manual_approximate_allocation")
-        add_box(
+        knuckle_visual = add_box(
             stage,
             f"{knuckle_path}/Visual",
             dimensions=knuckle_size,
-            color=(0.75, 0.58, 0.12),
+            color=(0.36, 0.38, 0.41),
             collision=True,
         )
+        knuckle_visual.CreatePurposeAttr(UsdGeom.Tokens.guide)
         custom_attr(
             stage.GetPrimAtPath(f"{knuckle_path}/Visual"),
             "romoB:geometryQuality",
@@ -284,6 +595,37 @@ def build(spec_path: Path, output_path: Path) -> None:
         wheel_geom.CreateHeightAttr(wheel_width)
         wheel_geom.CreateDisplayColorAttr([Gf.Vec3f(0.025, 0.025, 0.025)])
         UsdPhysics.CollisionAPI.Apply(wheel_geom.GetPrim()).CreateCollisionEnabledAttr(True)
+        wheel_geom.CreatePurposeAttr(UsdGeom.Tokens.guide)
+
+        wheel_visual_root = f"{wheel_path}/Visuals"
+        UsdGeom.Scope.Define(stage, wheel_visual_root)
+        tire_visual = UsdGeom.Cylinder.Define(stage, f"{wheel_visual_root}/Tire")
+        tire_visual.CreateAxisAttr(UsdGeom.Tokens.y)
+        tire_visual.CreateRadiusAttr(wheel_radius)
+        tire_visual.CreateHeightAttr(wheel_width - 0.002)
+        tire_visual.CreateDisplayColorAttr([Gf.Vec3f(0.025, 0.025, 0.025)])
+        side_sign = 1.0 if wheel_xyz[1] > 0.0 else -1.0
+        hub_spec = manual_geometry["wheel_hub_visual"]
+        hub_depth = float(hub_spec["depth_m"])
+        add_cylinder(
+            stage,
+            f"{wheel_visual_root}/Hub",
+            UsdGeom.Tokens.y,
+            float(hub_spec["hub_radius_m"]),
+            hub_depth,
+            (0.0, side_sign * (wheel_width / 2.0 - hub_depth / 2.0 - 0.0005), 0.0),
+            (0.48, 0.51, 0.54),
+        )
+        cap_depth = 0.002
+        add_cylinder(
+            stage,
+            f"{wheel_visual_root}/HubCap",
+            UsdGeom.Tokens.y,
+            float(hub_spec["cap_radius_m"]),
+            cap_depth,
+            (0.0, side_sign * (wheel_width / 2.0 - cap_depth / 2.0), 0.0),
+            romo_blue,
+        )
 
         steer_joint = add_revolute_joint(
             stage,

@@ -12,7 +12,12 @@ in Git. The model is generated from
 
 - Values printed in the provided ROMO-B text manual are copied without additional rounding.
 - Values described by the manual as “approximately” are marked `manual_approximate`.
-- Derived geometry and simulation-only choices are marked `derived`, `proxy`, or `unverified`.
+- The ROMO-B shell, chamfered plan outline, recessed top plate, wheel fender arches, and wheel hubs
+  are reconstructed from the manual's page 5 orthographic drawing and page 6 photograph. Printed
+  envelope dimensions constrain the result; undimensioned contour coordinates are explicitly
+  marked `manual_drawing_traced_and_scaled`.
+- Derived geometry and simulation-only choices are marked `derived`, `proxy`, `traced`, or
+  `unverified`.
 - OpenArm geometry, links, joints, masses, and inertias come from the NVIDIA Isaac Sim 5.1 OpenArm
   payload. They are not reconstructed from ROMO-B documentation.
 - The user-provided 17 cm placement is interpreted as `+0.170 m` from the ROMO-B geometric centre
@@ -39,18 +44,20 @@ joints. The fixed-base `root_joint` from the OpenArm payload is disabled, and
 the arm fixed to the world or creating two nested articulations.
 
 The maximum effective collision mode supported by the Isaac Sim 5.1 articulation is enabled: all
-29 colliders and all 32 rigid bodies are explicitly active, articulation self-collision is on, and
+32 colliders and all 32 rigid bodies are explicitly active, articulation self-collision is on, and
 no USD filtered-pair or collision-group exclusion is retained. This enables external contacts and
 non-adjacent ROMO-B/OpenArm self-collision. PhysX always filters directly joint-connected
 parent-child articulation links and ignores per-joint `collisionEnabled` settings; enabling those
 warning-only flags would not change contact behavior. Direct-neighbour collision would require
 restructuring the model without the current single articulation.
 
-The unmeasured 0.450 m chassis visual proxy is retained, but its central collision core is 0.320 m.
-The narrower collision proxy clears the wheel sweep and knuckle proxy through the manual's +/-30
-degree steering limit; it is not a measured chassis dimension and should be replaced by measured
-wheel-well/compound collision geometry. Re-run the integration smoke test after changing any mount,
-collision proxy, or joint pose.
+The previous arbitrary 0.450 m blue box has been removed. The visible shell now uses the page 5
+outline at a 0.529 m side-plane envelope, so the derived 0.068 m tires extend only 0.034 m per side
+and the complete wheel span remains exactly 0.597 m. A four-part compound chassis collider covers
+the 0.320 m steering-clear core, full-width deck above the tire envelope, and lower front/rear end
+members. The wheel-well profile and panel thickness are not dimensioned in the manual, so those
+collision pieces remain conservative proxies and must not be treated as production CAD. Re-run the
+integration smoke test after changing any mount, collision proxy, or joint pose.
 
 The NVIDIA bimanual zero pose penetrates a non-adjacent base/link collider when unfiltered
 self-collision is enabled. The generated stage therefore starts from a PhysX-validated symmetric

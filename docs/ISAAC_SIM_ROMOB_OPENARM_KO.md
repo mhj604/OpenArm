@@ -39,6 +39,25 @@ OpenArm 자체는 NVIDIA Isaac Sim 5.1의 bimanual USD를 payload로 사용한�
 윤거로 해석한 `±0.2645 m`지만, 매뉴얼 자체가 실제 휠 중심을 실측하도록 요구하므로
 `derived_from_unverified_wheel_track_interpretation`으로 표시했다.
 
+## 매뉴얼 외형 재구성
+
+기존의 폭 0.450 m 파란 직육면체는 매뉴얼에서 얻은 값이 아니었으므로 제거했다. 현재
+ROMO-B 외형은 매뉴얼 5쪽의 상·하·좌·우·전·후면 정투상도와 6쪽 사진을 기준으로
+재구성했다.
+
+- 외곽 길이·전체 폭·높이·지상고는 각각 `0.756/0.597/0.342/0.062 m`로 고정했다.
+- 상면 외곽은 5쪽 도면의 대칭 12각 모서리를 추적하고 0.756 m 길이에 맞춰 스케일했다.
+- 차체 측면은 하부 도면의 529 mm 윤거선에 맞췄다. 파생 휠 폭 68 mm 중 절반인 34 mm만
+  각 측면 바깥에 남으므로 휠 바깥 면 사이가 정확히 597 mm가 된다.
+- 은색 측판, 파란 상단 림, 오목한 상판, 네 휠하우스 아치, 휠 허브, 상판의 규칙적인 홀
+  표시와 네 서비스 커버를 별도 형상으로 만들었다.
+- 높이 62 mm와 342 mm는 매뉴얼 명시값이다. 림 두께, 상판 오목 깊이, 아치 두께와
+  홀 간격처럼 치수가 없는 부분은 도면에서 스케일 추적했으며 JSON에
+  `manual_drawing_traced_and_scaled` 또는 `visual_only`로 구분했다.
+
+따라서 외곽 치수와 바퀴 배치는 매뉴얼 수치에 구속되지만, 스캔 도면에 없는 판재 두께,
+필렛 반지름, 실제 가공 홀 좌표를 제작용 CAD 수준의 정확값이라고 주장하지 않는다.
+
 ## 조향 명령 부호와 USD 관절 부호
 
 매뉴얼 조향 명령은 **음수=좌조향, 양수=우조향**이다. 반면 이 모델의 +X 전방,
@@ -97,7 +116,7 @@ root로 옮겼다. 사용자 요청에 따라 Isaac Sim 5.1 articulation에서 �
 옵션을 최대 범위로 켰다.
 
 - 결합 articulation의 `enabledSelfCollisions=true`
-- 합성 stage의 collider 29개 모두 `collisionEnabled=true`
+- 합성 stage의 collider 32개 모두 `collisionEnabled=true`
 - 활성 rigid body 32개 모두 `rigidBodyEnabled=true`
 - USD filtered pair와 collision group 제외 관계 0개
 
@@ -156,13 +175,19 @@ payload의 링크별 질량을 그대로 사용하며 ROMO-B의 55 kg에 포함�
 - 실물 모터 배선과 FL/FR/RL/RR 채널 대응
 - 조향 position drive와 휠 velocity drive의 제어 gain
 
-chassis 외형 폭 0.450 m와 휠 폭 0.068 m는 시뮬레이션 proxy다. 특히 휠 폭은
-`0.597-0.529`에서 유도한 값이지 실측값이 아니다. full self-collision에서 기존 0.450 m
-단일 chassis box를 그대로 collision에 쓰면, 비인접 pair인 chassis와 wheel이 약 3.03°
-조향부터 겹친다. ±30° wheel sweep의 충돌 없는 폭 상한은 0.348488 m이고 회전한 45 mm
-knuckle proxy까지 고려한 상한은 0.328529 m이므로, 보수적으로 0.320 m 중앙 collision
-core를 사용했다. 화면의 chassis 외형은 0.450 m로 유지된다. 이 0.320 m 역시 매뉴얼
-실측값이 아니며, 실제 wheel-well CAD 또는 실측 compound collider로 교체해야 한다.
+휠 폭 0.068 m는 `0.597-0.529`에서 유도한 값이지 실측값이 아니다. 화면 외형은 5쪽
+도면에 맞춘 0.529 m 측면과 휠하우스를 사용하지만, 이 외형 전체를 단일 collision으로
+쓰면 조향 휠과 겹친다. 따라서 collision은 네 부분으로 나눴다.
+
+- 길이 0.756 m, 폭 0.320 m의 중앙 core
+- 타이어 상단 0.206 m보다 12 mm 높은 `z=0.218 m`에서 시작하는 폭 0.529 m 상부 deck
+- ±30° 조향 휠의 X sweep 바깥인 `x=±0.300~0.378 m` 전·후 하부 end member
+
+±30° wheel sweep의 중앙 core 폭 상한은 0.348488 m이고 회전한 45 mm knuckle proxy까지
+고려한 상한은 0.328529 m이므로 core는 보수적으로 0.320 m를 유지했다. 네 collision
+shape는 모두 켜져 있다. 실제 휠하우스 깊이와 판재 두께는 매뉴얼에 없으므로 이 복합
+collider도 실측 CAD가 아니라 매뉴얼 외곽과 조향 공간을 함께 만족시키는 보수적
+시뮬레이션 형상이다.
 
 조향 knuckle body의
 `0.045 × 0.045 × 0.070 m` 크기(X×Y×Z)도 매뉴얼이나 실측에서 얻은 값이 아니라,

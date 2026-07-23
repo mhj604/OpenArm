@@ -102,10 +102,14 @@ def validate_collision_policy(stage: Usd.Stage, spec: dict, openarm_resolved: bo
     colliders = [prim for prim in active_prims if prim.HasAPI(UsdPhysics.CollisionAPI)]
     rigid_bodies = [prim for prim in active_prims if prim.HasAPI(UsdPhysics.RigidBodyAPI)]
     joints = [prim for prim in active_prims if bool(UsdPhysics.Joint(prim))]
-    expected = policy["expected_active_counts_with_openarm"]
-    minimum_colliders = int(expected["colliders"]) if openarm_resolved else 10
-    minimum_rigid_bodies = int(expected["rigid_bodies"]) if openarm_resolved else 9
-    minimum_joints = int(expected["joints"]) if openarm_resolved else 9
+    expected = (
+        policy["expected_active_counts_with_openarm"]
+        if openarm_resolved
+        else policy["expected_active_counts_without_openarm_payload"]
+    )
+    minimum_colliders = int(expected["colliders"])
+    minimum_rigid_bodies = int(expected["rigid_bodies"])
+    minimum_joints = int(expected["joints"])
     require(
         len(colliders) >= minimum_colliders,
         f"Expected at least {minimum_colliders} active colliders, got {len(colliders)}",
@@ -185,6 +189,131 @@ def validate_collision_policy(stage: Usd.Stage, spec: dict, openarm_resolved: bo
                     )
         require(not filtered_pairs, f"Filtered collision pairs found: {filtered_pairs}")
         require(not filtered_groups, f"Filtered collision groups found: {filtered_groups}")
+
+
+def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
+    """Check the manual-constrained external envelope and compound chassis shapes."""
+
+    dims = spec["romo_b"]["dimensions_m"]
+    proxy = spec["simulation_proxy"]
+    geometry = proxy["manual_external_geometry"]
+    chassis_height = (
+        float(dims["overall_height"]["value"])
+        - float(dims["ground_clearance"]["value"])
+    )
+    chassis_center_z = (
+        float(dims["ground_clearance"]["value"]) + chassis_height / 2.0
+    )
+
+    def mesh_range(path: str) -> tuple[list[float], list[float]]:
+        mesh = UsdGeom.Mesh.Get(stage, path)
+        require(bool(mesh), f"Missing manual external mesh: {path}")
+        points = mesh.GetPointsAttr().Get()
+        require(bool(points), f"Manual external mesh has no points: {path}")
+        minimum = [min(float(point[axis]) for point in points) for axis in range(3)]
+        maximum = [max(float(point[axis]) for point in points) for axis in range(3)]
+        return minimum, maximum
+
+    visual_root = f"{CHASSIS}/Visuals"
+    shell_minimum, shell_maximum = mesh_range(f"{visual_root}/SideShell")
+    close(
+        shell_maximum[0] - shell_minimum[0],
+        float(dims["overall_length"]["value"]),
+        "manual shell length",
+    )
+    close(
+        shell_maximum[1] - shell_minimum[1],
+        float(proxy["chassis_visual_width_m"]["value"]),
+        "manual shell width",
+    )
+    shell_section = geometry["body_sections_world_z_m"]["side_shell"]
+    close(
+        shell_minimum[2] + chassis_center_z,
+        float(shell_section[0]),
+        "manual shell lower Z",
+    )
+    close(
+        shell_maximum[2] + chassis_center_z,
+        float(shell_section[1]),
+        "manual shell upper Z",
+    )
+    rim_minimum, rim_maximum = mesh_range(f"{visual_root}/TopRim")
+    close(
+        rim_maximum[2] + chassis_center_z,
+        float(dims["overall_height"]["value"]),
+        "manual rim overall height",
+    )
+    close(
+        rim_maximum[0] - rim_minimum[0],
+        float(dims["overall_length"]["value"]),
+        "manual rim length",
+    )
+
+    fender_outer_y = float(geometry["wheel_fender_arch"]["outer_side_face_y_m"])
+    for corner in CORNERS:
+        camel = "".join(part.title() for part in corner.split("_"))
+        fender_minimum, fender_maximum = mesh_range(
+            f"{visual_root}/{camel}FenderArch"
+        )
+        actual_outer_y = (
+            fender_maximum[1]
+            if proxy["wheel_center_positions_m"][corner][1] > 0.0
+            else fender_minimum[1]
+        )
+        close(
+            abs(actual_outer_y),
+            fender_outer_y,
+            f"{corner} fender outer side",
+        )
+        require(
+            bool(stage.GetPrimAtPath(f"{ROBOT}/{camel}/Wheel/Visuals/Tire")),
+            f"Missing {corner} manual tire visual",
+        )
+        require(
+            bool(stage.GetPrimAtPath(f"{ROBOT}/{camel}/Wheel/Visuals/Hub")),
+            f"Missing {corner} manual hub visual",
+        )
+
+    cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [
+            UsdGeom.Tokens.default_,
+            UsdGeom.Tokens.guide,
+            UsdGeom.Tokens.proxy,
+            UsdGeom.Tokens.render,
+        ],
+    )
+    chassis_prim = stage.GetPrimAtPath(CHASSIS)
+    for part in proxy["chassis_compound_collision"]["parts"]:
+        path = f"{CHASSIS}/Collision/{part['name']}"
+        prim = stage.GetPrimAtPath(path)
+        require(bool(prim), f"Missing compound chassis collider: {path}")
+        require(prim.HasAPI(UsdPhysics.CollisionAPI), f"Missing CollisionAPI: {path}")
+        require(
+            UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get() is True,
+            f"Disabled compound chassis collider: {path}",
+        )
+        extent = cache.ComputeRelativeBound(prim, chassis_prim).ComputeAlignedRange()
+        actual_minimum = extent.GetMin()
+        actual_maximum = extent.GetMax()
+        actual_dimensions = actual_maximum - actual_minimum
+        actual_centre = (actual_minimum + actual_maximum) / 2.0
+        expected_centre = [
+            float(part["centre_world_m"][0]),
+            float(part["centre_world_m"][1]),
+            float(part["centre_world_m"][2]) - chassis_center_z,
+        ]
+        for axis, expected_dimension in enumerate(part["dimensions_m"]):
+            close(
+                float(actual_dimensions[axis]),
+                float(expected_dimension),
+                f"{part['name']} collider dimension {'xyz'[axis]}",
+            )
+            close(
+                float(actual_centre[axis]),
+                expected_centre[axis],
+                f"{part['name']} collider centre {'xyz'[axis]}",
+            )
 
 
 def validate_openarm_initial_state(stage: Usd.Stage, spec: dict, openarm_resolved: bool) -> None:
@@ -437,6 +566,7 @@ def validate(
 
     close(total_mass, float(spec["romo_b"]["mass_kg"]["platform_total"]["value"]), "allocated ROMO-B mass")
     close(total_mass, float(masses["aggregate"]), "declared proxy mass")
+    validate_romob_external_geometry(stage, spec)
 
     arm_prim = stage.GetPrimAtPath(ARM)
     require(bool(arm_prim), f"Missing OpenArm prim: {ARM}")

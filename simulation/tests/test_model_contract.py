@@ -75,7 +75,45 @@ class ModelContractTest(unittest.TestCase):
         self.assertIn("collision_and_visual", knuckle_size["quality"])
         self.assertIn("not provide", knuckle_size["source"])
 
-        self.assertClose(float(proxy["chassis_visual_width_m"]["value"]), 0.45)
+        self.assertClose(
+            float(proxy["chassis_visual_width_m"]["value"]),
+            float(dims["wheel_track"]["value"]),
+        )
+        self.assertIn(
+            "manual_drawing_traced",
+            proxy["chassis_visual_width_m"]["quality"],
+        )
+        wheel_outer_span = (
+            float(dims["wheel_track"]["value"])
+            + float(proxy["wheel_width_m"]["value"])
+        )
+        self.assertClose(wheel_outer_span, float(dims["overall_width"]["value"]))
+
+        manual_geometry = proxy["manual_external_geometry"]
+        outline = manual_geometry["body_outline_normalized_xy"]
+        self.assertEqual(len(outline["value"]), 12)
+        self.assertEqual(outline["axis_scale_m"], [0.378, 0.2645])
+        scaled_x = [
+            float(point[0]) * float(outline["axis_scale_m"][0])
+            for point in outline["value"]
+        ]
+        scaled_y = [
+            float(point[1]) * float(outline["axis_scale_m"][1])
+            for point in outline["value"]
+        ]
+        self.assertClose(max(scaled_x) - min(scaled_x), float(dims["overall_length"]["value"]))
+        self.assertClose(
+            max(scaled_y) - min(scaled_y),
+            float(proxy["chassis_visual_width_m"]["value"]),
+        )
+        sections = manual_geometry["body_sections_world_z_m"]
+        self.assertClose(float(sections["side_shell"][0]), float(dims["ground_clearance"]["value"]))
+        self.assertClose(float(sections["top_rim"][1]), float(dims["overall_height"]["value"]))
+        self.assertClose(
+            2.0 * float(manual_geometry["wheel_fender_arch"]["outer_side_face_y_m"]),
+            float(dims["overall_width"]["value"]),
+        )
+
         chassis_collision_width = float(proxy["chassis_collision_width_m"]["value"])
         self.assertClose(chassis_collision_width, 0.32)
         steering_limit_rad = math.radians(
@@ -95,6 +133,23 @@ class ModelContractTest(unittest.TestCase):
         self.assertLess(chassis_collision_width, wheel_sweep_bound)
         self.assertLess(chassis_collision_width, rotated_knuckle_bound)
         self.assertIn("not_measured", proxy["chassis_collision_width_m"]["quality"])
+
+        collision_parts = proxy["chassis_compound_collision"]["parts"]
+        self.assertEqual([part["name"] for part in collision_parts], [
+            "Core",
+            "TopDeck",
+            "FrontLower",
+            "RearLower",
+        ])
+        top_deck = collision_parts[1]
+        top_deck_bottom = (
+            float(top_deck["centre_world_m"][2])
+            - float(top_deck["dimensions_m"][2]) / 2.0
+        )
+        self.assertGreater(
+            top_deck_bottom,
+            float(dims["wheel_diameter"]["value"]),
+        )
 
     def test_manual_steering_sign_is_mapped_to_usd_positive_z(self) -> None:
         convention = self.spec["romo_b"]["steering_command_convention"]
@@ -180,6 +235,19 @@ class ModelContractTest(unittest.TestCase):
             'def Xform "ROMOBOpenArm"',
             'PhysicsArticulationRootAPI',
             'PhysxArticulationAPI',
+            'def Mesh "SideShell"',
+            'def Mesh "TopRim"',
+            'def Mesh "RecessedTopPlate"',
+            'def Mesh "FrontLeftFenderArch"',
+            'def Scope "Collision"',
+            'def Cube "Core"',
+            'def Cube "TopDeck"',
+            'def Cube "FrontLower"',
+            'def Cube "RearLower"',
+            'def Scope "Visuals"',
+            'def Cylinder "Tire"',
+            'def Cylinder "Hub"',
+            'def Cylinder "HubCap"',
             'def PhysicsRevoluteJoint "front_left_steering_joint"',
             'def PhysicsRevoluteJoint "rear_right_wheel_joint"',
             'def PhysicsFixedJoint "openarm_mount_joint"',
@@ -200,7 +268,7 @@ class ModelContractTest(unittest.TestCase):
             self.assertIn(token, self.asset_text)
         self.assertNotIn("PhysicsFilteredPairsAPI", self.asset_text)
         self.assertNotIn("physics:filteredPairs", self.asset_text)
-        self.assertEqual(self.asset_text.count("bool physics:collisionEnabled = 1"), 29)
+        self.assertEqual(self.asset_text.count("bool physics:collisionEnabled = 1"), 32)
         self.assertEqual(self.asset_text.count("bool physics:rigidBodyEnabled = 1"), 32)
 
 
