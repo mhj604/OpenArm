@@ -11,8 +11,6 @@
 | [OpenArm drive summary](../source_files/hardware/OpenArm_drive_summary_janghyun.pdf) | arm-operation context |
 | [OpenArm ClassicCAN manual](../source_files/hardware/OpenArm_v1_ClassicCAN_ExoArm_command_manual.pdf) | arm interface context |
 | [OpenArm command poster](../source_files/hardware/OpenArm_v1_ExoArm_command_poster.png) | arm-command reference |
-| [OpenArm USD](../source_files/simulation/openarm_test.usd) | simulation asset context |
-| [OpenArm USD v2](../source_files/simulation/openarm_test_v2.usd) | v2 simulation asset context |
 
 The generated ROMO-B/OpenArm scene additionally references the NVIDIA Isaac Sim 5.1 OpenArm
 bimanual asset at
