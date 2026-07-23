@@ -119,7 +119,7 @@ def main() -> None:
             for prim in colliders
             if UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get() is False
         ]
-        if len(colliders) < 29 or disabled_colliders:
+        if len(colliders) < 32 or disabled_colliders:
             raise RuntimeError(
                 f"Full collision policy failed: colliders={len(colliders)}, disabled={disabled_colliders}"
             )
@@ -269,17 +269,32 @@ def main() -> None:
                     UsdGeom.Tokens.render,
                 ],
             )
-            chassis_collider = stage.GetPrimAtPath(
-                "/World/ROMOBOpenArm/Chassis/Collision"
-            )
             chassis_prim = stage.GetPrimAtPath("/World/ROMOBOpenArm/Chassis")
-            if not chassis_collider or not chassis_prim:
-                raise RuntimeError("ROMO-B chassis collision core is missing")
+            if not chassis_prim:
+                raise RuntimeError("ROMO-B chassis is missing")
+            chassis_colliders = [
+                prim
+                for prim in Usd.PrimRange(chassis_prim)
+                if prim.HasAPI(UsdPhysics.CollisionAPI)
+                and UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get()
+                is True
+            ]
+            if len(chassis_colliders) != 4:
+                raise RuntimeError(
+                    "ROMO-B compound chassis collision is incomplete: "
+                    f"{[prim.GetPath().pathString for prim in chassis_colliders]}"
+                )
             # Compare in the chassis frame. World-axis AABBs widen when the whole
             # robot yaws or rolls and can report a false wheel/chassis overlap.
-            chassis_range = cache.ComputeRelativeBound(
-                chassis_collider, chassis_prim
-            ).ComputeAlignedRange()
+            chassis_ranges = [
+                (
+                    collider.GetPath().pathString,
+                    cache.ComputeRelativeBound(
+                        collider, chassis_prim
+                    ).ComputeAlignedRange(),
+                )
+                for collider in chassis_colliders
+            ]
             minimum_gap = math.inf
             for corner in ("FrontLeft", "FrontRight", "RearLeft", "RearRight"):
                 wheel_collider = stage.GetPrimAtPath(
@@ -288,16 +303,33 @@ def main() -> None:
                 wheel_range = cache.ComputeRelativeBound(
                     wheel_collider, chassis_prim
                 ).ComputeAlignedRange()
-                gap = max(
-                    float(chassis_range.GetMin()[1] - wheel_range.GetMax()[1]),
-                    float(wheel_range.GetMin()[1] - chassis_range.GetMax()[1]),
-                )
-                if gap < -1e-5:
-                    raise RuntimeError(
-                        "Steering sweep overlaps chassis and "
-                        f"{corner} wheel chassis-frame AABBs by {-gap:.6f} m"
-                    )
-                minimum_gap = min(minimum_gap, gap)
+                for chassis_path, chassis_range in chassis_ranges:
+                    # Two three-dimensional AABBs are separated if at least one
+                    # axis has a positive face-to-face gap. Taking the maximum
+                    # axis gap therefore accepts the full-width deck above the
+                    # wheel and the end members ahead/behind it, while still
+                    # rejecting overlap on all three axes.
+                    axis_gaps = [
+                        max(
+                            float(
+                                chassis_range.GetMin()[axis]
+                                - wheel_range.GetMax()[axis]
+                            ),
+                            float(
+                                wheel_range.GetMin()[axis]
+                                - chassis_range.GetMax()[axis]
+                            ),
+                        )
+                        for axis in range(3)
+                    ]
+                    gap = max(axis_gaps)
+                    if gap < -1e-5:
+                        raise RuntimeError(
+                            "Steering sweep overlaps compound chassis collider "
+                            f"{chassis_path} and {corner} wheel chassis-frame "
+                            f"AABBs by {-gap:.6f} m; axis_gaps={axis_gaps}"
+                        )
+                    minimum_gap = min(minimum_gap, gap)
             return minimum_gap
 
         steering_corners = (
@@ -493,7 +525,8 @@ def main() -> None:
             flush=True,
         )
         print(
-            f"minimum wheel-to-chassis AABB gap: {minimum_wheel_chassis_gap:.6f} m",
+            "minimum wheel-to-compound-chassis AABB gap: "
+            f"{minimum_wheel_chassis_gap:.6f} m",
             flush=True,
         )
         print(

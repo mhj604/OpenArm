@@ -59,6 +59,11 @@ members. The wheel-well profile and panel thickness are not dimensioned in the m
 collision pieces remain conservative proxies and must not be treated as production CAD. Re-run the
 integration smoke test after changing any mount, collision proxy, or joint pose.
 
+The current 240-step `+30/-30/0 deg` PhysX steering sweep checks every wheel against every compound
+chassis collider in the chassis frame. It completed with a minimum three-dimensional AABB gap of
+`0.004066 m`, maximum steering target error of `0.469584 deg`, and no penetrating or impulsive
+self-contact.
+
 The NVIDIA bimanual zero pose penetrates a non-adjacent base/link collider when unfiltered
 self-collision is enabled. The generated stage therefore starts from a PhysX-validated symmetric
 pose: left/right joint2 at `-90/+90 deg` and both grippers open at `0.044 m`. The shoulder angles
@@ -109,7 +114,8 @@ python -m unittest discover -s simulation/tests -v
 
 Run a 240-step integration smoke test with Isaac Sim 5.1. Add `--steering-sweep` to exercise all
 four steering joints through +30, -30, and 0 degrees, verify that each target is reached within
-1 degree, and check wheel/chassis clearance plus every-step contact reports:
+1 degree, and check every wheel against every compound chassis collider plus every-step contact
+reports:
 
 ```bash
 python simulation/scripts/run_isaacsim_smoke.py --steps 240 --steering-sweep

@@ -189,6 +189,11 @@ shape는 모두 켜져 있다. 실제 휠하우스 깊이와 판재 두께는 �
 collider도 실측 CAD가 아니라 매뉴얼 외곽과 조향 공간을 함께 만족시키는 보수적
 시뮬레이션 형상이다.
 
+현재 복합 collider 검사기는 chassis 좌표계에서 네 휠과 네 chassis collider의 3차원
+AABB 조합 16개를 매 step 비교한다. 240 step `+30° → -30° → 0°` PhysX 조향 검사에서
+최소 여유는 0.004066 m, 최대 조향 목표 오차는 0.469584°였고 음수 separation 또는
+nonzero self-contact impulse는 발생하지 않았다.
+
 조향 knuckle body의
 `0.045 × 0.045 × 0.070 m` 크기(X×Y×Z)도 매뉴얼이나 실측에서 얻은 값이 아니라,
 형상을 보이기 위한 **unverified simulation proxy**다. 현재 builder에서는
@@ -219,7 +224,8 @@ USD는 `build_romo_b_openarm_usda.py`로 재생성하고, 다음 세 단계로 �
 2. pxr 정적 검사: stage 단위, prim, articulation, joint 축·한계·body 관계, payload와 mount
 3. Isaac Sim smoke test: OpenArm payload 해석 후 240 fixed physics step 전체의 contact
    report와 ±30° 조향 sweep에서 self-penetration, impulse, 유한 pose, 과도한 변위,
-   조향 목표 1° 이내 도달 및 chassis-frame wheel↔chassis AABB 간섭 여부 확인
+   조향 목표 1° 이내 도달 및 chassis-frame에서 각 wheel↔복합 chassis collider의
+   3차원 AABB 간섭 여부 확인
 
 정적 검사는 payload를 불러오지 않아 오프라인으로 수행할 수 있다. payload 해석 검사와
 smoke test에는 Isaac Sim 5.1 자산 캐시 또는 네트워크가 필요하다.
