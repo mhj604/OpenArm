@@ -258,6 +258,30 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
         float(dims["overall_length"]["value"]),
         "manual rim length",
     )
+    for end_name, end_sign in (("Front", 1.0), ("Rear", -1.0)):
+        bumper_minimum, bumper_maximum = mesh_range(
+            f"{visual_root}/{end_name}LowerBumper"
+        )
+        close(
+            bumper_minimum[0],
+            end_sign * float(dims["overall_length"]["value"]) / 2.0,
+            f"{end_name} bumper X",
+        )
+        close(
+            bumper_maximum[1] - bumper_minimum[1],
+            0.200,
+            f"{end_name} bumper width",
+        )
+        close(
+            bumper_minimum[2] + chassis_center_z,
+            float(dims["ground_clearance"]["value"]),
+            f"{end_name} bumper lower Z",
+        )
+        close(
+            bumper_maximum[2] + chassis_center_z,
+            0.127,
+            f"{end_name} bumper upper Z",
+        )
 
     fender_outer_y = float(geometry["wheel_fender_arch"]["outer_side_face_y_m"])
     for corner in CORNERS:

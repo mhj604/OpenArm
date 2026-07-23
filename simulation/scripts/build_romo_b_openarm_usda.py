@@ -115,6 +115,7 @@ def add_extruded_polygon_mesh(
     z_min: float,
     z_max: float,
     color: tuple[float, float, float],
+    skip_side_edges: set[int] | None = None,
 ) -> UsdGeom.Mesh:
     """Extrude a counter-clockwise XY polygon into a deterministic visual mesh."""
 
@@ -126,9 +127,14 @@ def add_extruded_polygon_mesh(
         for z in (z_min, z_max)
         for x, y in xy_points
     ]
-    face_counts = [count, count] + [4] * count
+    skipped = skip_side_edges or set()
+    if any(index < 0 or index >= count for index in skipped):
+        raise ValueError("Skipped polygon edge index is outside the contour")
+    face_counts = [count, count] + [4] * (count - len(skipped))
     face_indices = list(reversed(range(count))) + list(range(count, 2 * count))
     for index in range(count):
+        if index in skipped:
+            continue
         following = (index + 1) % count
         face_indices.extend(
             [index, following, count + following, count + index]
@@ -138,6 +144,35 @@ def add_extruded_polygon_mesh(
     mesh.CreatePointsAttr(points)
     mesh.CreateFaceVertexCountsAttr(face_counts)
     mesh.CreateFaceVertexIndicesAttr(face_indices)
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
+def add_yz_panel_mesh(
+    stage: Usd.Stage,
+    path: str,
+    x: float,
+    y_min: float,
+    y_max: float,
+    z_min: float,
+    z_max: float,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Create a double-sided end-panel quad in a constant-X plane."""
+
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(
+        [
+            Gf.Vec3f(x, y_min, z_min),
+            Gf.Vec3f(x, y_max, z_min),
+            Gf.Vec3f(x, y_max, z_max),
+            Gf.Vec3f(x, y_min, z_max),
+        ]
+    )
+    mesh.CreateFaceVertexCountsAttr([4])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
     mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
     mesh.CreateDoubleSidedAttr(True)
     mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
@@ -487,6 +522,9 @@ def build(spec_path: Path, output_path: Path) -> None:
         side_shell_z[0],
         side_shell_z[1],
         aluminium,
+        # The flat front/rear faces are built from non-overlapping coloured
+        # panels below. Omitting them here prevents coplanar z-fighting.
+        skip_side_edges={5, 11},
     )
     custom_attr(
         side_shell.GetPrim(),
@@ -548,18 +586,45 @@ def build(spec_path: Path, output_path: Path) -> None:
             romo_blue,
         )
 
+    flat_end_half_width = outline_scale[1] * 0.48
+    bumper_half_width = 0.100
+    bumper_top_z = 0.127 - chassis_center_z
     for end_name, end_sign in (("Front", 1.0), ("Rear", -1.0)):
-        add_translated_box(
+        end_x = end_sign * length / 2.0
+        add_yz_panel_mesh(
+            stage,
+            f"{visual_root}/{end_name}UpperPanel",
+            x=end_x,
+            y_min=-flat_end_half_width,
+            y_max=flat_end_half_width,
+            z_min=bumper_top_z,
+            z_max=side_shell_z[1],
+            color=aluminium,
+        )
+        add_yz_panel_mesh(
             stage,
             f"{visual_root}/{end_name}LowerBumper",
-            dimensions=(0.010, 0.200, 0.065),
-            centre=(
-                end_sign * (length / 2.0 - 0.005),
-                0.0,
-                0.096 - chassis_center_z,
-            ),
+            x=end_x,
+            y_min=-bumper_half_width,
+            y_max=bumper_half_width,
+            z_min=side_shell_z[0],
+            z_max=bumper_top_z,
             color=romo_blue,
         )
+        for side_name, y_min, y_max in (
+            ("Left", bumper_half_width, flat_end_half_width),
+            ("Right", -flat_end_half_width, -bumper_half_width),
+        ):
+            add_yz_panel_mesh(
+                stage,
+                f"{visual_root}/{end_name}Lower{side_name}Panel",
+                x=end_x,
+                y_min=y_min,
+                y_max=y_max,
+                z_min=side_shell_z[0],
+                z_max=bumper_top_z,
+                color=aluminium,
+            )
     add_translated_box(
         stage,
         f"{visual_root}/RightControlPanel",
