@@ -19,6 +19,8 @@ REQUIRED = [
     ROOT / "README.md",
     ROOT / "docs" / "RESEARCH_AUDIT_KO.md",
     ROOT / "docs" / "EXPERIMENT_PROTOCOL_KO.md",
+    ROOT / "docs" / "ROMOB_LIVOX_SPEC_SHEET_KO.md",
+    ROOT / "docs" / "ROMOB_LIVOX_INTEGRATION_MANUAL_KO.md",
     ROOT / "docs" / "VENUE_AND_CLAIM_BOUNDARIES_KO.md",
     ROOT / "references" / "references.bib",
     ROOT / "references" / "SOURCES.md",

@@ -11,6 +11,8 @@
 
 ## 문서 안내
 
+- [ROMO-B 및 Livox Mid-360 통합 스펙시트](docs/ROMOB_LIVOX_SPEC_SHEET_KO.md)
+- [ROMO-B 및 Livox Mid-360 통합 운용 매뉴얼](docs/ROMOB_LIVOX_INTEGRATION_MANUAL_KO.md)
 - [엄격한 연구 분석](docs/RESEARCH_AUDIT_KO.md)
 - [하드웨어 실험 프로토콜](docs/EXPERIMENT_PROTOCOL_KO.md)
 - [저널·주장 경계](docs/VENUE_AND_CLAIM_BOUNDARIES_KO.md)
