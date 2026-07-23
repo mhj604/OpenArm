@@ -144,6 +144,85 @@ def add_extruded_polygon_mesh(
     return mesh
 
 
+def add_extruded_polygon_ring_mesh(
+    stage: Usd.Stage,
+    path: str,
+    outer_xy: list[tuple[float, float]],
+    inner_xy: list[tuple[float, float]],
+    z_min: float,
+    z_max: float,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Extrude matching outer/inner polygons while keeping the centre open."""
+
+    if len(outer_xy) < 3 or len(outer_xy) != len(inner_xy):
+        raise ValueError("A polygon ring needs matching outer and inner contours")
+    count = len(outer_xy)
+    points: list[Gf.Vec3f] = []
+    for z in (z_min, z_max):
+        for contour in (outer_xy, inner_xy):
+            points.extend(
+                Gf.Vec3f(float(x), float(y), float(z))
+                for x, y in contour
+            )
+
+    def vertex(z_index: int, contour_index: int, point_index: int) -> int:
+        return z_index * 2 * count + contour_index * count + point_index
+
+    face_counts: list[int] = []
+    face_indices: list[int] = []
+
+    def quad(indices: tuple[int, int, int, int]) -> None:
+        face_counts.append(4)
+        face_indices.extend(indices)
+
+    for index in range(count):
+        following = (index + 1) % count
+        # Recessed top/bottom annulus.
+        quad(
+            (
+                vertex(1, 0, index),
+                vertex(1, 0, following),
+                vertex(1, 1, following),
+                vertex(1, 1, index),
+            )
+        )
+        quad(
+            (
+                vertex(0, 1, index),
+                vertex(0, 1, following),
+                vertex(0, 0, following),
+                vertex(0, 0, index),
+            )
+        )
+        # Outer and inner vertical walls.
+        quad(
+            (
+                vertex(0, 0, index),
+                vertex(0, 0, following),
+                vertex(1, 0, following),
+                vertex(1, 0, index),
+            )
+        )
+        quad(
+            (
+                vertex(0, 1, following),
+                vertex(0, 1, index),
+                vertex(1, 1, index),
+                vertex(1, 1, following),
+            )
+        )
+
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(face_counts)
+    mesh.CreateFaceVertexIndicesAttr(face_indices)
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
 def add_arch_band_mesh(
     stage: Usd.Stage,
     path: str,
@@ -415,19 +494,20 @@ def build(spec_path: Path, output_path: Path) -> None:
         Sdf.ValueTypeNames.String,
         manual_geometry["quality"],
     )
-    add_extruded_polygon_mesh(
-        stage,
-        f"{visual_root}/TopRim",
-        outline,
-        rim_z[0],
-        rim_z[1],
-        romo_blue,
-    )
     plate_scale = tuple(float(item) for item in manual_geometry["top_plate_scale_xy"]["value"])
     plate_outline = [
         (point[0] * plate_scale[0], point[1] * plate_scale[1])
         for point in outline
     ]
+    add_extruded_polygon_ring_mesh(
+        stage,
+        f"{visual_root}/TopRim",
+        outline,
+        plate_outline,
+        rim_z[0],
+        rim_z[1],
+        romo_blue,
+    )
     add_extruded_polygon_mesh(
         stage,
         f"{visual_root}/RecessedTopPlate",

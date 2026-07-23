@@ -238,6 +238,16 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
         "manual shell upper Z",
     )
     rim_minimum, rim_maximum = mesh_range(f"{visual_root}/TopRim")
+    rim_mesh = UsdGeom.Mesh.Get(stage, f"{visual_root}/TopRim")
+    rim_points = rim_mesh.GetPointsAttr().Get()
+    expected_rim_points = 4 * len(
+        geometry["body_outline_normalized_xy"]["value"]
+    )
+    require(
+        len(rim_points) == expected_rim_points,
+        "Top rim must contain separate outer/inner contours at both Z levels: "
+        f"{len(rim_points)} != {expected_rim_points}",
+    )
     close(
         rim_maximum[2] + chassis_center_z,
         float(dims["overall_height"]["value"]),
