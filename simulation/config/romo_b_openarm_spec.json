@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "model_scope": "manual-constrained simulation proxy",
   "coordinate_frame": {
     "convention": "REP-103-like body frame",
@@ -326,26 +326,36 @@
         "quality": "manual_stated_envelope_plus_drawing_traced_section_breaks"
       },
       "top_plate_scale_xy": {
-        "value": [0.82, 0.74],
-        "quality": "manual_drawing_traced_and_scaled"
+        "value": [0.86, 0.85],
+        "derivation": "The page 5 inner-plate contour is scaled to leave approximately half of the user-confirmed 50 mm pitch outside the 600 x 400 mm centre-to-centre grid span.",
+        "quality": "manual_drawing_traced_and_user_spacing_constrained"
       },
       "mounting_hole_marker_grid": {
-        "columns": 11,
-        "rows": 7,
-        "spacing_m": [0.050, 0.044],
+        "columns": 13,
+        "rows": 9,
+        "spacing_m": [0.050, 0.050],
+        "spacing_quality": "user_supplied_exact_pitch",
+        "corner_mask": {
+          "outer_columns_each_side": 3,
+          "outer_rows_each_end": 2,
+          "masked_marker_count": 24,
+          "visible_marker_count": 93,
+          "derivation": "13*9 - 4*(3*2) = 93 visible small holes; page 5 shows each corner cover occupying the outer three columns across the outer two rows."
+        },
         "marker_radius_m": 0.003,
-        "quality": "visual_only_manual_drawing_pattern_not_dimensioned",
-        "warning": "Markers reproduce the visible regular pattern but are not manufacturing hole coordinates."
+        "quality": "visual_only_manual_counted_pattern_with_user_supplied_pitch",
+        "warning": "The 50 mm pitch is user-confirmed and the 93-hole visibility mask is counted from page 5. Hole diameter and the absolute manufacturing datum are not provided."
       },
       "top_service_covers": {
         "centres_xy_m": [
-          [0.270, 0.160],
-          [0.270, -0.160],
-          [-0.270, 0.160],
-          [-0.270, -0.160]
+          [0.225, 0.175],
+          [0.225, -0.175],
+          [-0.225, 0.175],
+          [-0.225, -0.175]
         ],
-        "radius_m": 0.038,
-        "quality": "visual_only_manual_drawing_traced_and_scaled"
+        "radius_m": 0.065,
+        "derivation": "Centres and radius are scale-traced from the four page 5 corner circles after constraining the adjacent hole lattice to the user-confirmed 50 mm pitch.",
+        "quality": "visual_only_manual_drawing_traced_and_user_spacing_constrained"
       },
       "wheel_fender_arch": {
         "inner_radius_m": 0.112,

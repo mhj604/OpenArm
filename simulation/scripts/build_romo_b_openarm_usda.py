@@ -546,7 +546,7 @@ def build(spec_path: Path, output_path: Path) -> None:
         rim_z[1],
         romo_blue,
     )
-    add_extruded_polygon_mesh(
+    top_plate = add_extruded_polygon_mesh(
         stage,
         f"{visual_root}/RecessedTopPlate",
         plate_outline,
@@ -559,10 +559,45 @@ def build(spec_path: Path, output_path: Path) -> None:
     columns = int(grid["columns"])
     rows = int(grid["rows"])
     spacing_x, spacing_y = (float(item) for item in grid["spacing_m"])
+    corner_mask = grid["corner_mask"]
+    outer_columns = int(corner_mask["outer_columns_each_side"])
+    outer_rows = int(corner_mask["outer_rows_each_end"])
+    expected_visible_markers = int(corner_mask["visible_marker_count"])
+    custom_attr(
+        top_plate.GetPrim(),
+        "romoB:topHoleGridColumns",
+        Sdf.ValueTypeNames.Int,
+        columns,
+    )
+    custom_attr(
+        top_plate.GetPrim(),
+        "romoB:topHoleGridRows",
+        Sdf.ValueTypeNames.Int,
+        rows,
+    )
+    custom_attr(
+        top_plate.GetPrim(),
+        "romoB:topHolePitchM",
+        Sdf.ValueTypeNames.Double,
+        spacing_x,
+    )
+    custom_attr(
+        top_plate.GetPrim(),
+        "romoB:visibleTopHoleCount",
+        Sdf.ValueTypeNames.Int,
+        expected_visible_markers,
+    )
     marker_z = plate_z[1] + 0.0006
+    visible_marker_count = 0
     for row in range(rows):
         y = (row - (rows - 1) / 2.0) * spacing_y
         for column in range(columns):
+            in_outer_rows = row < outer_rows or row >= rows - outer_rows
+            in_outer_columns = (
+                column < outer_columns or column >= columns - outer_columns
+            )
+            if in_outer_rows and in_outer_columns:
+                continue
             x = (column - (columns - 1) / 2.0) * spacing_x
             add_cylinder(
                 stage,
@@ -573,6 +608,12 @@ def build(spec_path: Path, output_path: Path) -> None:
                 (x, y, marker_z),
                 dark_detail,
             )
+            visible_marker_count += 1
+    if visible_marker_count != expected_visible_markers:
+        raise ValueError(
+            "Top-hole visibility mask produced "
+            f"{visible_marker_count} markers, expected {expected_visible_markers}"
+        )
 
     service_covers = manual_geometry["top_service_covers"]
     for index, centre_xy in enumerate(service_covers["centres_xy_m"]):

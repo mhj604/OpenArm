@@ -258,6 +258,89 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
         float(dims["overall_length"]["value"]),
         "manual rim length",
     )
+    top_plate_path = f"{visual_root}/RecessedTopPlate"
+    top_plate_prim = stage.GetPrimAtPath(top_plate_path)
+    require(bool(top_plate_prim), f"Missing top plate: {top_plate_path}")
+    grid = geometry["mounting_hole_marker_grid"]
+    columns = int(grid["columns"])
+    rows = int(grid["rows"])
+    spacing_x, spacing_y = (float(item) for item in grid["spacing_m"])
+    require(
+        math.isclose(spacing_x, spacing_y, rel_tol=0.0, abs_tol=1e-12),
+        "Top-hole X/Y pitch must be identical",
+    )
+    corner_mask = grid["corner_mask"]
+    outer_columns = int(corner_mask["outer_columns_each_side"])
+    outer_rows = int(corner_mask["outer_rows_each_end"])
+    expected_visible_markers = int(corner_mask["visible_marker_count"])
+    expected_masked_markers = 4 * outer_columns * outer_rows
+    require(
+        expected_masked_markers == int(corner_mask["masked_marker_count"]),
+        "Top-hole masked-marker count mismatch",
+    )
+    require(
+        columns * rows - expected_masked_markers == expected_visible_markers,
+        "Top-hole visible-marker formula mismatch",
+    )
+    marker_paths: set[str] = set()
+    for row in range(rows):
+        for column in range(columns):
+            path = f"{visual_root}/TopHoleMarker_r{row:02d}_c{column:02d}"
+            in_outer_rows = row < outer_rows or row >= rows - outer_rows
+            in_outer_columns = (
+                column < outer_columns or column >= columns - outer_columns
+            )
+            should_exist = not (in_outer_rows and in_outer_columns)
+            exists = bool(stage.GetPrimAtPath(path))
+            require(
+                exists == should_exist,
+                f"Top-hole corner mask mismatch at row {row}, column {column}",
+            )
+            if exists:
+                marker_paths.add(path)
+    require(
+        len(marker_paths) == expected_visible_markers,
+        f"Visible top-hole marker count: {len(marker_paths)} != {expected_visible_markers}",
+    )
+    require(
+        int(top_plate_prim.GetAttribute("romoB:topHoleGridColumns").Get())
+        == columns,
+        "Top-plate column metadata mismatch",
+    )
+    require(
+        int(top_plate_prim.GetAttribute("romoB:topHoleGridRows").Get()) == rows,
+        "Top-plate row metadata mismatch",
+    )
+    close(
+        float(top_plate_prim.GetAttribute("romoB:topHolePitchM").Get()),
+        spacing_x,
+        "top-hole pitch metadata",
+    )
+    require(
+        int(top_plate_prim.GetAttribute("romoB:visibleTopHoleCount").Get())
+        == expected_visible_markers,
+        "Top-plate visible-hole metadata mismatch",
+    )
+    close(
+        local_translation(
+            stage, f"{visual_root}/TopHoleMarker_r02_c01"
+        )[0]
+        - local_translation(
+            stage, f"{visual_root}/TopHoleMarker_r02_c00"
+        )[0],
+        spacing_x,
+        "adjacent top-hole X pitch",
+    )
+    close(
+        local_translation(
+            stage, f"{visual_root}/TopHoleMarker_r03_c00"
+        )[1]
+        - local_translation(
+            stage, f"{visual_root}/TopHoleMarker_r02_c00"
+        )[1],
+        spacing_y,
+        "adjacent top-hole Y pitch",
+    )
     for end_name, end_sign in (("Front", 1.0), ("Rear", -1.0)):
         bumper_minimum, bumper_maximum = mesh_range(
             f"{visual_root}/{end_name}LowerBumper"

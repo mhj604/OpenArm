@@ -109,6 +109,26 @@ class ModelContractTest(unittest.TestCase):
         sections = manual_geometry["body_sections_world_z_m"]
         self.assertClose(float(sections["side_shell"][0]), float(dims["ground_clearance"]["value"]))
         self.assertClose(float(sections["top_rim"][1]), float(dims["overall_height"]["value"]))
+        self.assertEqual(
+            manual_geometry["top_plate_scale_xy"]["value"],
+            [0.86, 0.85],
+        )
+        grid = manual_geometry["mounting_hole_marker_grid"]
+        self.assertEqual(grid["columns"], 13)
+        self.assertEqual(grid["rows"], 9)
+        self.assertEqual(grid["spacing_m"], [0.050, 0.050])
+        self.assertIn("user_supplied", grid["spacing_quality"])
+        corner_mask = grid["corner_mask"]
+        masked = 4 * int(corner_mask["outer_columns_each_side"]) * int(
+            corner_mask["outer_rows_each_end"]
+        )
+        self.assertEqual(masked, 24)
+        self.assertEqual(masked, int(corner_mask["masked_marker_count"]))
+        self.assertEqual(
+            grid["columns"] * grid["rows"] - masked,
+            int(corner_mask["visible_marker_count"]),
+        )
+        self.assertEqual(int(corner_mask["visible_marker_count"]), 93)
         fender = manual_geometry["wheel_fender_arch"]
         self.assertClose(
             2.0 * float(fender["inner_side_face_y_m"]),
@@ -278,6 +298,12 @@ class ModelContractTest(unittest.TestCase):
             self.assertIn(token, self.asset_text)
         self.assertNotIn("PhysicsFilteredPairsAPI", self.asset_text)
         self.assertNotIn("physics:filteredPairs", self.asset_text)
+        self.assertEqual(
+            self.asset_text.count('def Cylinder "TopHoleMarker_'),
+            93,
+        )
+        self.assertIn("custom double romoB:topHolePitchM = 0.05", self.asset_text)
+        self.assertIn("custom int romoB:visibleTopHoleCount = 93", self.asset_text)
         self.assertEqual(self.asset_text.count("bool physics:collisionEnabled = 1"), 32)
         self.assertEqual(self.asset_text.count("bool physics:rigidBodyEnabled = 1"), 32)
 

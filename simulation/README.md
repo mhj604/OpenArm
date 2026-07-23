@@ -16,6 +16,9 @@ in Git. The model is generated from
   are reconstructed from the manual's page 5 orthographic drawing and page 6 photograph. Printed
   envelope dimensions constrain the result; undimensioned contour coordinates are explicitly
   marked `manual_drawing_traced_and_scaled`.
+- The recessed top uses the 13-by-9 lattice visible on page 5. Its pitch is 0.050 m in both axes,
+  as confirmed by the user. Four 3-by-2 corner groups are occupied by the circular covers, leaving
+  93 visible small-hole markers rather than the previous arbitrary 11-by-7 pattern.
 - Derived geometry and simulation-only choices are marked `derived`, `proxy`, `traced`, or
   `unverified`.
 - OpenArm geometry, links, joints, masses, and inertias come from the NVIDIA Isaac Sim 5.1 OpenArm

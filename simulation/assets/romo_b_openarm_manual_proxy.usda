@@ -83,7 +83,7 @@ def Xform "World"
                     uniform bool doubleSided = 1
                     int[] faceVertexCounts = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
                     int[] faceVertexIndices = [24, 25, 37, 36, 12, 13, 1, 0, 0, 1, 25, 24, 13, 12, 36, 37, 25, 26, 38, 37, 13, 14, 2, 1, 1, 2, 26, 25, 14, 13, 37, 38, 26, 27, 39, 38, 14, 15, 3, 2, 2, 3, 27, 26, 15, 14, 38, 39, 27, 28, 40, 39, 15, 16, 4, 3, 3, 4, 28, 27, 16, 15, 39, 40, 28, 29, 41, 40, 16, 17, 5, 4, 4, 5, 29, 28, 17, 16, 40, 41, 29, 30, 42, 41, 17, 18, 6, 5, 5, 6, 30, 29, 18, 17, 41, 42, 30, 31, 43, 42, 18, 19, 7, 6, 6, 7, 31, 30, 19, 18, 42, 43, 31, 32, 44, 43, 19, 20, 8, 7, 7, 8, 32, 31, 20, 19, 43, 44, 32, 33, 45, 44, 20, 21, 9, 8, 8, 9, 33, 32, 21, 20, 44, 45, 33, 34, 46, 45, 21, 22, 10, 9, 9, 10, 34, 33, 22, 21, 45, 46, 34, 35, 47, 46, 22, 23, 11, 10, 10, 11, 35, 34, 23, 22, 46, 47, 35, 24, 36, 47, 23, 12, 0, 11, 11, 0, 24, 35, 12, 23, 47, 36]
-                    point3f[] points = [(0.378, 0.12696, 0.12), (0.32508, 0.20631, 0.12), (0.2457, 0.2645, 0.12), (-0.2457, 0.2645, 0.12), (-0.32508, 0.20631, 0.12), (-0.378, 0.12696, 0.12), (-0.378, -0.12696, 0.12), (-0.32508, -0.20631, 0.12), (-0.2457, -0.2645, 0.12), (0.2457, -0.2645, 0.12), (0.32508, -0.20631, 0.12), (0.378, -0.12696, 0.12), (0.30996, 0.0939504, 0.12), (0.2665656, 0.1526694, 0.12), (0.201474, 0.19573, 0.12), (-0.201474, 0.19573, 0.12), (-0.2665656, 0.1526694, 0.12), (-0.30996, 0.0939504, 0.12), (-0.30996, -0.0939504, 0.12), (-0.2665656, -0.1526694, 0.12), (-0.201474, -0.19573, 0.12), (0.201474, -0.19573, 0.12), (0.2665656, -0.1526694, 0.12), (0.30996, -0.0939504, 0.12), (0.378, 0.12696, 0.14), (0.32508, 0.20631, 0.14), (0.2457, 0.2645, 0.14), (-0.2457, 0.2645, 0.14), (-0.32508, 0.20631, 0.14), (-0.378, 0.12696, 0.14), (-0.378, -0.12696, 0.14), (-0.32508, -0.20631, 0.14), (-0.2457, -0.2645, 0.14), (0.2457, -0.2645, 0.14), (0.32508, -0.20631, 0.14), (0.378, -0.12696, 0.14), (0.30996, 0.0939504, 0.14), (0.2665656, 0.1526694, 0.14), (0.201474, 0.19573, 0.14), (-0.201474, 0.19573, 0.14), (-0.2665656, 0.1526694, 0.14), (-0.30996, 0.0939504, 0.14), (-0.30996, -0.0939504, 0.14), (-0.2665656, -0.1526694, 0.14), (-0.201474, -0.19573, 0.14), (0.201474, -0.19573, 0.14), (0.2665656, -0.1526694, 0.14), (0.30996, -0.0939504, 0.14)]
+                    point3f[] points = [(0.378, 0.12696, 0.12), (0.32508, 0.20631, 0.12), (0.2457, 0.2645, 0.12), (-0.2457, 0.2645, 0.12), (-0.32508, 0.20631, 0.12), (-0.378, 0.12696, 0.12), (-0.378, -0.12696, 0.12), (-0.32508, -0.20631, 0.12), (-0.2457, -0.2645, 0.12), (0.2457, -0.2645, 0.12), (0.32508, -0.20631, 0.12), (0.378, -0.12696, 0.12), (0.32508, 0.107916, 0.12), (0.2795688, 0.1753635, 0.12), (0.211302, 0.224825, 0.12), (-0.211302, 0.224825, 0.12), (-0.2795688, 0.1753635, 0.12), (-0.32508, 0.107916, 0.12), (-0.32508, -0.107916, 0.12), (-0.2795688, -0.1753635, 0.12), (-0.211302, -0.224825, 0.12), (0.211302, -0.224825, 0.12), (0.2795688, -0.1753635, 0.12), (0.32508, -0.107916, 0.12), (0.378, 0.12696, 0.14), (0.32508, 0.20631, 0.14), (0.2457, 0.2645, 0.14), (-0.2457, 0.2645, 0.14), (-0.32508, 0.20631, 0.14), (-0.378, 0.12696, 0.14), (-0.378, -0.12696, 0.14), (-0.32508, -0.20631, 0.14), (-0.2457, -0.2645, 0.14), (0.2457, -0.2645, 0.14), (0.32508, -0.20631, 0.14), (0.378, -0.12696, 0.14), (0.32508, 0.107916, 0.14), (0.2795688, 0.1753635, 0.14), (0.211302, 0.224825, 0.14), (-0.211302, 0.224825, 0.14), (-0.2795688, 0.1753635, 0.14), (-0.32508, 0.107916, 0.14), (-0.32508, -0.107916, 0.14), (-0.2795688, -0.1753635, 0.14), (-0.211302, -0.224825, 0.14), (0.211302, -0.224825, 0.14), (0.2795688, -0.1753635, 0.14), (0.32508, -0.107916, 0.14)]
                     color3f[] primvars:displayColor = [(0.02, 0.36, 0.72)]
                     uniform token subdivisionScheme = "none"
                 }
@@ -93,39 +93,13 @@ def Xform "World"
                     uniform bool doubleSided = 1
                     int[] faceVertexCounts = [12, 12, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
                     int[] faceVertexIndices = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 13, 12, 1, 2, 14, 13, 2, 3, 15, 14, 3, 4, 16, 15, 4, 5, 17, 16, 5, 6, 18, 17, 6, 7, 19, 18, 7, 8, 20, 19, 8, 9, 21, 20, 9, 10, 22, 21, 10, 11, 23, 22, 11, 0, 12, 23]
-                    point3f[] points = [(0.30996, 0.0939504, 0.134), (0.2665656, 0.1526694, 0.134), (0.201474, 0.19573, 0.134), (-0.201474, 0.19573, 0.134), (-0.2665656, 0.1526694, 0.134), (-0.30996, 0.0939504, 0.134), (-0.30996, -0.0939504, 0.134), (-0.2665656, -0.1526694, 0.134), (-0.201474, -0.19573, 0.134), (0.201474, -0.19573, 0.134), (0.2665656, -0.1526694, 0.134), (0.30996, -0.0939504, 0.134), (0.30996, 0.0939504, 0.138), (0.2665656, 0.1526694, 0.138), (0.201474, 0.19573, 0.138), (-0.201474, 0.19573, 0.138), (-0.2665656, 0.1526694, 0.138), (-0.30996, 0.0939504, 0.138), (-0.30996, -0.0939504, 0.138), (-0.2665656, -0.1526694, 0.138), (-0.201474, -0.19573, 0.138), (0.201474, -0.19573, 0.138), (0.2665656, -0.1526694, 0.138), (0.30996, -0.0939504, 0.138)]
+                    point3f[] points = [(0.32508, 0.107916, 0.134), (0.2795688, 0.1753635, 0.134), (0.211302, 0.224825, 0.134), (-0.211302, 0.224825, 0.134), (-0.2795688, 0.1753635, 0.134), (-0.32508, 0.107916, 0.134), (-0.32508, -0.107916, 0.134), (-0.2795688, -0.1753635, 0.134), (-0.211302, -0.224825, 0.134), (0.211302, -0.224825, 0.134), (0.2795688, -0.1753635, 0.134), (0.32508, -0.107916, 0.134), (0.32508, 0.107916, 0.138), (0.2795688, 0.1753635, 0.138), (0.211302, 0.224825, 0.138), (-0.211302, 0.224825, 0.138), (-0.2795688, 0.1753635, 0.138), (-0.32508, 0.107916, 0.138), (-0.32508, -0.107916, 0.138), (-0.2795688, -0.1753635, 0.138), (-0.211302, -0.224825, 0.138), (0.211302, -0.224825, 0.138), (0.2795688, -0.1753635, 0.138), (0.32508, -0.107916, 0.138)]
                     color3f[] primvars:displayColor = [(0.66, 0.69, 0.72)]
+                    custom int romoB:topHoleGridColumns = 13
+                    custom int romoB:topHoleGridRows = 9
+                    custom double romoB:topHolePitchM = 0.05
+                    custom int romoB:visibleTopHoleCount = 93
                     uniform token subdivisionScheme = "none"
-                }
-
-                def Cylinder "TopHoleMarker_r00_c00"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (-0.25, -0.132, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r00_c01"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (-0.2, -0.132, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r00_c02"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, -0.132, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
                 def Cylinder "TopHoleMarker_r00_c03"
@@ -134,7 +108,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, -0.132, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -144,7 +118,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, -0.132, 0.1386)
+                    double3 xformOp:translate = (-0.1, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -154,7 +128,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, -0.132, 0.1386)
+                    double3 xformOp:translate = (-0.05, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -164,7 +138,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, -0.132, 0.1386)
+                    double3 xformOp:translate = (0, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -174,7 +148,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, -0.132, 0.1386)
+                    double3 xformOp:translate = (0.05, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -184,7 +158,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, -0.132, 0.1386)
+                    double3 xformOp:translate = (0.1, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -194,47 +168,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, -0.132, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r00_c10"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (0.25, -0.132, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r01_c00"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (-0.25, -0.088, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r01_c01"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (-0.2, -0.088, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r01_c02"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, -0.088, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, -0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -244,7 +178,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, -0.088, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -254,7 +188,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, -0.088, 0.1386)
+                    double3 xformOp:translate = (-0.1, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -264,7 +198,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, -0.088, 0.1386)
+                    double3 xformOp:translate = (-0.05, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -274,7 +208,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, -0.088, 0.1386)
+                    double3 xformOp:translate = (0, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -284,7 +218,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, -0.088, 0.1386)
+                    double3 xformOp:translate = (0.05, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -294,7 +228,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, -0.088, 0.1386)
+                    double3 xformOp:translate = (0.1, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -304,17 +238,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, -0.088, 0.1386)
-                    uniform token[] xformOpOrder = ["xformOp:translate"]
-                }
-
-                def Cylinder "TopHoleMarker_r01_c10"
-                {
-                    uniform token axis = "Z"
-                    double height = 0.0012
-                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
-                    double radius = 0.003
-                    double3 xformOp:translate = (0.25, -0.088, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, -0.15000000000000002, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -324,7 +248,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.25, -0.044, 0.1386)
+                    double3 xformOp:translate = (-0.30000000000000004, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -334,7 +258,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.2, -0.044, 0.1386)
+                    double3 xformOp:translate = (-0.25, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -344,7 +268,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, -0.044, 0.1386)
+                    double3 xformOp:translate = (-0.2, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -354,7 +278,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, -0.044, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -364,7 +288,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, -0.044, 0.1386)
+                    double3 xformOp:translate = (-0.1, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -374,7 +298,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, -0.044, 0.1386)
+                    double3 xformOp:translate = (-0.05, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -384,7 +308,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, -0.044, 0.1386)
+                    double3 xformOp:translate = (0, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -394,7 +318,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, -0.044, 0.1386)
+                    double3 xformOp:translate = (0.05, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -404,7 +328,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, -0.044, 0.1386)
+                    double3 xformOp:translate = (0.1, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -414,7 +338,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, -0.044, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -424,7 +348,27 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.25, -0.044, 0.1386)
+                    double3 xformOp:translate = (0.2, -0.1, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r02_c11"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.25, -0.1, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r02_c12"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.30000000000000004, -0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -434,7 +378,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.25, 0, 0.1386)
+                    double3 xformOp:translate = (-0.30000000000000004, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -444,7 +388,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.2, 0, 0.1386)
+                    double3 xformOp:translate = (-0.25, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -454,7 +398,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, 0, 0.1386)
+                    double3 xformOp:translate = (-0.2, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -464,7 +408,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, 0, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -474,7 +418,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, 0, 0.1386)
+                    double3 xformOp:translate = (-0.1, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -484,7 +428,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, 0, 0.1386)
+                    double3 xformOp:translate = (-0.05, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -494,7 +438,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, 0, 0.1386)
+                    double3 xformOp:translate = (0, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -504,7 +448,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, 0, 0.1386)
+                    double3 xformOp:translate = (0.05, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -514,7 +458,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, 0, 0.1386)
+                    double3 xformOp:translate = (0.1, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -524,7 +468,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, 0, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -534,7 +478,27 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.25, 0, 0.1386)
+                    double3 xformOp:translate = (0.2, -0.05, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r03_c11"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.25, -0.05, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r03_c12"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.30000000000000004, -0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -544,7 +508,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.25, 0.044, 0.1386)
+                    double3 xformOp:translate = (-0.30000000000000004, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -554,7 +518,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.2, 0.044, 0.1386)
+                    double3 xformOp:translate = (-0.25, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -564,7 +528,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, 0.044, 0.1386)
+                    double3 xformOp:translate = (-0.2, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -574,7 +538,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, 0.044, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -584,7 +548,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, 0.044, 0.1386)
+                    double3 xformOp:translate = (-0.1, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -594,7 +558,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, 0.044, 0.1386)
+                    double3 xformOp:translate = (-0.05, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -604,7 +568,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, 0.044, 0.1386)
+                    double3 xformOp:translate = (0, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -614,7 +578,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, 0.044, 0.1386)
+                    double3 xformOp:translate = (0.05, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -624,7 +588,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, 0.044, 0.1386)
+                    double3 xformOp:translate = (0.1, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -634,7 +598,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, 0.044, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -644,7 +608,27 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.25, 0.044, 0.1386)
+                    double3 xformOp:translate = (0.2, 0, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r04_c11"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.25, 0, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r04_c12"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.30000000000000004, 0, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -654,7 +638,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.25, 0.088, 0.1386)
+                    double3 xformOp:translate = (-0.30000000000000004, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -664,7 +648,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.2, 0.088, 0.1386)
+                    double3 xformOp:translate = (-0.25, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -674,7 +658,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, 0.088, 0.1386)
+                    double3 xformOp:translate = (-0.2, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -684,7 +668,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, 0.088, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -694,7 +678,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, 0.088, 0.1386)
+                    double3 xformOp:translate = (-0.1, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -704,7 +688,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, 0.088, 0.1386)
+                    double3 xformOp:translate = (-0.05, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -714,7 +698,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, 0.088, 0.1386)
+                    double3 xformOp:translate = (0, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -724,7 +708,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, 0.088, 0.1386)
+                    double3 xformOp:translate = (0.05, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -734,7 +718,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, 0.088, 0.1386)
+                    double3 xformOp:translate = (0.1, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -744,7 +728,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, 0.088, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -754,7 +738,27 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.25, 0.088, 0.1386)
+                    double3 xformOp:translate = (0.2, 0.05, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r05_c11"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.25, 0.05, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r05_c12"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.30000000000000004, 0.05, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -764,7 +768,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.25, 0.132, 0.1386)
+                    double3 xformOp:translate = (-0.30000000000000004, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -774,7 +778,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.2, 0.132, 0.1386)
+                    double3 xformOp:translate = (-0.25, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -784,7 +788,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.15000000000000002, 0.132, 0.1386)
+                    double3 xformOp:translate = (-0.2, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -794,7 +798,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.1, 0.132, 0.1386)
+                    double3 xformOp:translate = (-0.15000000000000002, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -804,7 +808,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (-0.05, 0.132, 0.1386)
+                    double3 xformOp:translate = (-0.1, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -814,7 +818,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0, 0.132, 0.1386)
+                    double3 xformOp:translate = (-0.05, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -824,7 +828,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.05, 0.132, 0.1386)
+                    double3 xformOp:translate = (0, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -834,7 +838,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.1, 0.132, 0.1386)
+                    double3 xformOp:translate = (0.05, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -844,7 +848,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.15000000000000002, 0.132, 0.1386)
+                    double3 xformOp:translate = (0.1, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -854,7 +858,7 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.2, 0.132, 0.1386)
+                    double3 xformOp:translate = (0.15000000000000002, 0.1, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -864,7 +868,167 @@ def Xform "World"
                     double height = 0.0012
                     color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
                     double radius = 0.003
-                    double3 xformOp:translate = (0.25, 0.132, 0.1386)
+                    double3 xformOp:translate = (0.2, 0.1, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r06_c11"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.25, 0.1, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r06_c12"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.30000000000000004, 0.1, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c03"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (-0.15000000000000002, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c04"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (-0.1, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c05"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (-0.05, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c06"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c07"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.05, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c08"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.1, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r07_c09"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.15000000000000002, 0.15000000000000002, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c03"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (-0.15000000000000002, 0.2, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c04"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (-0.1, 0.2, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c05"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (-0.05, 0.2, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c06"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0, 0.2, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c07"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.05, 0.2, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c08"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.1, 0.2, 0.1386)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+
+                def Cylinder "TopHoleMarker_r08_c09"
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0012
+                    color3f[] primvars:displayColor = [(0.055, 0.065, 0.075)]
+                    double radius = 0.003
+                    double3 xformOp:translate = (0.15000000000000002, 0.2, 0.1386)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -873,8 +1037,8 @@ def Xform "World"
                     uniform token axis = "Z"
                     double height = 0.0016
                     color3f[] primvars:displayColor = [(0.02, 0.36, 0.72)]
-                    double radius = 0.038
-                    double3 xformOp:translate = (0.27, 0.16, 0.1388)
+                    double radius = 0.065
+                    double3 xformOp:translate = (0.225, 0.175, 0.1388)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -883,8 +1047,8 @@ def Xform "World"
                     uniform token axis = "Z"
                     double height = 0.0016
                     color3f[] primvars:displayColor = [(0.02, 0.36, 0.72)]
-                    double radius = 0.038
-                    double3 xformOp:translate = (0.27, -0.16, 0.1388)
+                    double radius = 0.065
+                    double3 xformOp:translate = (0.225, -0.175, 0.1388)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -893,8 +1057,8 @@ def Xform "World"
                     uniform token axis = "Z"
                     double height = 0.0016
                     color3f[] primvars:displayColor = [(0.02, 0.36, 0.72)]
-                    double radius = 0.038
-                    double3 xformOp:translate = (-0.27, 0.16, 0.1388)
+                    double radius = 0.065
+                    double3 xformOp:translate = (-0.225, 0.175, 0.1388)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
@@ -903,8 +1067,8 @@ def Xform "World"
                     uniform token axis = "Z"
                     double height = 0.0016
                     color3f[] primvars:displayColor = [(0.02, 0.36, 0.72)]
-                    double radius = 0.038
-                    double3 xformOp:translate = (-0.27, -0.16, 0.1388)
+                    double radius = 0.065
+                    double3 xformOp:translate = (-0.225, -0.175, 0.1388)
                     uniform token[] xformOpOrder = ["xformOp:translate"]
                 }
 
