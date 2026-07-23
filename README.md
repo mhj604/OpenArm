@@ -1,4 +1,10 @@
-# OpenArm TestUSD Isaac Lab 작업
+# OpenArm Isaac Lab 강화학습
+
+이 저장소의 `main` 브랜치는 **Ubuntu 24.04에서 NVIDIA Isaac Lab을 사용해 OpenArm
+양팔 로봇의 Pick-and-Place 정책을 학습·검증하는 강화학습 전용 작업**입니다.
+
+- 실제 OpenArm-v1 하드웨어 및 모방학습 실험: [OpenArm-FieldTest](https://github.com/mhj604/OpenArm-FieldTest)
+- ROMO-B와 OpenArm-v1을 결합한 KALO-H 연구: [KALO-H-OpenArm](https://github.com/mhj604/KALO-H-OpenArm)
 
 다음 경로에 저장된 OpenArm 양팔 USD 장면을 위한 외부 Isaac Lab 작업 모음입니다.
 
