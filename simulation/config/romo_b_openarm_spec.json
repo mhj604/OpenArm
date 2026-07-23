@@ -414,8 +414,8 @@
         },
         {
           "name": "TopDeck",
-          "centre_world_m": [0.0, 0.0, 0.280],
-          "dimensions_m": [0.756, 0.597, 0.124]
+          "centre_world_m": [0.0, 0.0, 0.286],
+          "dimensions_m": [0.756, 0.597, 0.112]
         },
         {
           "name": "FrontLower",
@@ -428,7 +428,7 @@
           "dimensions_m": [0.078, 0.240, 0.156]
         }
       ],
-      "derivation": "The full-width 597 mm top deck begins 12 mm above the approximate 206 mm tire envelope; lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The 320 mm central core leaves the lower steering bays open and retains the audited wheel/knuckle lateral clearance.",
+      "derivation": "The full-width 597 mm top deck begins at z=0.230 m, 1 mm above the z=0.229 m outer-fender sweep maximum and 24 mm above the approximate 206 mm tire envelope. Lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The 320 mm central core leaves the lower steering bays open and retains the audited wheel/knuckle lateral clearance.",
       "quality": "manual_envelope_constrained_compound_collision_proxy",
       "warning": "Wheel-well depth and panel thickness are not dimensioned. These enabled boxes conservatively cover the documented shell without claiming production CAD accuracy."
     },

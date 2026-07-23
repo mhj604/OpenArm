@@ -22,6 +22,10 @@ from romo_b_geometry import (  # noqa: E402
     positive_body_half_width_at_x,
     steered_cylinder_section_top_z,
 )
+from run_isaacsim_smoke import (  # noqa: E402
+    STEERING_JOINT_NAMES,
+    steering_target_patterns,
+)
 
 
 class ModelContractTest(unittest.TestCase):
@@ -223,6 +227,12 @@ class ModelContractTest(unittest.TestCase):
             float(top_deck["centre_world_m"][2])
             - float(top_deck["dimensions_m"][2]) / 2.0
         )
+        expected_top_deck_bottom = (
+            float(proxy["wheel_center_positions_m"]["front_left"][2])
+            + float(fender["outer_radius_m"])
+            + 0.001
+        )
+        self.assertClose(top_deck_bottom, expected_top_deck_bottom)
         self.assertGreater(
             top_deck_bottom,
             float(dims["wheel_diameter"]["value"]),
@@ -289,6 +299,47 @@ class ModelContractTest(unittest.TestCase):
         self.assertClose(-30.0 * multiplier, 30.0)
         self.assertClose(30.0 * multiplier, -30.0)
         self.assertIn("derived_coordinate_conversion", convention["quality"])
+
+    def test_smoke_sweep_includes_manual_pivot_and_every_step_aabb(self) -> None:
+        multiplier = float(
+            self.spec["romo_b"]["steering_command_convention"][
+                "manual_to_usd_joint_multiplier"
+            ]
+        )
+        pivot_targets = {
+            joint_name: (
+                float(self.spec["romo_b"]["pivot_steering_deg"][joint_name])
+                * multiplier
+            )
+            for joint_name in STEERING_JOINT_NAMES
+        }
+        patterns = steering_target_patterns(pivot_targets)
+        self.assertEqual(
+            [name for name, _ in patterns],
+            [
+                "all +30 degrees",
+                "all -30 degrees",
+                "manual Pivot",
+                "neutral",
+            ],
+        )
+        self.assertEqual(patterns[2][1], pivot_targets)
+        self.assertEqual(
+            pivot_targets,
+            {
+                "front_left": -30.0,
+                "front_right": 30.0,
+                "rear_left": 30.0,
+                "rear_right": -30.0,
+            },
+        )
+        smoke_source = (
+            SIMULATION_ROOT / "scripts" / "run_isaacsim_smoke.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "if wheel_chassis_aabb_samples != args.steps:",
+            smoke_source,
+        )
 
     def test_mass_allocation_preserves_manual_total(self) -> None:
         allocation = self.spec["simulation_proxy"]["mass_allocation_kg"]

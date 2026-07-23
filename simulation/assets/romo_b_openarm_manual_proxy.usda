@@ -1265,8 +1265,8 @@ def Xform "World"
                     uniform token purpose = "guide"
                     custom string romoB:geometryQuality = "manual_envelope_constrained_compound_collision_proxy"
                     double size = 1
-                    float3 xformOp:scale = (0.756, 0.597, 0.124)
-                    double3 xformOp:translate = (0, 0, 0.07800000000000001)
+                    float3 xformOp:scale = (0.756, 0.597, 0.112)
+                    double3 xformOp:translate = (0, 0, 0.08399999999999996)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
                 }
 

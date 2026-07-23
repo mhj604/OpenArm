@@ -193,7 +193,8 @@ payload의 링크별 질량을 그대로 사용하며 ROMO-B의 55 kg에 포함�
 collision으로 쓰면 조향 휠과 겹치므로 collision은 네 부분으로 나눴다.
 
 - 길이 0.756 m, 폭 0.320 m의 중앙 core
-- 타이어 상단 0.206 m보다 12 mm 높은 `z=0.218 m`에서 시작하는 폭 0.597 m 상부 deck
+- 휀다 sweep 최고점 0.229 m보다 1 mm 높은 `z=0.230 m`에서 시작하는 폭 0.597 m
+  상부 deck
 - ±30° 조향 휠의 X sweep 바깥인 `x=±0.300~0.378 m` 전·후 하부 end member
 
 ±30° wheel sweep의 중앙 core 폭 상한은 0.348488 m이고 회전한 45 mm knuckle proxy까지
@@ -203,10 +204,10 @@ collider도 실측 CAD가 아니라 매뉴얼 외곽과 조향 공간을 함께 
 시뮬레이션 형상이다.
 
 현재 복합 collider 검사기는 chassis 좌표계에서 네 휠과 네 chassis collider의 3차원
-AABB 조합 16개를 각 조향 목표 도달 시점에 비교하고, contact report는 매 physics
-step 검사한다. 240 step `+30° → -30° → 0°` PhysX 조향 검사에서 최소 여유는
-0.001636 m, 최대 조향 목표 오차는 0.486748°였고 음수 separation 또는 nonzero
-self-contact impulse는 발생하지 않았다.
+AABB 조합 16개와 contact report를 매 physics step 검사한다. 320 step
+`전체 +30° → 전체 -30° → 매뉴얼 Pivot → 중립` PhysX 조향 검사에서 AABB 샘플
+320개가 모두 통과했다. 최소 여유는 0.008021 m, 최대 조향 목표 오차는
+0.516825°였고 음수 separation 또는 nonzero self-contact impulse는 발생하지 않았다.
 
 조향 knuckle body의
 `0.045 × 0.045 × 0.070 m` 크기(X×Y×Z)도 매뉴얼이나 실측에서 얻은 값이 아니라,
@@ -236,10 +237,10 @@ USD는 `build_romo_b_openarm_usda.py`로 재생성하고, 다음 세 단계로 �
 
 1. 표준 Python 계약 테스트: 원문 보존, 치수, 파생식, 질량 합계, 17 cm 해석
 2. pxr 정적 검사: stage 단위, prim, articulation, joint 축·한계·body 관계, payload와 mount
-3. Isaac Sim smoke test: OpenArm payload 해석 후 240 fixed physics step 전체의 contact
-   report와 ±30° 조향 sweep에서 self-penetration, impulse, 유한 pose, 과도한 변위,
-   조향 목표 1° 이내 도달 및 chassis-frame에서 각 wheel↔복합 chassis collider의
-   3차원 AABB 간섭 여부 확인
+3. Isaac Sim smoke test: OpenArm payload 해석 후 320 fixed physics step 전체의 contact
+   report와 `전체 +30°/전체 -30°/매뉴얼 Pivot/중립` 조향에서 self-penetration,
+   impulse, 유한 pose, 과도한 변위, 조향 목표 1° 이내 도달 및 chassis-frame에서
+   각 wheel↔복합 chassis collider의 매 step 3차원 AABB 간섭 여부 확인
 
 정적 검사는 payload를 불러오지 않아 오프라인으로 수행할 수 있다. payload 해석 검사와
 smoke test에는 Isaac Sim 5.1 자산 캐시 또는 네트워크가 필요하다.

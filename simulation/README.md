@@ -69,10 +69,10 @@ documented-limit-constrained clearance derivation, while the collision pieces re
 proxies and must not be treated as production CAD. Re-run the integration smoke test after changing
 any mount, collision proxy, or joint pose.
 
-The current 240-step `+30/-30/0 deg` PhysX steering sweep checks every wheel against every compound
-chassis collider in the chassis frame at each target endpoint while auditing contact reports on
-every physics step. It completed with a minimum three-dimensional AABB gap of `0.001636 m`,
-maximum steering target error of `0.486748 deg`, and no penetrating or impulsive self-contact.
+The current 320-step `all +30/all -30/manual Pivot/neutral` PhysX steering sweep checks every wheel
+against every compound chassis collider in the chassis frame and audits contact reports on every
+physics step. All 320 AABB samples passed with a minimum three-dimensional gap of `0.008021 m`,
+maximum steering target error of `0.516825 deg`, and no penetrating or impulsive self-contact.
 
 The NVIDIA bimanual zero pose penetrates a non-adjacent base/link collider when unfiltered
 self-collision is enabled. The generated stage therefore starts from a PhysX-validated symmetric
@@ -122,13 +122,13 @@ Pure-Python source/value contract tests do not require Isaac Sim:
 python -m unittest discover -s simulation/tests -v
 ```
 
-Run a 240-step integration smoke test with Isaac Sim 5.1. Add `--steering-sweep` to exercise all
-four steering joints through +30, -30, and 0 degrees, verify that each target is reached within
-1 degree, and check every wheel against every compound chassis collider plus every-step contact
-reports:
+Run a 320-step integration smoke test with Isaac Sim 5.1. Add `--steering-sweep` to exercise all
+four steering joints through all +30, all -30, the manual Pivot combination, and neutral. The test
+verifies that every target is reached within 1 degree and checks every wheel against every compound
+chassis collider plus contact reports on every physics step:
 
 ```bash
-python simulation/scripts/run_isaacsim_smoke.py --steps 240 --steering-sweep
+python simulation/scripts/run_isaacsim_smoke.py --steps 320 --steering-sweep
 ```
 
 Add `--gui` to inspect the model interactively. The smoke test intentionally fails if the NVIDIA

@@ -16,6 +16,42 @@ from pathlib import Path
 
 SIMULATION_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ASSET = SIMULATION_ROOT / "assets" / "romo_b_openarm_manual_proxy.usda"
+STEERING_JOINT_NAMES = (
+    "front_left",
+    "front_right",
+    "rear_left",
+    "rear_right",
+)
+
+
+def steering_target_patterns(
+    pivot_targets: dict[str, float],
+) -> tuple[tuple[str, dict[str, float]], ...]:
+    """Return the full-limit, manual Pivot, and neutral steering audit sequence."""
+
+    if set(pivot_targets) != set(STEERING_JOINT_NAMES):
+        raise ValueError("Pivot targets must cover all four steering joints")
+    return (
+        (
+            "all +30 degrees",
+            {joint_name: 30.0 for joint_name in STEERING_JOINT_NAMES},
+        ),
+        (
+            "all -30 degrees",
+            {joint_name: -30.0 for joint_name in STEERING_JOINT_NAMES},
+        ),
+        (
+            "manual Pivot",
+            {
+                joint_name: float(pivot_targets[joint_name])
+                for joint_name in STEERING_JOINT_NAMES
+            },
+        ),
+        (
+            "neutral",
+            {joint_name: 0.0 for joint_name in STEERING_JOINT_NAMES},
+        ),
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,7 +62,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--steering-sweep",
         action="store_true",
-        help="Exercise all ROMO-B steering joints at +30, -30, then 0 degrees while stepping.",
+        help=(
+            "Exercise all ROMO-B steering joints at +30, -30, the "
+            "manual Pivot combination, then 0 degrees while stepping."
+        ),
     )
     parser.add_argument(
         "--openarm-asset",
@@ -42,10 +81,10 @@ def main() -> None:
         raise FileNotFoundError(asset)
     if args.steps < 1:
         raise ValueError("--steps must be at least 1")
-    if args.steering_sweep and args.steps < 4:
+    if args.steering_sweep and args.steps < 5:
         raise ValueError(
-            "--steering-sweep requires --steps of at least 4 "
-            "(one neutral baseline plus three target segments)"
+            "--steering-sweep requires --steps of at least 5 "
+            "(one neutral baseline plus four target segments)"
         )
 
     # Omniverse and pxr imports must occur after SimulationApp is instantiated.
@@ -259,7 +298,10 @@ def main() -> None:
                 maximum_non_ground_impulse,
             )
 
-        def wheel_chassis_aabb_gap() -> float:
+        def wheel_chassis_aabb_gap() -> tuple[
+            float,
+            tuple[str, str, tuple[float, float, float]],
+        ]:
             cache = UsdGeom.BBoxCache(
                 Usd.TimeCode.Default(),
                 [
@@ -296,6 +338,7 @@ def main() -> None:
                 for collider in chassis_colliders
             ]
             minimum_gap = math.inf
+            minimum_witness = ("none", "none", (math.inf, math.inf, math.inf))
             for corner in ("FrontLeft", "FrontRight", "RearLeft", "RearRight"):
                 wheel_collider = stage.GetPrimAtPath(
                     f"/World/ROMOBOpenArm/{corner}/Wheel/Collision"
@@ -329,8 +372,14 @@ def main() -> None:
                             f"{chassis_path} and {corner} wheel chassis-frame "
                             f"AABBs by {-gap:.6f} m; axis_gaps={axis_gaps}"
                         )
-                    minimum_gap = min(minimum_gap, gap)
-            return minimum_gap
+                    if gap < minimum_gap:
+                        minimum_gap = gap
+                        minimum_witness = (
+                            corner,
+                            chassis_path,
+                            tuple(axis_gaps),
+                        )
+            return minimum_gap, minimum_witness
 
         steering_corners = (
             ("front_left", "FrontLeft", 1.0),
@@ -373,6 +422,13 @@ def main() -> None:
             return angles
 
         minimum_wheel_chassis_gap = math.inf
+        minimum_wheel_chassis_witness = (
+            "none",
+            "none",
+            "none",
+            (math.inf, math.inf, math.inf),
+        )
+        wheel_chassis_aabb_samples = 0
         maximum_steering_target_error = 0.0
         runtime_non_ground_pairs: set[tuple[str, str]] = set()
         runtime_minimum_non_ground_separation = math.inf
@@ -403,16 +459,37 @@ def main() -> None:
             )
             return pairs, minimum_separation, maximum_impulse
 
+        def advance_and_audit(
+            phase: str,
+        ) -> tuple[set[tuple[str, str]], float, float]:
+            """Advance one fixed step and run both contact and AABB audits."""
+
+            nonlocal minimum_wheel_chassis_gap
+            nonlocal minimum_wheel_chassis_witness
+            nonlocal wheel_chassis_aabb_samples
+            step_physics()
+            contact_metrics = sample_runtime_contacts(phase)
+            gap, witness = wheel_chassis_aabb_gap()
+            if gap < minimum_wheel_chassis_gap:
+                minimum_wheel_chassis_gap = gap
+                minimum_wheel_chassis_witness = (
+                    phase,
+                    witness[0],
+                    witness[1],
+                    witness[2],
+                )
+            wheel_chassis_aabb_samples += 1
+            return contact_metrics
+
         try:
             # Establish the physics baseline after one neutral step, then audit
             # every requested fixed 1/60 s step. Direct PhysX stepping avoids
             # tying simulated time to the wall-clock duration of app.update().
-            step_physics()
             (
                 initial_non_ground_pairs,
                 initial_minimum_non_ground_separation,
                 initial_maximum_non_ground_impulse,
-            ) = sample_runtime_contacts("Initial neutral step")
+            ) = advance_and_audit("Initial neutral step")
             initial_positions = {
                 prim.GetPath().pathString: UsdGeom.Xformable(prim)
                 .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
@@ -421,35 +498,54 @@ def main() -> None:
             }
 
             if args.steering_sweep:
-                steering_drives = [
-                    UsdPhysics.DriveAPI(
+                steering_drives = {
+                    joint_name: UsdPhysics.DriveAPI(
                         stage.GetPrimAtPath(
                             f"/World/ROMOBOpenArm/Joints/{joint_name}_steering_joint"
                         ),
                         "angular",
                     )
                     for joint_name, _, _ in steering_corners
-                ]
+                }
+                pivot_targets = {}
+                for joint_name in STEERING_JOINT_NAMES:
+                    joint_prim = stage.GetPrimAtPath(
+                        f"/World/ROMOBOpenArm/Joints/{joint_name}_steering_joint"
+                    )
+                    pivot_attr = joint_prim.GetAttribute(
+                        "romoB:usdPivotTargetDeg"
+                    )
+                    if not pivot_attr or pivot_attr.Get() is None:
+                        raise RuntimeError(
+                            f"Missing authored USD Pivot target: {joint_name}"
+                        )
+                    pivot_targets[joint_name] = float(pivot_attr.Get())
+                target_patterns = steering_target_patterns(pivot_targets)
                 sweep_steps = args.steps - 1
-                segment_lengths = [sweep_steps // 3] * 3
-                for index in range(sweep_steps % 3):
+                segment_lengths = [
+                    sweep_steps // len(target_patterns)
+                ] * len(target_patterns)
+                for index in range(sweep_steps % len(target_patterns)):
                     segment_lengths[index] += 1
-                for target, segment_steps in zip((30.0, -30.0, 0.0), segment_lengths):
-                    for drive in steering_drives:
+                for (
+                    target_name,
+                    target_positions,
+                ), segment_steps in zip(target_patterns, segment_lengths):
+                    for joint_name, drive in steering_drives.items():
                         target_attr = drive.GetTargetPositionAttr()
                         if not target_attr:
                             raise RuntimeError(
                                 "A ROMO-B steering drive is missing its target position"
                             )
-                        target_attr.Set(target)
+                        target_attr.Set(target_positions[joint_name])
                     for step_index in range(segment_steps):
-                        step_physics()
-                        sample_runtime_contacts(
-                            f"Steering {target:+.0f} degree step {step_index + 1}/{segment_steps}"
+                        advance_and_audit(
+                            f"Steering {target_name} step "
+                            f"{step_index + 1}/{segment_steps}"
                         )
                     actual_angles = current_steering_angles()
                     target_errors = {
-                        name: abs(angle - target)
+                        name: abs(angle - target_positions[name])
                         for name, angle in actual_angles.items()
                     }
                     segment_maximum_error = max(target_errors.values())
@@ -458,19 +554,21 @@ def main() -> None:
                     )
                     if segment_maximum_error > 1.0:
                         raise RuntimeError(
-                            f"Steering target {target:+.0f} degrees was not reached: "
-                            f"actual={actual_angles}"
+                            f"Steering target {target_name} was not reached: "
+                            f"target={target_positions}, actual={actual_angles}"
                         )
-                    minimum_wheel_chassis_gap = min(
-                        minimum_wheel_chassis_gap,
-                        wheel_chassis_aabb_gap(),
-                    )
             else:
                 hold_steps = args.steps - 1
                 for step_index in range(hold_steps):
-                    step_physics()
-                    sample_runtime_contacts(f"Hold step {step_index + 1}/{hold_steps}")
-                minimum_wheel_chassis_gap = wheel_chassis_aabb_gap()
+                    advance_and_audit(
+                        f"Hold step {step_index + 1}/{hold_steps}"
+                    )
+
+            if wheel_chassis_aabb_samples != args.steps:
+                raise RuntimeError(
+                    "Wheel/chassis AABB audit did not run on every physics step: "
+                    f"{wheel_chassis_aabb_samples} != {args.steps}"
+                )
 
             chassis = stage.GetPrimAtPath("/World/ROMOBOpenArm/Chassis")
             matrix = UsdGeom.Xformable(chassis).ComputeLocalToWorldTransform(
@@ -527,6 +625,19 @@ def main() -> None:
         print(
             "minimum wheel-to-compound-chassis AABB gap: "
             f"{minimum_wheel_chassis_gap:.6f} m",
+            flush=True,
+        )
+        print(
+            "wheel-to-compound-chassis AABB audit samples: "
+            f"{wheel_chassis_aabb_samples}",
+            flush=True,
+        )
+        print(
+            "minimum AABB gap witness: "
+            f"phase={minimum_wheel_chassis_witness[0]}, "
+            f"wheel={minimum_wheel_chassis_witness[1]}, "
+            f"collider={minimum_wheel_chassis_witness[2]}, "
+            f"axis_gaps={minimum_wheel_chassis_witness[3]}",
             flush=True,
         )
         print(
