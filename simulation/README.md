@@ -54,20 +54,25 @@ parent-child articulation links and ignores per-joint `collisionEnabled` setting
 warning-only flags would not change contact behavior. Direct-neighbour collision would require
 restructuring the model without the current single articulation.
 
-The previous arbitrary 0.450 m blue box has been removed. The visible shell now uses the page 5
-outline at a 0.529 m side-plane envelope, so the derived 0.068 m tires extend only 0.034 m per side
-and the complete wheel span remains exactly 0.597 m. Each blue fender arch starts on that shell
-side plane and extends 0.008 m outward; it is attached to the shell instead of being placed at the
-tire's outer face. A four-part compound chassis collider covers
-the 0.320 m steering-clear core, full-width deck above the tire envelope, and lower front/rear end
-members. The wheel-well profile and panel thickness are not dimensioned in the manual, so those
-collision pieces remain conservative proxies and must not be treated as production CAD. Re-run the
-integration smoke test after changing any mount, collision proxy, or joint pose.
+The previous arbitrary 0.450 m blue box has been removed. The visible shell uses the manual-stated
+0.597 m overall width; the distinct 0.529 m track locates the wheel centres. The derived 0.068 m
+tire width therefore places the outer tire faces at the same 0.597 m envelope. The side panels are
+open around the four steering/suspension bays shown on page 5 instead of filling the space beside
+the wheels. Each attached blue fender ribbon follows a finite-cylinder wheel envelope sampled at
+361 steering angles from -30 to +30 degrees along a 240-segment body profile. Its traced neutral
+inner radius is 0.112 m, giving 9 mm radial clearance around the approximate 0.103 m tire radius.
+
+A four-part compound chassis collider covers the 0.320 m steering-clear core, the full 0.597 m
+deck above the tire envelope, and lower front/rear end members. Fender contours, wheel width,
+suspension travel, and panel thickness are not dimensioned in the manual. The sweep is therefore a
+documented-limit-constrained clearance derivation, while the collision pieces remain conservative
+proxies and must not be treated as production CAD. Re-run the integration smoke test after changing
+any mount, collision proxy, or joint pose.
 
 The current 240-step `+30/-30/0 deg` PhysX steering sweep checks every wheel against every compound
-chassis collider in the chassis frame. It completed with a minimum three-dimensional AABB gap of
-`0.004066 m`, maximum steering target error of `0.469584 deg`, and no penetrating or impulsive
-self-contact.
+chassis collider in the chassis frame at each target endpoint while auditing contact reports on
+every physics step. It completed with a minimum three-dimensional AABB gap of `0.001636 m`,
+maximum steering target error of `0.486748 deg`, and no penetrating or impulsive self-contact.
 
 The NVIDIA bimanual zero pose penetrates a non-adjacent base/link collider when unfiltered
 self-collision is enabled. The generated stage therefore starts from a PhysX-validated symmetric
@@ -135,6 +140,7 @@ available for an offline cached copy.
 - `config/romo_b_openarm_spec.json`: numeric source of truth and provenance classifications
 - `assets/romo_b_openarm_manual_proxy.usda`: generated Isaac Sim stage
 - `scripts/build_romo_b_openarm_usda.py`: deterministic USD builder
+- `scripts/romo_b_geometry.py`: pure body-outline and full-steering wheel-envelope calculations
 - `scripts/run_usd_tool.sh`: USD/PhysX schema launcher for an Isaac Sim pip/conda installation
 - `scripts/validate_isaacsim_model.py`: non-rendering structural validator
 - `scripts/run_isaacsim_smoke.py`: Isaac Sim integration smoke test

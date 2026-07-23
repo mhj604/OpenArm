@@ -19,6 +19,11 @@ from typing import Any
 
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
+from romo_b_geometry import (
+    positive_body_half_width_at_x,
+    steered_cylinder_section_top_z,
+)
+
 
 SIMULATION_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SPEC = SIMULATION_ROOT / "config" / "romo_b_openarm_spec.json"
@@ -179,6 +184,138 @@ def add_yz_panel_mesh(
     return mesh
 
 
+def add_xy_panel_mesh(
+    stage: Usd.Stage,
+    path: str,
+    xy_points: list[tuple[float, float]],
+    z: float,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Create a double-sided horizontal panel from a plan contour."""
+
+    if len(xy_points) < 3:
+        raise ValueError("An XY panel needs at least three points")
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(
+        [Gf.Vec3f(float(x), float(y), float(z)) for x, y in xy_points]
+    )
+    mesh.CreateFaceVertexCountsAttr([len(xy_points)])
+    mesh.CreateFaceVertexIndicesAttr(list(range(len(xy_points))))
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
+def add_profiled_side_panel_mesh(
+    stage: Usd.Stage,
+    path: str,
+    x_values: list[float],
+    y_values: list[float],
+    lower_z_values: list[float],
+    upper_z: float,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Create a side panel whose lower edge follows open wheel wells."""
+
+    count = len(x_values)
+    if count < 2 or not (
+        len(y_values) == count and len(lower_z_values) == count
+    ):
+        raise ValueError("A profiled side panel needs matching sampled arrays")
+    if any(lower_z > upper_z for lower_z in lower_z_values):
+        raise ValueError("A side-panel lower edge cannot exceed its upper edge")
+
+    points: list[Gf.Vec3f] = []
+    for x, y, lower_z in zip(x_values, y_values, lower_z_values):
+        points.extend(
+            (
+                Gf.Vec3f(float(x), float(y), float(lower_z)),
+                Gf.Vec3f(float(x), float(y), float(upper_z)),
+            )
+        )
+    face_counts = [4] * (count - 1)
+    face_indices: list[int] = []
+    for index in range(count - 1):
+        lower = 2 * index
+        following = lower + 2
+        face_indices.extend((lower, following, following + 1, lower + 1))
+
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(face_counts)
+    mesh.CreateFaceVertexIndicesAttr(face_indices)
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
+def add_profiled_fender_ribbon_mesh(
+    stage: Usd.Stage,
+    path: str,
+    x_values: list[float],
+    y_values: list[float],
+    inner_z_values: list[float | None],
+    outer_z_values: list[float | None],
+    base_z: float,
+    color: tuple[float, float, float],
+) -> UsdGeom.Mesh:
+    """Create an attached fender ribbon around a complete steering sweep."""
+
+    count = len(x_values)
+    if count < 2 or not (
+        len(y_values) == count
+        and len(inner_z_values) == count
+        and len(outer_z_values) == count
+    ):
+        raise ValueError("A profiled fender needs matching sampled arrays")
+
+    active_indices = [
+        index for index, outer_z in enumerate(outer_z_values) if outer_z is not None
+    ]
+    if not active_indices:
+        raise ValueError("A profiled fender did not intersect the body side")
+    first_active = active_indices[0]
+    last_active = active_indices[-1]
+    if active_indices != list(range(first_active, last_active + 1)):
+        raise ValueError("A single fender profile must be contiguous")
+    first = max(0, first_active - 1)
+    last = min(count - 1, last_active + 1)
+
+    points: list[Gf.Vec3f] = []
+    for index in range(first, last + 1):
+        x = x_values[index]
+        y = y_values[index]
+        inner_z = inner_z_values[index]
+        outer_z = outer_z_values[index]
+        lower = base_z if inner_z is None else max(base_z, inner_z)
+        upper = lower if outer_z is None else max(lower, outer_z)
+        points.extend(
+            (
+                Gf.Vec3f(float(x), float(y), float(lower)),
+                Gf.Vec3f(float(x), float(y), float(upper)),
+            )
+        )
+
+    face_counts: list[int] = []
+    face_indices: list[int] = []
+    for index in range(last - first):
+        lower = 2 * index
+        following = lower + 2
+        face_counts.append(4)
+        face_indices.extend((lower, following, following + 1, lower + 1))
+
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(face_counts)
+    mesh.CreateFaceVertexIndicesAttr(face_indices)
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return mesh
+
+
 def add_extruded_polygon_ring_mesh(
     stage: Usd.Stage,
     path: str,
@@ -245,102 +382,6 @@ def add_extruded_polygon_ring_mesh(
                 vertex(0, 1, index),
                 vertex(1, 1, index),
                 vertex(1, 1, following),
-            )
-        )
-
-    mesh = UsdGeom.Mesh.Define(stage, path)
-    mesh.CreatePointsAttr(points)
-    mesh.CreateFaceVertexCountsAttr(face_counts)
-    mesh.CreateFaceVertexIndicesAttr(face_indices)
-    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
-    mesh.CreateDoubleSidedAttr(True)
-    mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
-    return mesh
-
-
-def add_arch_band_mesh(
-    stage: Usd.Stage,
-    path: str,
-    centre_x: float,
-    centre_z: float,
-    y_inner: float,
-    y_outer: float,
-    inner_radius: float,
-    outer_radius: float,
-    segments: int,
-    color: tuple[float, float, float],
-) -> UsdGeom.Mesh:
-    """Create the upper-half wheel-fender band visible in the manual side view."""
-
-    if segments < 3:
-        raise ValueError("A fender arch needs at least three segments")
-    y_planes = (min(y_inner, y_outer), max(y_inner, y_outer))
-    points: list[Gf.Vec3f] = []
-    for y in y_planes:
-        for radius in (outer_radius, inner_radius):
-            for index in range(segments + 1):
-                angle = math.pi * index / segments
-                points.append(
-                    Gf.Vec3f(
-                        centre_x + radius * math.cos(angle),
-                        y,
-                        centre_z + radius * math.sin(angle),
-                    )
-                )
-
-    stride = segments + 1
-
-    def vertex(y_index: int, radius_index: int, arc_index: int) -> int:
-        return y_index * 2 * stride + radius_index * stride + arc_index
-
-    face_counts: list[int] = []
-    face_indices: list[int] = []
-
-    def quad(indices: tuple[int, int, int, int]) -> None:
-        face_counts.append(4)
-        face_indices.extend(indices)
-
-    for index in range(segments):
-        following = index + 1
-        quad(
-            (
-                vertex(0, 0, index),
-                vertex(0, 0, following),
-                vertex(0, 1, following),
-                vertex(0, 1, index),
-            )
-        )
-        quad(
-            (
-                vertex(1, 1, index),
-                vertex(1, 1, following),
-                vertex(1, 0, following),
-                vertex(1, 0, index),
-            )
-        )
-        quad(
-            (
-                vertex(0, 0, index),
-                vertex(1, 0, index),
-                vertex(1, 0, following),
-                vertex(0, 0, following),
-            )
-        )
-        quad(
-            (
-                vertex(0, 1, following),
-                vertex(1, 1, following),
-                vertex(1, 1, index),
-                vertex(0, 1, index),
-            )
-        )
-    for arc_index in (0, segments):
-        quad(
-            (
-                vertex(0, 0, arc_index),
-                vertex(0, 1, arc_index),
-                vertex(1, 1, arc_index),
-                vertex(1, 0, arc_index),
             )
         )
 
@@ -515,19 +556,15 @@ def build(spec_path: Path, output_path: Path) -> None:
     dark_detail = (0.055, 0.065, 0.075)
     visual_root = f"{chassis_path}/Visuals"
     UsdGeom.Scope.Define(stage, visual_root)
-    side_shell = add_extruded_polygon_mesh(
+    side_shell_top = add_xy_panel_mesh(
         stage,
-        f"{visual_root}/SideShell",
+        f"{visual_root}/SideShellTopPlate",
         outline,
-        side_shell_z[0],
         side_shell_z[1],
         aluminium,
-        # The flat front/rear faces are built from non-overlapping coloured
-        # panels below. Omitting them here prevents coplanar z-fighting.
-        skip_side_edges={5, 11},
     )
     custom_attr(
-        side_shell.GetPrim(),
+        side_shell_top.GetPrim(),
         "romoB:geometryQuality",
         Sdf.ValueTypeNames.String,
         manual_geometry["quality"],
@@ -627,6 +664,154 @@ def build(spec_path: Path, output_path: Path) -> None:
             romo_blue,
         )
 
+    steering_limit = value(limits["individual_steering_deg"])
+    wheel_radius = float(proxy["wheel_radius_m"]["value"])
+    wheel_width = float(proxy["wheel_width_m"]["value"])
+    wheel_positions = proxy["wheel_center_positions_m"]
+    steering_positions = proxy["steering_axis_positions_m"]
+    fender = manual_geometry["wheel_fender_arch"]
+    fender_inner_radius = float(fender["inner_radius_m"])
+    fender_outer_radius = float(fender["outer_radius_m"])
+    wheel_well = manual_geometry["wheel_well_swept_profile"]
+    wheel_well_limit = float(wheel_well["steering_limit_deg"])
+    radial_clearance = float(wheel_well["radial_clearance_m"])
+    axial_clearance = float(wheel_well["axial_clearance_m"])
+    steering_sample_count = int(wheel_well["steering_sample_count"])
+    body_profile_segments = int(wheel_well["body_profile_segments"])
+    if not math.isclose(wheel_well_limit, steering_limit, abs_tol=1e-12):
+        raise ValueError("Wheel-well sweep and steering-joint limits must match")
+    if not math.isclose(
+        fender_inner_radius,
+        wheel_radius + radial_clearance,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("Inner fender radius must preserve the specified tire clearance")
+    if fender_outer_radius <= fender_inner_radius:
+        raise ValueError("Outer fender profile must exceed the inner profile")
+
+    body_x_values = [
+        -length / 2.0 + length * index / body_profile_segments
+        for index in range(body_profile_segments + 1)
+    ]
+    body_half_widths = [
+        positive_body_half_width_at_x(outline, x) for x in body_x_values
+    ]
+    outer_profiles_by_side: dict[str, list[list[float | None]]] = {
+        "left": [],
+        "right": [],
+    }
+    for corner in ("front_left", "front_right", "rear_left", "rear_right"):
+        wheel_xyz = tuple(float(item) for item in wheel_positions[corner])
+        steering_xyz = tuple(float(item) for item in steering_positions[corner])
+        side_key = "left" if wheel_xyz[1] > 0.0 else "right"
+        side_sign = 1.0 if side_key == "left" else -1.0
+        side_y_values = [side_sign * half_width for half_width in body_half_widths]
+        inner_profile_world = [
+            steered_cylinder_section_top_z(
+                x=x,
+                side_plane_y=y,
+                steering_pivot_xyz=steering_xyz,
+                neutral_wheel_xyz=wheel_xyz,
+                cylinder_radius=fender_inner_radius,
+                cylinder_half_width=wheel_width / 2.0 + axial_clearance,
+                steering_limit_deg=wheel_well_limit,
+                steering_sample_count=steering_sample_count,
+            )
+            for x, y in zip(body_x_values, side_y_values)
+        ]
+        outer_profile_world = [
+            steered_cylinder_section_top_z(
+                x=x,
+                side_plane_y=y,
+                steering_pivot_xyz=steering_xyz,
+                neutral_wheel_xyz=wheel_xyz,
+                cylinder_radius=fender_outer_radius,
+                cylinder_half_width=wheel_width / 2.0 + axial_clearance,
+                steering_limit_deg=wheel_well_limit,
+                steering_sample_count=steering_sample_count,
+            )
+            for x, y in zip(body_x_values, side_y_values)
+        ]
+        outer_profiles_by_side[side_key].append(outer_profile_world)
+        fender_mesh = add_profiled_fender_ribbon_mesh(
+            stage,
+            f"{visual_root}/{''.join(part.title() for part in corner.split('_'))}FenderArch",
+            body_x_values,
+            side_y_values,
+            [
+                None if z is None else z - chassis_center_z
+                for z in inner_profile_world
+            ],
+            [
+                None if z is None else z - chassis_center_z
+                for z in outer_profile_world
+            ],
+            base_z=wheel_xyz[2] - chassis_center_z,
+            color=romo_blue,
+        )
+        custom_attr(
+            fender_mesh.GetPrim(),
+            "romoB:geometryQuality",
+            Sdf.ValueTypeNames.String,
+            fender["quality"],
+        )
+        custom_attr(
+            fender_mesh.GetPrim(),
+            "romoB:steeringSweepLimitDeg",
+            Sdf.ValueTypeNames.Double,
+            wheel_well_limit,
+        )
+        custom_attr(
+            fender_mesh.GetPrim(),
+            "romoB:steeringSweepSampleCount",
+            Sdf.ValueTypeNames.Int,
+            steering_sample_count,
+        )
+
+    for side_key, side_sign, display_name in (
+        ("left", 1.0, "Left"),
+        ("right", -1.0, "Right"),
+    ):
+        side_y_values = [side_sign * half_width for half_width in body_half_widths]
+        lower_profile_local: list[float] = []
+        for index in range(len(body_x_values)):
+            active_outer_z = [
+                profile[index]
+                for profile in outer_profiles_by_side[side_key]
+                if profile[index] is not None
+            ]
+            lower_world_z = max(
+                [float(sections["side_shell"][0]), *active_outer_z]
+            )
+            lower_profile_local.append(lower_world_z - chassis_center_z)
+        side_panel = add_profiled_side_panel_mesh(
+            stage,
+            f"{visual_root}/{display_name}SidePanelWithWheelWells",
+            body_x_values,
+            side_y_values,
+            lower_profile_local,
+            side_shell_z[1],
+            aluminium,
+        )
+        custom_attr(
+            side_panel.GetPrim(),
+            "romoB:geometryQuality",
+            Sdf.ValueTypeNames.String,
+            wheel_well["quality"],
+        )
+        custom_attr(
+            side_panel.GetPrim(),
+            "romoB:steeringSweepLimitDeg",
+            Sdf.ValueTypeNames.Double,
+            wheel_well_limit,
+        )
+        custom_attr(
+            side_panel.GetPrim(),
+            "romoB:steeringSweepSampleCount",
+            Sdf.ValueTypeNames.Int,
+            steering_sample_count,
+        )
+
     flat_end_half_width = outline_scale[1] * 0.48
     bumper_half_width = 0.100
     bumper_top_z = 0.127 - chassis_center_z
@@ -674,29 +859,6 @@ def build(spec_path: Path, output_path: Path) -> None:
         color=dark_detail,
     )
 
-    fender = manual_geometry["wheel_fender_arch"]
-    fender_inner_radius = float(fender["inner_radius_m"])
-    fender_outer_radius = float(fender["outer_radius_m"])
-    fender_inner_y = float(fender["inner_side_face_y_m"])
-    fender_outer_y = float(fender["outer_side_face_y_m"])
-    for corner in ("front_left", "front_right", "rear_left", "rear_right"):
-        wheel_xyz = tuple(float(item) for item in proxy["wheel_center_positions_m"][corner])
-        side_sign = 1.0 if wheel_xyz[1] > 0.0 else -1.0
-        outer_y = side_sign * fender_outer_y
-        inner_y = side_sign * fender_inner_y
-        add_arch_band_mesh(
-            stage,
-            f"{visual_root}/{''.join(part.title() for part in corner.split('_'))}FenderArch",
-            centre_x=wheel_xyz[0],
-            centre_z=wheel_xyz[2] - chassis_center_z,
-            y_inner=inner_y,
-            y_outer=outer_y,
-            inner_radius=fender_inner_radius,
-            outer_radius=fender_outer_radius,
-            segments=int(fender["segments"]),
-            color=romo_blue,
-        )
-
     collision_root = f"{chassis_path}/Collision"
     UsdGeom.Scope.Define(stage, collision_root)
     compound_collision = proxy["chassis_compound_collision"]
@@ -726,11 +888,6 @@ def build(spec_path: Path, output_path: Path) -> None:
     joints_root = UsdGeom.Scope.Define(stage, "/World/ROMOBOpenArm/Joints")
     custom_attr(joints_root.GetPrim(), "romoB:jointOrder", Sdf.ValueTypeNames.String, "front_left, front_right, rear_left, rear_right")
 
-    steering_limit = value(limits["individual_steering_deg"])
-    wheel_radius = float(proxy["wheel_radius_m"]["value"])
-    wheel_width = float(proxy["wheel_width_m"]["value"])
-    wheel_positions = proxy["wheel_center_positions_m"]
-    steering_positions = proxy["steering_axis_positions_m"]
     knuckle_size = tuple(float(item) for item in proxy["knuckle_body_size_m"]["value"])
     steering_command_multiplier = float(
         spec["romo_b"]["steering_command_convention"]["manual_to_usd_joint_multiplier"]

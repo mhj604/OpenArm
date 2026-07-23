@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "model_scope": "manual-constrained simulation proxy",
   "coordinate_frame": {
     "convention": "REP-103-like body frame",
@@ -308,9 +308,9 @@
       "quality": "derived_visual_proxy_not_measured"
     },
     "chassis_visual_width_m": {
-      "value": 0.529,
-      "derivation": "The page 5 bottom/front orthographic views place the shell side plane on the 529 mm wheel-centre track line. This replaces the previous arbitrary 450 mm box and leaves 34 mm of the derived 68 mm tire width outside each side, reproducing the drawing.",
-      "quality": "manual_drawing_traced_and_scaled_not_separately_dimensioned",
+      "value": 0.597,
+      "derivation": "The exterior shell uses the manual-stated 597 mm overall width. The separate 529 mm value locates the wheel centres and must not be reused as the shell width.",
+      "quality": "manual_stated_overall_width",
       "source_pages": [5, 6]
     },
     "manual_external_geometry": {
@@ -329,8 +329,8 @@
           [0.86, -0.78],
           [1.0, -0.48]
         ],
-        "axis_scale_m": [0.378, 0.2645],
-        "derivation": "Twelve-vertex symmetric trace of the page 5 top-view outer contour, scaled to the manual's 756 mm length and the drawing-aligned 529 mm shell envelope.",
+        "axis_scale_m": [0.378, 0.2985],
+        "derivation": "Twelve-vertex symmetric trace of the page 5 top-view outer contour, scaled to the manual's 756 mm overall length and 597 mm overall width.",
         "quality": "manual_drawing_traced_and_scaled_not_manufacturer_coordinate_data"
       },
       "body_sections_world_z_m": {
@@ -341,8 +341,8 @@
         "quality": "manual_stated_envelope_plus_drawing_traced_section_breaks"
       },
       "top_plate_scale_xy": {
-        "value": [0.86, 0.85],
-        "derivation": "The page 5 inner-plate contour is scaled to leave approximately half of the user-confirmed 50 mm pitch outside the 600 x 400 mm centre-to-centre grid span.",
+        "value": [0.86, 0.75],
+        "derivation": "The page 5 inner-plate contour is scaled to approximately 650 x 448 mm, leaving close to half of the user-confirmed 50 mm pitch outside the 600 x 400 mm centre-to-centre grid span.",
         "quality": "manual_drawing_traced_and_user_spacing_constrained"
       },
       "mounting_hole_marker_grid": {
@@ -375,13 +375,19 @@
       "wheel_fender_arch": {
         "inner_radius_m": 0.112,
         "outer_radius_m": 0.126,
-        "side_band_depth_m": 0.008,
-        "inner_side_face_y_m": 0.2645,
-        "outer_side_face_y_m": 0.2725,
-        "segments": 24,
-        "derivation": "Arch centres use the manual wheel centres. The inner face is fixed to the page-5-traced 529 mm shell side plane and the 8 mm outward trim depth is scaled from the side view. The separate tire outer faces, not the fender trim, retain the manual 597 mm overall-width envelope.",
-        "quality": "manual_shell_attached_plus_drawing_traced_profile",
-        "warning": "The manual does not dimension fender depth; attachment to the shell and the visible 8 mm trim depth reproduce pages 5-6 without claiming manufacturing coordinates."
+        "derivation": "At neutral steering, the radii are scale-traced from the page 5 side view. During steering, the attached ribbon follows the complete finite-cylinder sweep profile so the tire does not pass through the fixed body panel.",
+        "quality": "manual_neutral_profile_plus_derived_full_steering_sweep",
+        "warning": "The manual does not dimension the fender profile. The neutral radii are drawing-traced and the dynamic extension is a conservative consequence of the documented +/-30 degree steering range."
+      },
+      "wheel_well_swept_profile": {
+        "steering_limit_deg": 30.0,
+        "steering_sample_count": 361,
+        "body_profile_segments": 240,
+        "radial_clearance_m": 0.009,
+        "axial_clearance_m": 0.009,
+        "derivation": "The 9 mm neutral radial clearance is 112 mm traced inner-fender radius minus the approximately 103 mm tire radius. A finite cylinder inflated by that clearance is sampled every 1/6 degree from -30 to +30 at the actual exterior side surface. The white side panel begins above the swept outer fender profile and therefore cannot fill the steering bay.",
+        "quality": "manual_limit_and_envelope_constrained_derived_clearance",
+        "warning": "The manual does not provide production wheel-well coordinates or suspension travel. This profile guarantees clearance for the documented proxy wheel, track and steering geometry, not unmeasured suspension motion."
       },
       "wheel_hub_visual": {
         "hub_radius_m": 0.064,
@@ -409,7 +415,7 @@
         {
           "name": "TopDeck",
           "centre_world_m": [0.0, 0.0, 0.280],
-          "dimensions_m": [0.756, 0.529, 0.124]
+          "dimensions_m": [0.756, 0.597, 0.124]
         },
         {
           "name": "FrontLower",
@@ -422,7 +428,7 @@
           "dimensions_m": [0.078, 0.240, 0.156]
         }
       ],
-      "derivation": "The top deck begins 12 mm above the approximate 206 mm tire envelope; lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The central core retains the audited wheel/knuckle lateral clearance.",
+      "derivation": "The full-width 597 mm top deck begins 12 mm above the approximate 206 mm tire envelope; lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The 320 mm central core leaves the lower steering bays open and retains the audited wheel/knuckle lateral clearance.",
       "quality": "manual_envelope_constrained_compound_collision_proxy",
       "warning": "Wheel-well depth and panel thickness are not dimensioned. These enabled boxes conservatively cover the documented shell without claiming production CAD accuracy."
     },

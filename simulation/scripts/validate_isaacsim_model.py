@@ -11,6 +11,11 @@ from pathlib import Path
 
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
+from romo_b_geometry import (
+    positive_body_half_width_at_x,
+    steered_cylinder_section_top_z,
+)
+
 
 SIMULATION_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SPEC = SIMULATION_ROOT / "config" / "romo_b_openarm_spec.json"
@@ -215,7 +220,18 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
         return minimum, maximum
 
     visual_root = f"{CHASSIS}/Visuals"
-    shell_minimum, shell_maximum = mesh_range(f"{visual_root}/SideShell")
+    outline_spec = geometry["body_outline_normalized_xy"]
+    outline_scale = [float(item) for item in outline_spec["axis_scale_m"]]
+    outline = [
+        (
+            float(point[0]) * outline_scale[0],
+            float(point[1]) * outline_scale[1],
+        )
+        for point in outline_spec["value"]
+    ]
+    shell_minimum, shell_maximum = mesh_range(
+        f"{visual_root}/SideShellTopPlate"
+    )
     close(
         shell_maximum[0] - shell_minimum[0],
         float(dims["overall_length"]["value"]),
@@ -228,14 +244,14 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
     )
     shell_section = geometry["body_sections_world_z_m"]["side_shell"]
     close(
-        shell_minimum[2] + chassis_center_z,
-        float(shell_section[0]),
-        "manual shell lower Z",
-    )
-    close(
         shell_maximum[2] + chassis_center_z,
         float(shell_section[1]),
         "manual shell upper Z",
+    )
+    close(
+        shell_minimum[2],
+        shell_maximum[2],
+        "shell top-panel thickness",
     )
     rim_minimum, rim_maximum = mesh_range(f"{visual_root}/TopRim")
     rim_mesh = UsdGeom.Mesh.Get(stage, f"{visual_root}/TopRim")
@@ -367,35 +383,179 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
         )
 
     fender_spec = geometry["wheel_fender_arch"]
-    fender_inner_y = float(fender_spec["inner_side_face_y_m"])
-    fender_outer_y = float(fender_spec["outer_side_face_y_m"])
+    wheel_well = geometry["wheel_well_swept_profile"]
+    steering_limit = float(wheel_well["steering_limit_deg"])
+    steering_samples = int(wheel_well["steering_sample_count"])
+    profile_segments = int(wheel_well["body_profile_segments"])
+    radial_clearance = float(wheel_well["radial_clearance_m"])
+    axial_clearance = float(wheel_well["axial_clearance_m"])
+    wheel_radius = float(proxy["wheel_radius_m"]["value"])
+    wheel_width = float(proxy["wheel_width_m"]["value"])
+    fender_inner_radius = float(fender_spec["inner_radius_m"])
+    fender_outer_radius = float(fender_spec["outer_radius_m"])
     close(
-        2.0 * fender_inner_y,
-        float(proxy["chassis_visual_width_m"]["value"]),
-        "fender-to-shell attachment plane",
+        steering_limit,
+        float(spec["romo_b"]["limits"]["individual_steering_deg"]["value"]),
+        "wheel-well steering limit",
     )
     close(
-        fender_outer_y - fender_inner_y,
-        float(fender_spec["side_band_depth_m"]),
-        "fender side-band depth",
+        fender_inner_radius,
+        wheel_radius + radial_clearance,
+        "inner-fender radial clearance",
     )
+    require(
+        steering_samples >= 3 and steering_samples % 2 == 1,
+        "Wheel-well steering samples must be odd and include both limits plus zero",
+    )
+    require(
+        fender_outer_radius > fender_inner_radius,
+        "Outer fender profile must exceed its inner profile",
+    )
+    length = float(dims["overall_length"]["value"])
+    profile_x_values = [
+        -length / 2.0 + length * index / profile_segments
+        for index in range(profile_segments + 1)
+    ]
+    body_half_widths = [
+        positive_body_half_width_at_x(outline, x) for x in profile_x_values
+    ]
+    outer_profiles_by_side: dict[str, list[list[float | None]]] = {
+        "Left": [],
+        "Right": [],
+    }
     for corner in CORNERS:
         camel = "".join(part.title() for part in corner.split("_"))
-        fender_minimum, fender_maximum = mesh_range(
-            f"{visual_root}/{camel}FenderArch"
+        wheel_xyz = [
+            float(item) for item in proxy["wheel_center_positions_m"][corner]
+        ]
+        steering_xyz = [
+            float(item) for item in proxy["steering_axis_positions_m"][corner]
+        ]
+        side_name = "Left" if wheel_xyz[1] > 0.0 else "Right"
+        side_sign = 1.0 if side_name == "Left" else -1.0
+        profile_y_values = [
+            side_sign * half_width for half_width in body_half_widths
+        ]
+        inner_profile = [
+            steered_cylinder_section_top_z(
+                x=x,
+                side_plane_y=y,
+                steering_pivot_xyz=steering_xyz,
+                neutral_wheel_xyz=wheel_xyz,
+                cylinder_radius=fender_inner_radius,
+                cylinder_half_width=wheel_width / 2.0 + axial_clearance,
+                steering_limit_deg=steering_limit,
+                steering_sample_count=steering_samples,
+            )
+            for x, y in zip(profile_x_values, profile_y_values)
+        ]
+        outer_profile = [
+            steered_cylinder_section_top_z(
+                x=x,
+                side_plane_y=y,
+                steering_pivot_xyz=steering_xyz,
+                neutral_wheel_xyz=wheel_xyz,
+                cylinder_radius=fender_outer_radius,
+                cylinder_half_width=wheel_width / 2.0 + axial_clearance,
+                steering_limit_deg=steering_limit,
+                steering_sample_count=steering_samples,
+            )
+            for x, y in zip(profile_x_values, profile_y_values)
+        ]
+        tire_profile = [
+            steered_cylinder_section_top_z(
+                x=x,
+                side_plane_y=y,
+                steering_pivot_xyz=steering_xyz,
+                neutral_wheel_xyz=wheel_xyz,
+                cylinder_radius=wheel_radius,
+                cylinder_half_width=wheel_width / 2.0,
+                steering_limit_deg=steering_limit,
+                steering_sample_count=steering_samples,
+            )
+            for x, y in zip(profile_x_values, profile_y_values)
+        ]
+        for index, tire_top in enumerate(tire_profile):
+            if tire_top is None:
+                continue
+            require(
+                inner_profile[index] is not None
+                and float(inner_profile[index]) > tire_top,
+                f"{corner} tire sweep is not enclosed by the inner wheel well at "
+                f"x={profile_x_values[index]:.6f}",
+            )
+        outer_profiles_by_side[side_name].append(outer_profile)
+
+        active = [
+            index for index, outer_z in enumerate(outer_profile) if outer_z is not None
+        ]
+        require(active, f"{corner} fender does not intersect the body side")
+        require(
+            active == list(range(active[0], active[-1] + 1)),
+            f"{corner} fender sweep is not contiguous",
         )
-        positive_side = proxy["wheel_center_positions_m"][corner][1] > 0.0
-        actual_inner_y = fender_minimum[1] if positive_side else fender_maximum[1]
-        actual_outer_y = fender_maximum[1] if positive_side else fender_minimum[1]
-        close(
-            abs(actual_inner_y),
-            fender_inner_y,
-            f"{corner} fender attached inner side",
+        first = max(0, active[0] - 1)
+        last = min(profile_segments, active[-1] + 1)
+        fender_path = f"{visual_root}/{camel}FenderArch"
+        fender_mesh = UsdGeom.Mesh.Get(stage, fender_path)
+        require(bool(fender_mesh), f"Missing manual external mesh: {fender_path}")
+        fender_points = fender_mesh.GetPointsAttr().Get()
+        require(
+            len(fender_points) == 2 * (last - first + 1),
+            f"{corner} fender profile sample count mismatch",
         )
+        for point_index, profile_index in enumerate(range(first, last + 1)):
+            lower_point = fender_points[2 * point_index]
+            upper_point = fender_points[2 * point_index + 1]
+            expected_lower_world = (
+                wheel_xyz[2]
+                if inner_profile[profile_index] is None
+                else max(wheel_xyz[2], float(inner_profile[profile_index]))
+            )
+            expected_upper_world = (
+                expected_lower_world
+                if outer_profile[profile_index] is None
+                else max(
+                    expected_lower_world,
+                    float(outer_profile[profile_index]),
+                )
+            )
+            for point, expected_z, edge_name in (
+                (lower_point, expected_lower_world, "inner"),
+                (upper_point, expected_upper_world, "outer"),
+            ):
+                close(
+                    float(point[0]),
+                    profile_x_values[profile_index],
+                    f"{corner} fender {edge_name} X",
+                )
+                close(
+                    float(point[1]),
+                    profile_y_values[profile_index],
+                    f"{corner} fender {edge_name} attached Y",
+                )
+                close(
+                    float(point[2]) + chassis_center_z,
+                    expected_z,
+                    f"{corner} fender {edge_name} Z",
+                )
         close(
-            abs(actual_outer_y),
-            fender_outer_y,
-            f"{corner} fender outer side",
+            float(
+                fender_mesh.GetPrim()
+                .GetAttribute("romoB:steeringSweepLimitDeg")
+                .Get()
+            ),
+            steering_limit,
+            f"{corner} fender steering-limit metadata",
+        )
+        require(
+            int(
+                fender_mesh.GetPrim()
+                .GetAttribute("romoB:steeringSweepSampleCount")
+                .Get()
+            )
+            == steering_samples,
+            f"{corner} fender steering-sample metadata mismatch",
         )
         require(
             bool(stage.GetPrimAtPath(f"{ROBOT}/{camel}/Wheel/Visuals/Tire")),
@@ -404,6 +564,68 @@ def validate_romob_external_geometry(stage: Usd.Stage, spec: dict) -> None:
         require(
             bool(stage.GetPrimAtPath(f"{ROBOT}/{camel}/Wheel/Visuals/Hub")),
             f"Missing {corner} manual hub visual",
+        )
+
+    for side_name, side_sign in (("Left", 1.0), ("Right", -1.0)):
+        panel_path = f"{visual_root}/{side_name}SidePanelWithWheelWells"
+        panel_mesh = UsdGeom.Mesh.Get(stage, panel_path)
+        require(bool(panel_mesh), f"Missing manual external mesh: {panel_path}")
+        panel_points = panel_mesh.GetPointsAttr().Get()
+        require(
+            len(panel_points) == 2 * (profile_segments + 1),
+            f"{side_name} side-panel profile sample count mismatch",
+        )
+        raised_samples = 0
+        for index, x in enumerate(profile_x_values):
+            lower_point = panel_points[2 * index]
+            upper_point = panel_points[2 * index + 1]
+            active_outer = [
+                profile[index]
+                for profile in outer_profiles_by_side[side_name]
+                if profile[index] is not None
+            ]
+            expected_lower_world = max(
+                [float(shell_section[0]), *active_outer]
+            )
+            if expected_lower_world > float(shell_section[0]) + 1e-6:
+                raised_samples += 1
+            expected_y = side_sign * body_half_widths[index]
+            for point, expected_z, edge_name in (
+                (lower_point, expected_lower_world, "lower"),
+                (upper_point, float(shell_section[1]), "upper"),
+            ):
+                close(float(point[0]), x, f"{side_name} panel {edge_name} X")
+                close(
+                    float(point[1]),
+                    expected_y,
+                    f"{side_name} panel follows body outline",
+                )
+                close(
+                    float(point[2]) + chassis_center_z,
+                    expected_z,
+                    f"{side_name} panel {edge_name} Z",
+                )
+        require(
+            raised_samples > 0,
+            f"{side_name} side panel must leave both wheel steering bays open",
+        )
+        close(
+            float(
+                panel_mesh.GetPrim()
+                .GetAttribute("romoB:steeringSweepLimitDeg")
+                .Get()
+            ),
+            steering_limit,
+            f"{side_name} side-panel steering-limit metadata",
+        )
+        require(
+            int(
+                panel_mesh.GetPrim()
+                .GetAttribute("romoB:steeringSweepSampleCount")
+                .Get()
+            )
+            == steering_samples,
+            f"{side_name} side-panel steering-sample metadata mismatch",
         )
 
     cache = UsdGeom.BBoxCache(

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,13 @@ REPOSITORY_ROOT = SIMULATION_ROOT.parent
 SPEC_PATH = SIMULATION_ROOT / "config" / "romo_b_openarm_spec.json"
 ASSET_PATH = SIMULATION_ROOT / "assets" / "romo_b_openarm_manual_proxy.usda"
 MANUAL_PATH = REPOSITORY_ROOT / "source_files" / "hardware" / "ROMO-B_manual_verified_complete.md"
+SCRIPTS_ROOT = SIMULATION_ROOT / "scripts"
+sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from romo_b_geometry import (  # noqa: E402
+    positive_body_half_width_at_x,
+    steered_cylinder_section_top_z,
+)
 
 
 class ModelContractTest(unittest.TestCase):
@@ -100,10 +108,10 @@ class ModelContractTest(unittest.TestCase):
 
         self.assertClose(
             float(proxy["chassis_visual_width_m"]["value"]),
-            float(dims["wheel_track"]["value"]),
+            float(dims["overall_width"]["value"]),
         )
         self.assertIn(
-            "manual_drawing_traced",
+            "manual_stated",
             proxy["chassis_visual_width_m"]["quality"],
         )
         wheel_outer_span = (
@@ -111,11 +119,15 @@ class ModelContractTest(unittest.TestCase):
             + float(proxy["wheel_width_m"]["value"])
         )
         self.assertClose(wheel_outer_span, float(dims["overall_width"]["value"]))
+        self.assertClose(
+            wheel_outer_span,
+            float(proxy["chassis_visual_width_m"]["value"]),
+        )
 
         manual_geometry = proxy["manual_external_geometry"]
         outline = manual_geometry["body_outline_normalized_xy"]
         self.assertEqual(len(outline["value"]), 12)
-        self.assertEqual(outline["axis_scale_m"], [0.378, 0.2645])
+        self.assertEqual(outline["axis_scale_m"], [0.378, 0.2985])
         scaled_x = [
             float(point[0]) * float(outline["axis_scale_m"][0])
             for point in outline["value"]
@@ -134,7 +146,7 @@ class ModelContractTest(unittest.TestCase):
         self.assertClose(float(sections["top_rim"][1]), float(dims["overall_height"]["value"]))
         self.assertEqual(
             manual_geometry["top_plate_scale_xy"]["value"],
-            [0.86, 0.85],
+            [0.86, 0.75],
         )
         grid = manual_geometry["mounting_hole_marker_grid"]
         self.assertEqual(grid["columns"], 13)
@@ -153,19 +165,27 @@ class ModelContractTest(unittest.TestCase):
         )
         self.assertEqual(int(corner_mask["visible_marker_count"]), 93)
         fender = manual_geometry["wheel_fender_arch"]
+        wheel_well = manual_geometry["wheel_well_swept_profile"]
         self.assertClose(
-            2.0 * float(fender["inner_side_face_y_m"]),
-            float(proxy["chassis_visual_width_m"]["value"]),
+            float(fender["inner_radius_m"]),
+            float(proxy["wheel_radius_m"]["value"])
+            + float(wheel_well["radial_clearance_m"]),
+        )
+        self.assertGreater(
+            float(fender["outer_radius_m"]),
+            float(fender["inner_radius_m"]),
         )
         self.assertClose(
-            float(fender["outer_side_face_y_m"])
-            - float(fender["inner_side_face_y_m"]),
-            float(fender["side_band_depth_m"]),
+            float(wheel_well["steering_limit_deg"]),
+            float(
+                self.spec["romo_b"]["limits"]["individual_steering_deg"][
+                    "value"
+                ]
+            ),
         )
-        self.assertLess(
-            2.0 * float(fender["outer_side_face_y_m"]),
-            float(dims["overall_width"]["value"]),
-        )
+        self.assertEqual(int(wheel_well["steering_sample_count"]), 361)
+        self.assertEqual(int(wheel_well["body_profile_segments"]), 240)
+        self.assertEqual(int(wheel_well["steering_sample_count"]) % 2, 1)
 
         chassis_collision_width = float(proxy["chassis_collision_width_m"]["value"])
         self.assertClose(chassis_collision_width, 0.32)
@@ -195,6 +215,10 @@ class ModelContractTest(unittest.TestCase):
             "RearLower",
         ])
         top_deck = collision_parts[1]
+        self.assertClose(
+            float(top_deck["dimensions_m"][1]),
+            float(dims["overall_width"]["value"]),
+        )
         top_deck_bottom = (
             float(top_deck["centre_world_m"][2])
             - float(top_deck["dimensions_m"][2]) / 2.0
@@ -203,6 +227,56 @@ class ModelContractTest(unittest.TestCase):
             top_deck_bottom,
             float(dims["wheel_diameter"]["value"]),
         )
+
+    def test_swept_wheel_well_geometry_covers_full_steering_limit(self) -> None:
+        proxy = self.spec["simulation_proxy"]
+        geometry = proxy["manual_external_geometry"]
+        outline_spec = geometry["body_outline_normalized_xy"]
+        outline = [
+            (
+                float(point[0]) * float(outline_spec["axis_scale_m"][0]),
+                float(point[1]) * float(outline_spec["axis_scale_m"][1]),
+            )
+            for point in outline_spec["value"]
+        ]
+        self.assertClose(positive_body_half_width_at_x(outline, 0.0), 0.2985)
+        self.assertClose(
+            positive_body_half_width_at_x(outline, 0.378),
+            0.2985 * 0.48,
+        )
+
+        wheel_well = geometry["wheel_well_swept_profile"]
+        wheel = proxy["wheel_center_positions_m"]["front_left"]
+        pivot = proxy["steering_axis_positions_m"]["front_left"]
+        body_y = positive_body_half_width_at_x(outline, float(wheel[0]))
+        tire_top = steered_cylinder_section_top_z(
+            x=float(wheel[0]),
+            side_plane_y=body_y,
+            steering_pivot_xyz=pivot,
+            neutral_wheel_xyz=wheel,
+            cylinder_radius=float(proxy["wheel_radius_m"]["value"]),
+            cylinder_half_width=float(proxy["wheel_width_m"]["value"]) / 2.0,
+            steering_limit_deg=float(wheel_well["steering_limit_deg"]),
+            steering_sample_count=int(wheel_well["steering_sample_count"]),
+        )
+        inner_fender_top = steered_cylinder_section_top_z(
+            x=float(wheel[0]),
+            side_plane_y=body_y,
+            steering_pivot_xyz=pivot,
+            neutral_wheel_xyz=wheel,
+            cylinder_radius=float(
+                geometry["wheel_fender_arch"]["inner_radius_m"]
+            ),
+            cylinder_half_width=(
+                float(proxy["wheel_width_m"]["value"]) / 2.0
+                + float(wheel_well["axial_clearance_m"])
+            ),
+            steering_limit_deg=float(wheel_well["steering_limit_deg"]),
+            steering_sample_count=int(wheel_well["steering_sample_count"]),
+        )
+        self.assertIsNotNone(tire_top)
+        self.assertIsNotNone(inner_fender_top)
+        self.assertGreater(float(inner_fender_top), float(tire_top))
 
     def test_manual_steering_sign_is_mapped_to_usd_positive_z(self) -> None:
         convention = self.spec["romo_b"]["steering_command_convention"]
@@ -288,7 +362,9 @@ class ModelContractTest(unittest.TestCase):
             'def Xform "ROMOBOpenArm"',
             'PhysicsArticulationRootAPI',
             'PhysxArticulationAPI',
-            'def Mesh "SideShell"',
+            'def Mesh "SideShellTopPlate"',
+            'def Mesh "LeftSidePanelWithWheelWells"',
+            'def Mesh "RightSidePanelWithWheelWells"',
             'def Mesh "TopRim"',
             'def Mesh "RecessedTopPlate"',
             'def Mesh "FrontLeftFenderArch"',
