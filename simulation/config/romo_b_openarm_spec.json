@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.3.0",
+  "schema_version": "1.4.0",
   "model_scope": "manual-constrained simulation proxy",
   "coordinate_frame": {
     "convention": "REP-103-like body frame",
@@ -372,22 +372,25 @@
         "derivation": "Centres and radius are scale-traced from the four page 5 corner circles after constraining the adjacent hole lattice to the user-confirmed 50 mm pitch.",
         "quality": "visual_only_manual_drawing_traced_and_user_spacing_constrained"
       },
-      "wheel_fender_arch": {
-        "inner_radius_m": 0.112,
-        "outer_radius_m": 0.126,
-        "derivation": "At neutral steering, the radii are scale-traced from the page 5 side view. During steering, the attached ribbon follows the complete finite-cylinder sweep profile so the tire does not pass through the fixed body panel.",
-        "quality": "manual_neutral_profile_plus_derived_full_steering_sweep",
-        "warning": "The manual does not dimension the fender profile. The neutral radii are drawing-traced and the dynamic extension is a conservative consequence of the documented +/-30 degree steering range."
+      "wheel_house_arch": {
+        "opening_radius_m": 0.126,
+        "arc_segments_per_wheel": 96,
+        "arches_per_wheel": 1,
+        "separate_fender_ribbon": false,
+        "centre_reference": "Each arch is centred on its neutral wheel centre in the page 5 side elevation.",
+        "derivation": "The single circular opening radius is scale-traced from the outer wheel-house circle in the page 5 left/right side elevations. The visible profile is one fixed circle per wheel and is never expanded by the steering sweep.",
+        "quality": "manual_side_drawing_single_circle_traced_and_scaled",
+        "warning": "The manual shows a single circular wheel house but does not print its radius. The 126 mm radius is scale-traced, not manufacturer CAD."
       },
-      "wheel_well_swept_profile": {
+      "collision_steering_sweep_audit": {
         "steering_limit_deg": 30.0,
         "steering_sample_count": 361,
-        "body_profile_segments": 240,
         "radial_clearance_m": 0.009,
         "axial_clearance_m": 0.009,
-        "derivation": "The 9 mm neutral radial clearance is 112 mm traced inner-fender radius minus the approximately 103 mm tire radius. A finite cylinder inflated by that clearance is sampled every 1/6 degree from -30 to +30 at the actual exterior side surface. The white side panel begins above the swept outer fender profile and therefore cannot fill the steering bay.",
-        "quality": "manual_limit_and_envelope_constrained_derived_clearance",
-        "warning": "The manual does not provide production wheel-well coordinates or suspension travel. This profile guarantees clearance for the documented proxy wheel, track and steering geometry, not unmeasured suspension motion."
+        "applies_to": "Invisible collision clearance audit only; never used to deform or duplicate the visible wheel-house arch.",
+        "derivation": "The proxy tire and its 9 mm radial/axial audit margin are sampled every 1/6 degree from -30 to +30 for collision checks. The visible side panel remains the single fixed circle shown in the manual.",
+        "quality": "manual_steering_limit_constrained_invisible_collision_audit",
+        "warning": "The manual does not provide production wheel-well depth or suspension travel. This audit margin is a simulation proxy and is intentionally separate from the manual-traced exterior."
       },
       "wheel_hub_visual": {
         "hub_radius_m": 0.064,
@@ -428,7 +431,7 @@
           "dimensions_m": [0.078, 0.240, 0.156]
         }
       ],
-      "derivation": "The full-width 597 mm top deck begins at z=0.230 m, 1 mm above the z=0.229 m outer-fender sweep maximum and 24 mm above the approximate 206 mm tire envelope. Lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The 320 mm central core leaves the lower steering bays open and retains the audited wheel/knuckle lateral clearance.",
+      "derivation": "The full-width 597 mm top deck begins at z=0.230 m, 1 mm above the z=0.229 m single circular wheel-house crown and 24 mm above the approximate 206 mm tire envelope. Lower end members begin beyond the full +/-30 degree steered-wheel X sweep. The 320 mm central core leaves the lower steering bays open and retains the audited wheel/knuckle lateral clearance.",
       "quality": "manual_envelope_constrained_compound_collision_proxy",
       "warning": "Wheel-well depth and panel thickness are not dimensioned. These enabled boxes conservatively cover the documented shell without claiming production CAD accuracy."
     },

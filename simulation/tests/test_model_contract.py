@@ -19,7 +19,9 @@ SCRIPTS_ROOT = SIMULATION_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from romo_b_geometry import (  # noqa: E402
+    circular_arch_top_z,
     positive_body_half_width_at_x,
+    single_circular_wheel_house_profile,
     steered_cylinder_section_top_z,
 )
 from run_isaacsim_smoke import (  # noqa: E402
@@ -86,6 +88,7 @@ class ModelContractTest(unittest.TestCase):
         self.assertClose(float(geometry["lateral_residual_coefficient_m_per_rad"]), residual_coefficient)
 
     def test_geometry_derivations(self) -> None:
+        self.assertEqual(self.spec["schema_version"], "1.4.0")
         dims = self.spec["romo_b"]["dimensions_m"]
         proxy = self.spec["simulation_proxy"]
         self.assertClose(float(proxy["wheel_radius_m"]["value"]), float(dims["wheel_diameter"]["value"]) / 2.0)
@@ -168,28 +171,24 @@ class ModelContractTest(unittest.TestCase):
             int(corner_mask["visible_marker_count"]),
         )
         self.assertEqual(int(corner_mask["visible_marker_count"]), 93)
-        fender = manual_geometry["wheel_fender_arch"]
-        wheel_well = manual_geometry["wheel_well_swept_profile"]
+        wheel_house = manual_geometry["wheel_house_arch"]
+        collision_sweep = manual_geometry["collision_steering_sweep_audit"]
+        self.assertClose(float(wheel_house["opening_radius_m"]), 0.126)
+        self.assertEqual(int(wheel_house["arc_segments_per_wheel"]), 96)
+        self.assertEqual(int(wheel_house["arches_per_wheel"]), 1)
+        self.assertIs(wheel_house["separate_fender_ribbon"], False)
+        self.assertIn("single_circle", wheel_house["quality"])
+        self.assertIn("Invisible collision", collision_sweep["applies_to"])
         self.assertClose(
-            float(fender["inner_radius_m"]),
-            float(proxy["wheel_radius_m"]["value"])
-            + float(wheel_well["radial_clearance_m"]),
-        )
-        self.assertGreater(
-            float(fender["outer_radius_m"]),
-            float(fender["inner_radius_m"]),
-        )
-        self.assertClose(
-            float(wheel_well["steering_limit_deg"]),
+            float(collision_sweep["steering_limit_deg"]),
             float(
                 self.spec["romo_b"]["limits"]["individual_steering_deg"][
                     "value"
                 ]
             ),
         )
-        self.assertEqual(int(wheel_well["steering_sample_count"]), 361)
-        self.assertEqual(int(wheel_well["body_profile_segments"]), 240)
-        self.assertEqual(int(wheel_well["steering_sample_count"]) % 2, 1)
+        self.assertEqual(int(collision_sweep["steering_sample_count"]), 361)
+        self.assertEqual(int(collision_sweep["steering_sample_count"]) % 2, 1)
 
         chassis_collision_width = float(proxy["chassis_collision_width_m"]["value"])
         self.assertClose(chassis_collision_width, 0.32)
@@ -229,7 +228,7 @@ class ModelContractTest(unittest.TestCase):
         )
         expected_top_deck_bottom = (
             float(proxy["wheel_center_positions_m"]["front_left"][2])
-            + float(fender["outer_radius_m"])
+            + float(wheel_house["opening_radius_m"])
             + 0.001
         )
         self.assertClose(top_deck_bottom, expected_top_deck_bottom)
@@ -238,7 +237,7 @@ class ModelContractTest(unittest.TestCase):
             float(dims["wheel_diameter"]["value"]),
         )
 
-    def test_swept_wheel_well_geometry_covers_full_steering_limit(self) -> None:
+    def test_visible_wheel_house_is_one_circle_per_wheel(self) -> None:
         proxy = self.spec["simulation_proxy"]
         geometry = proxy["manual_external_geometry"]
         outline_spec = geometry["body_outline_normalized_xy"]
@@ -255,7 +254,91 @@ class ModelContractTest(unittest.TestCase):
             0.2985 * 0.48,
         )
 
-        wheel_well = geometry["wheel_well_swept_profile"]
+        wheel_house = geometry["wheel_house_arch"]
+        radius = float(wheel_house["opening_radius_m"])
+        body_bottom = float(geometry["body_sections_world_z_m"]["side_shell"][0])
+        left_wheels = [
+            proxy["wheel_center_positions_m"]["front_left"],
+            proxy["wheel_center_positions_m"]["rear_left"],
+        ]
+        profile = single_circular_wheel_house_profile(
+            body_x_values=sorted({point[0] for point in outline}),
+            wheel_centres_xz=[
+                (float(wheel[0]), float(wheel[2])) for wheel in left_wheels
+            ],
+            opening_radius=radius,
+            body_bottom_z=body_bottom,
+            arc_segments=int(wheel_house["arc_segments_per_wheel"]),
+        )
+        for wheel in left_wheels:
+            centre_x = float(wheel[0])
+            centre_z = float(wheel[2])
+            self.assertClose(
+                float(
+                    circular_arch_top_z(
+                        x=centre_x,
+                        centre_x=centre_x,
+                        centre_z=centre_z,
+                        radius=radius,
+                    )
+                ),
+                centre_z + radius,
+            )
+            for boundary_x in (centre_x - radius, centre_x + radius):
+                boundary_values = [
+                    z
+                    for x, z in profile
+                    if math.isclose(
+                        x,
+                        boundary_x,
+                        rel_tol=0.0,
+                        abs_tol=1e-12,
+                    )
+                ]
+                self.assertEqual(len(boundary_values), 2)
+                self.assertTrue(
+                    any(
+                        math.isclose(
+                            z,
+                            body_bottom,
+                            rel_tol=0.0,
+                            abs_tol=1e-12,
+                        )
+                        for z in boundary_values
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        math.isclose(
+                            z,
+                            centre_z,
+                            rel_tol=0.0,
+                            abs_tol=1e-12,
+                        )
+                        for z in boundary_values
+                    )
+                )
+            arc_points = [
+                (x, z)
+                for x, z in profile
+                if (
+                    centre_x - radius - 1e-12
+                    <= x
+                    <= centre_x + radius + 1e-12
+                    and z >= centre_z - 1e-12
+                )
+            ]
+            self.assertGreater(
+                len(arc_points),
+                int(wheel_house["arc_segments_per_wheel"]),
+            )
+            for x, z in arc_points:
+                self.assertClose(
+                    (x - centre_x) ** 2 + (z - centre_z) ** 2,
+                    radius**2,
+                )
+
+        collision_sweep = geometry["collision_steering_sweep_audit"]
         wheel = proxy["wheel_center_positions_m"]["front_left"]
         pivot = proxy["steering_axis_positions_m"]["front_left"]
         body_y = positive_body_half_width_at_x(outline, float(wheel[0]))
@@ -266,27 +349,29 @@ class ModelContractTest(unittest.TestCase):
             neutral_wheel_xyz=wheel,
             cylinder_radius=float(proxy["wheel_radius_m"]["value"]),
             cylinder_half_width=float(proxy["wheel_width_m"]["value"]) / 2.0,
-            steering_limit_deg=float(wheel_well["steering_limit_deg"]),
-            steering_sample_count=int(wheel_well["steering_sample_count"]),
+            steering_limit_deg=float(collision_sweep["steering_limit_deg"]),
+            steering_sample_count=int(collision_sweep["steering_sample_count"]),
         )
-        inner_fender_top = steered_cylinder_section_top_z(
+        audit_envelope_top = steered_cylinder_section_top_z(
             x=float(wheel[0]),
             side_plane_y=body_y,
             steering_pivot_xyz=pivot,
             neutral_wheel_xyz=wheel,
-            cylinder_radius=float(
-                geometry["wheel_fender_arch"]["inner_radius_m"]
+            cylinder_radius=(
+                float(proxy["wheel_radius_m"]["value"])
+                + float(collision_sweep["radial_clearance_m"])
             ),
             cylinder_half_width=(
                 float(proxy["wheel_width_m"]["value"]) / 2.0
-                + float(wheel_well["axial_clearance_m"])
+                + float(collision_sweep["axial_clearance_m"])
             ),
-            steering_limit_deg=float(wheel_well["steering_limit_deg"]),
-            steering_sample_count=int(wheel_well["steering_sample_count"]),
+            steering_limit_deg=float(collision_sweep["steering_limit_deg"]),
+            steering_sample_count=int(collision_sweep["steering_sample_count"]),
         )
         self.assertIsNotNone(tire_top)
-        self.assertIsNotNone(inner_fender_top)
-        self.assertGreater(float(inner_fender_top), float(tire_top))
+        self.assertIsNotNone(audit_envelope_top)
+        self.assertGreater(float(audit_envelope_top), float(tire_top))
+        self.assertIn("Invisible collision", collision_sweep["applies_to"])
 
     def test_manual_steering_sign_is_mapped_to_usd_positive_z(self) -> None:
         convention = self.spec["romo_b"]["steering_command_convention"]
@@ -418,7 +503,9 @@ class ModelContractTest(unittest.TestCase):
             'def Mesh "RightSidePanelWithWheelWells"',
             'def Mesh "TopRim"',
             'def Mesh "RecessedTopPlate"',
-            'def Mesh "FrontLeftFenderArch"',
+            'custom int romoB:archesPerWheel = 1',
+            'custom string romoB:wheelHouseShape = "single_circular_arch_per_wheel"',
+            'custom bool romoB:visibleProfileUsesSteeringSweep = 0',
             'def Scope "Collision"',
             'def Cube "Core"',
             'def Cube "TopDeck"',
@@ -446,6 +533,15 @@ class ModelContractTest(unittest.TestCase):
         ]
         for token in required_tokens:
             self.assertIn(token, self.asset_text)
+        self.assertNotIn("FenderArch", self.asset_text)
+        self.assertNotIn("steeringSweepLimitDeg", self.asset_text)
+        self.assertEqual(
+            self.asset_text.count(
+                'custom string romoB:wheelHouseShape = '
+                '"single_circular_arch_per_wheel"'
+            ),
+            2,
+        )
         self.assertNotIn("PhysicsFilteredPairsAPI", self.asset_text)
         self.assertNotIn("physics:filteredPairs", self.asset_text)
         self.assertEqual(

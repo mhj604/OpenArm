@@ -12,7 +12,8 @@ in Git. The model is generated from
 
 - Values printed in the provided ROMO-B text manual are copied without additional rounding.
 - Values described by the manual as “approximately” are marked `manual_approximate`.
-- The ROMO-B shell, chamfered plan outline, recessed top plate, wheel fender arches, and wheel hubs
+- The ROMO-B shell, chamfered plan outline, recessed top plate, single circular wheel-house
+  openings, and wheel hubs
   are reconstructed from the manual's page 5 orthographic drawing and page 6 photograph. Printed
   envelope dimensions constrain the result; undimensioned contour coordinates are explicitly
   marked `manual_drawing_traced_and_scaled`.
@@ -57,17 +58,18 @@ restructuring the model without the current single articulation.
 The previous arbitrary 0.450 m blue box has been removed. The visible shell uses the manual-stated
 0.597 m overall width; the distinct 0.529 m track locates the wheel centres. The derived 0.068 m
 tire width therefore places the outer tire faces at the same 0.597 m envelope. The side panels are
-open around the four steering/suspension bays shown on page 5 instead of filling the space beside
-the wheels. Each attached blue fender ribbon follows a finite-cylinder wheel envelope sampled at
-361 steering angles from -30 to +30 degrees along a 240-segment body profile. Its traced neutral
-inner radius is 0.112 m, giving 9 mm radial clearance around the approximate 0.103 m tire radius.
+open with exactly one fixed circular wheel house per wheel, matching the page 5 left/right side
+elevations. Each circle is centred on the neutral wheel centre and uses a drawing-traced 0.126 m
+opening radius. There is no separate inner/outer fender ribbon and therefore no duplicate visible
+arch at any wheel.
 
 A four-part compound chassis collider covers the 0.320 m steering-clear core, the full 0.597 m
-deck above the tire envelope, and lower front/rear end members. Fender contours, wheel width,
-suspension travel, and panel thickness are not dimensioned in the manual. The sweep is therefore a
-documented-limit-constrained clearance derivation, while the collision pieces remain conservative
-proxies and must not be treated as production CAD. Re-run the integration smoke test after changing
-any mount, collision proxy, or joint pose.
+deck above the tire envelope, and lower front/rear end members. The 361-angle -30-to-+30 degree
+wheel sweep is retained only for invisible collision auditing; it never deforms the manual-traced
+visible circles. Wheel-house radius, wheel width, suspension travel, and panel thickness are not
+dimensioned in the manual, so the traced contour and collision pieces must not be treated as
+production CAD. Re-run the integration smoke test after changing any mount, collision proxy, or
+joint pose.
 
 The current 320-step `all +30/all -30/manual Pivot/neutral` PhysX steering sweep checks every wheel
 against every compound chassis collider in the chassis frame and audits contact reports on every

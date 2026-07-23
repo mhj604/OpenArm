@@ -31,6 +31,135 @@ def positive_body_half_width_at_x(
     return positive[-1][1]
 
 
+def circular_arch_top_z(
+    *,
+    x: float,
+    centre_x: float,
+    centre_z: float,
+    radius: float,
+) -> float | None:
+    """Return the upper half of one circular wheel-house opening."""
+
+    if radius <= 0.0:
+        raise ValueError("A wheel-house radius must be positive")
+    horizontal = float(x) - float(centre_x)
+    if abs(horizontal) > radius + 1e-12:
+        return None
+    if math.isclose(
+        abs(horizontal),
+        radius,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        return float(centre_z)
+    return float(centre_z) + math.sqrt(
+        max(0.0, radius * radius - horizontal * horizontal)
+    )
+
+
+def single_circular_wheel_house_profile(
+    *,
+    body_x_values: Sequence[float],
+    wheel_centres_xz: Sequence[Sequence[float] | tuple[float, float]],
+    opening_radius: float,
+    body_bottom_z: float,
+    arc_segments: int,
+) -> list[tuple[float, float]]:
+    """Build one circular, bottom-open arch for each wheel.
+
+    The duplicate X samples at each circle's horizontal tangent form the
+    vertical lower legs visible in the manual side elevation. No steering
+    sweep is applied to this external profile.
+    """
+
+    if len(body_x_values) < 2:
+        raise ValueError("The body profile needs at least two X values")
+    if opening_radius <= 0.0:
+        raise ValueError("A wheel-house radius must be positive")
+    if arc_segments < 8:
+        raise ValueError("A circular wheel house needs at least eight segments")
+
+    minimum_x = min(float(value) for value in body_x_values)
+    maximum_x = max(float(value) for value in body_x_values)
+    centres = sorted(
+        (float(centre[0]), float(centre[1]))
+        for centre in wheel_centres_xz
+    )
+    if not centres:
+        raise ValueError("At least one wheel centre is required")
+
+    intervals: list[tuple[float, float]] = []
+    sample_x_values = [float(value) for value in body_x_values]
+    for centre_x, _ in centres:
+        left = centre_x - opening_radius
+        right = centre_x + opening_radius
+        if left <= minimum_x or right >= maximum_x:
+            raise ValueError("A wheel-house arch must remain inside the body")
+        intervals.append((left, right))
+        sample_x_values.extend((left, right))
+        for index in range(arc_segments + 1):
+            angle = math.pi - math.pi * index / arc_segments
+            sample_x_values.append(centre_x + opening_radius * math.cos(angle))
+
+    for (_, previous_right), (following_left, _) in zip(
+        intervals,
+        intervals[1:],
+    ):
+        if previous_right >= following_left:
+            raise ValueError("Wheel-house arches must not overlap")
+
+    ordered_x: list[float] = []
+    for x in sorted(sample_x_values):
+        if not ordered_x or not math.isclose(
+            x,
+            ordered_x[-1],
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            ordered_x.append(x)
+
+    profile: list[tuple[float, float]] = []
+    for x in ordered_x:
+        active_tops = [
+            top
+            for centre_x, centre_z in centres
+            if (
+                top := circular_arch_top_z(
+                    x=x,
+                    centre_x=centre_x,
+                    centre_z=centre_z,
+                    radius=opening_radius,
+                )
+            )
+            is not None
+        ]
+        top_z = max([float(body_bottom_z), *active_tops])
+        left_boundary = any(
+            math.isclose(
+                x,
+                centre_x - opening_radius,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            )
+            for centre_x, _ in centres
+        )
+        right_boundary = any(
+            math.isclose(
+                x,
+                centre_x + opening_radius,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            )
+            for centre_x, _ in centres
+        )
+        if left_boundary:
+            profile.append((x, float(body_bottom_z)))
+        profile.append((x, top_z))
+        if right_boundary:
+            profile.append((x, float(body_bottom_z)))
+    return profile
+
+
 def steered_cylinder_section_top_z(
     *,
     x: float,
