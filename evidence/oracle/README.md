@@ -24,3 +24,11 @@ server-side model identity and not a primary scientific source.
 
 The curated documents independently check the manual geometry, retain uncertainty, remove broad
 claims contradicted by prior work, and cite peer-reviewed DOI records.
+
+## Curated-value correction
+
+The raw slip/Pivot advisory used the manual's isolated `0.324 m` wheelbase occurrence and therefore
+reported approximately `39.72 deg` and its derived values. The complete-PDF count found six
+occurrences of `0.323 m` against one occurrence of `0.324 m`. Curated documents and simulation
+configuration consequently use `0.323 m` as the active default, recompute the ideal Pivot angle as
+approximately `39.63 deg`, and preserve the raw advisory unchanged as provenance.

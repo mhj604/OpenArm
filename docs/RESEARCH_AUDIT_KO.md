@@ -41,7 +41,7 @@ IEEE Access에서 방어 가능한 과학적 질문은 다음입니다.
 | 구동 구조 | 4WID-4WIS | 1 |
 | 플랫폼 질량 | 55 kg | 4 |
 | 정격 payload | 100 kg | 4 |
-| 축거 | 0.323/0.324 m | 3, 26 |
+| 축거 | 0.323 m 기본값(6회); 0.324 m 원문 이상치(1회) | 2, 3, 5, 26, 35 |
 | 실제 윤거 | 0.529 m | 3, 26 |
 | 조향 너클 회전중심 간격 | 0.390 m | 3, 26 |
 | 개별 조향 한계 | -30° to +30° | 3 |
@@ -59,7 +59,7 @@ IEEE Access에서 방어 가능한 과학적 질문은 다음입니다.
 
 ## 4. Pivot 기하의 독립 검산
 
-### 4.1 45°와 39.72°
+### 4.1 45°와 39.63°
 
 매뉴얼 31쪽은 중심 Pivot의 이상각을 ±45°라고 적습니다. 하지만 같은 매뉴얼의
 축거와 조향 너클 간격을 적용하면 정확한 각도는 다릅니다.
@@ -75,18 +75,23 @@ r_i=(\pm L/2,\pm W_k/2)
 
 \[
 \theta^*=\tan^{-1}\left(\frac{L}{W_k}\right)
-=\tan^{-1}\left(\frac{0.324}{0.390}\right)
-=39.7188^\circ
+=\tan^{-1}\left(\frac{0.323}{0.390}\right)
+=39.6317^\circ
 \]
 
 입니다. 45°는 \(L=W_k\)인 정사각형 배치에서만 성립합니다. 따라서 매뉴얼의 45°는
 단순화되었거나 잘못된 설명이고, ROMO-B의 실제 고정 ±30°와의 차이는
 
 \[
-\Delta\theta=39.7188^\circ-30^\circ=9.7188^\circ
+\Delta\theta=39.6317^\circ-30^\circ=9.6317^\circ
 \]
 
 입니다.
+
+여기서는 PDF 전체에서 `323 mm` 또는 `0.323 m`가 6회(R2 1회, R5 1회,
+R26 3회, R35 1회), `324 mm` 또는 `0.324 m`가 1회(R3) 나타나는 점을 근거로
+`L=0.323 m`를 계산·시뮬레이션 기본값으로 확정했다. `0.324 m`는 원문 보존과
+실측 대조를 위한 고립 이상치로만 남긴다.
 
 ### 4.2 공통 ICR 부재
 
@@ -101,12 +106,12 @@ x_R=-\frac L2+\frac{W_k}{2}\tan\theta
 입니다. \(\theta=30^\circ\)일 때
 
 \[
-x_F=+0.04942\ \mathrm m,
+x_F=+0.04892\ \mathrm m,
 \qquad
-x_R=-0.04942\ \mathrm m
+x_R=-0.04892\ \mathrm m
 \]
 
-로서 두 가상 ICR은 98.83 mm 떨어집니다. 따라서 비영 yaw rate에서 네 휠이 동시에
+로서 두 가상 ICR은 97.83 mm 떨어집니다. 따라서 비영 yaw rate에서 네 휠이 동시에
 zero-slip 조건을 만족하는 단일 rigid-body ICR은 존재하지 않습니다.
 
 실제 장비는 다음 현상으로 불일치를 분배합니다.
@@ -124,17 +129,17 @@ zero-slip 조건을 만족하는 단일 rigid-body ICR은 존재하지 않습니
 조향 너클 중심 반경은
 
 \[
-r_k=\sqrt{(L/2)^2+(W_k/2)^2}=0.25351\ \mathrm m
+r_k=\sqrt{(L/2)^2+(W_k/2)^2}=0.25319\ \mathrm m
 \]
 
 입니다. 차체 중심 yaw를 강제할 때 휠당 횡방향 rolling-constraint residual의 크기는
 
 \[
 |e_{\perp,i}|=r_k|\dot\psi|\sin|\Delta\theta|
-=0.04280|\dot\psi|\ \mathrm{m/s}
+=0.04236|\dot\psi|\ \mathrm{m/s}
 \]
 
-입니다. 예를 들어 \(|\dot\psi|=0.5\ \mathrm{rad/s}\)이면 약 0.0214 m/s입니다.
+입니다. 예를 들어 \(|\dot\psi|=0.5\ \mathrm{rad/s}\)이면 약 0.0212 m/s입니다.
 
 이 수치는 측정된 tire slip ratio, lateral force 또는 scrub power가 아닙니다. 강제된
 중심회전과 매뉴얼 기하 아래에서 예상되는 횡방향 속도 제약 잔차입니다.
@@ -372,7 +377,7 @@ mode/maneuver supervisor가 되어야 합니다.
 | 다중 payload·직접 하중·cross-mode gray-box model | Competitive | 조건부 Competitive | Borderline 이하 |
 | 일반 이론·보장·두 번째 플랫폼 | Competitive | Competitive | T-RO 검토 가능 |
 
-Pivot의 9.72° 불일치는 논문을 자동으로 강하게 만드는 발견이 아닙니다. 팔로 고칠 수 없는
+Pivot의 9.63° 불일치는 논문을 자동으로 강하게 만드는 발견이 아닙니다. 팔로 고칠 수 없는
 항과 고칠 가능성이 있는 항을 분리하도록 강제하는 falsification device입니다.
 
 ## 13. 적대적 Reviewer 2 관점
@@ -389,7 +394,8 @@ Pivot의 9.72° 불일치는 논문을 자동으로 강하게 만드는 발견�
 - Google Scholar의 모든 문헌을 완전하게 확인했다고 주장하지 않습니다.
 - 학교 구독 논문 원문은 저장소에 재배포하지 않습니다.
 - 웹 ChatGPT/Oracle 결과는 자문이며 매뉴얼·수식·동료심사 원문보다 우선하지 않습니다.
-- 현재 55 kg 전방 설치물의 정확한 질량, 3D CoM, 장착 강성 및 동적 안전한계는 미확정입니다.
+- 현재 55 kg 전방 설치물의 정확한 질량, 3D CoM, 장착 강성 및 동적 안전한계는
+  실측 전 확인 필요 항목입니다.
 - 실제 wheel plane, steering axis와 접촉점 기하는 광학 측정 전까지 매뉴얼 기반 추정입니다.
 - 20 Hz feedback으로 tire force, 순간 고주파 slip, 마찰계수 또는 직접 안정성 여유를
   주장할 수 없습니다.

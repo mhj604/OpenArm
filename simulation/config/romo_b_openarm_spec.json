@@ -150,10 +150,16 @@
       },
       "wheelbase": {
         "value": 0.323,
-        "quality": "manual_recommended_value",
+        "default": true,
+        "quality": "manual_default_repeated_six_occurrences",
+        "manual_pdf_pages": [2, 5, 26, 35],
+        "occurrence_count": 6,
         "manual_lines": [199, 208, 220],
         "conflicting_value": 0.324,
-        "conflicting_manual_lines": [200, 214]
+        "conflicting_pdf_pages": [3],
+        "conflicting_occurrence_count": 1,
+        "conflicting_manual_lines": [200, 214],
+        "resolution": "Use 0.323 m as the active default. Preserve 0.324 m only as an isolated source outlier until repeatable physical measurement is available."
       },
       "wheel_track": {
         "value": 0.529,
@@ -269,6 +275,15 @@
       "rear_right": 30.0,
       "quality": "manual_stated",
       "manual_lines": [855, 866]
+    },
+    "pivot_geometry": {
+      "ideal_centered_zero_slip_angle_deg": 39.63172855261515,
+      "fixed_angle_deficit_deg": 9.63172855261515,
+      "front_rear_virtual_icr_separation_m_at_30_deg": 0.09783339501604602,
+      "knuckle_radius_m": 0.25319409550777444,
+      "lateral_residual_coefficient_m_per_rad": 0.042363102711186845,
+      "derivation": "L=0.323 m active default, W_k=0.390 m, fixed steering magnitude=30 deg",
+      "quality": "derived_from_active_manual_geometry_default"
     }
   },
   "openarm_mount": {

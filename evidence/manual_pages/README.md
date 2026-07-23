@@ -14,5 +14,8 @@ and JPEG quality 88. The complete 38-page compressed manual is stored at
 The source scan stores page 38 sideways. Its evidence JPEG is rotated 90 degrees clockwise for
 readability; the source content is otherwise unchanged.
 
-The manual's ±45° statement is not adopted without checking its own geometry. With
-\(L=0.324\) m and \(W_k=0.390\) m, the centered zero-slip angle is approximately ±39.72°.
+The manual's ±45° statement is not adopted without checking its own geometry. Across the complete
+PDF, 323 mm (or 0.323 m) appears six times on pages 2, 5, 26, and 35, while 324 mm (or 0.324 m)
+appears once on page 3. The curated documents therefore use \(L=0.323\) m as the default and retain
+0.324 m only as an isolated source outlier. With \(W_k=0.390\) m, the centered zero-slip angle is
+approximately ±39.63°.

@@ -48,7 +48,30 @@ class ModelContractTest(unittest.TestCase):
             self.assertClose(float(dims[name]["value"]), expected_value, name)
             self.assertIn("quality", dims[name])
             self.assertIn("manual_lines", dims[name])
-        self.assertClose(float(dims["wheelbase"]["conflicting_value"]), 0.324)
+        wheelbase = dims["wheelbase"]
+        self.assertIs(wheelbase["default"], True)
+        self.assertEqual(wheelbase["manual_pdf_pages"], [2, 5, 26, 35])
+        self.assertEqual(int(wheelbase["occurrence_count"]), 6)
+        self.assertClose(float(wheelbase["conflicting_value"]), 0.324)
+        self.assertEqual(wheelbase["conflicting_pdf_pages"], [3])
+        self.assertEqual(int(wheelbase["conflicting_occurrence_count"]), 1)
+
+    def test_pivot_geometry_uses_active_wheelbase_default(self) -> None:
+        dims = self.spec["romo_b"]["dimensions_m"]
+        geometry = self.spec["romo_b"]["pivot_geometry"]
+        wheelbase = float(dims["wheelbase"]["value"])
+        knuckle_spacing = float(dims["steering_knuckle_spacing"]["value"])
+        fixed_angle_deg = abs(float(self.spec["romo_b"]["pivot_steering_deg"]["front_left"]))
+        ideal_angle_deg = math.degrees(math.atan(wheelbase / knuckle_spacing))
+        deficit_deg = ideal_angle_deg - fixed_angle_deg
+        virtual_icr_separation = wheelbase - knuckle_spacing * math.tan(math.radians(fixed_angle_deg))
+        knuckle_radius = math.hypot(wheelbase / 2.0, knuckle_spacing / 2.0)
+        residual_coefficient = knuckle_radius * math.sin(math.radians(deficit_deg))
+        self.assertClose(float(geometry["ideal_centered_zero_slip_angle_deg"]), ideal_angle_deg)
+        self.assertClose(float(geometry["fixed_angle_deficit_deg"]), deficit_deg)
+        self.assertClose(float(geometry["front_rear_virtual_icr_separation_m_at_30_deg"]), virtual_icr_separation)
+        self.assertClose(float(geometry["knuckle_radius_m"]), knuckle_radius)
+        self.assertClose(float(geometry["lateral_residual_coefficient_m_per_rad"]), residual_coefficient)
 
     def test_geometry_derivations(self) -> None:
         dims = self.spec["romo_b"]["dimensions_m"]

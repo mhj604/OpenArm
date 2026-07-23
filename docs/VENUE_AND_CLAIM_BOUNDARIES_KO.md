@@ -38,7 +38,7 @@ T-RO는 high-impact state-of-the-art advance를 요구합니다.
 - “새로운 4WIS 또는 wheel-level controller” - 외부 wheel command가 없어 금지
 - “일반적인 모바일 매니퓰레이터 안정성 개선” - single-platform에서 금지
 - “모든 바닥과 payload에 일반화된다” - held-out/cross-platform 전까지 금지
-- “45°가 ROMO-B의 정확한 이상각이다” - 매뉴얼 기하에서는 약 39.72°
+- “45°가 ROMO-B의 정확한 이상각이다” - 0.323 m 기본 축거를 적용한 매뉴얼 기하에서는 약 39.63°
 - “20 Hz feedback으로 순간 tire slip과 force를 직접 측정했다”
 
 권장 용어:
